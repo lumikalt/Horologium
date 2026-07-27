@@ -48,11 +48,10 @@ public static class MultiHartWarmupMeasureDriver {
         long warmupInstructions,
         long measureInstructions
     ) {
-        if (trains.Count != counters.Count) {
+        if (trains.Count != counters.Count)
             throw new ArgumentException(
                 $"trains.Count ({trains.Count}) must equal counters.Count ({counters.Count}).", nameof(counters)
             );
-        }
 
         foreach (ISteppableTrain t in trains) t.BeginStepping();
         var halted = new bool[trains.Count];
@@ -67,8 +66,10 @@ public static class MultiHartWarmupMeasureDriver {
             var any = false;
             for (var i = 0; i < trains.Count; i++) {
                 if (halted[i]) continue;
-                if (trains[i].StepCycle()) any = true;
-                else halted[i] = true;
+                if (trains[i].StepCycle())
+                    any = true;
+                else
+                    halted[i] = true;
             }
 
             return any;
@@ -85,7 +86,7 @@ public static class MultiHartWarmupMeasureDriver {
                 if (!StepAllActive()) return;
                 long count = GlobalCount();
                 if (count == lastCount) {
-                    if (++stalledTicks >= StallTickLimit) return;
+                    if (++stalledTicks >= MultiHartWarmupMeasureDriver.StallTickLimit) return;
                 }
                 else {
                     stalledTicks = 0;

@@ -4,6 +4,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable InconsistentNaming
+
 #endregion
 
 namespace Tests.RiscV32.Analysis;
@@ -60,17 +62,17 @@ public class LoopHeaderTrackerTests {
         var mem = new FlatMemory(4096);
         Load(
             mem,
-            Addi(1, 0, 600),                            // 0x00: addi x1, x0, 600
-            Addi(2, 2, 1),                               // 0x04: loopA: addi x2, x2, 1
-            Addi(2, 2, 1),                               // 0x08
-            Addi(1, 1, -1),                               // 0x0C
-            LoopHeaderTrackerTests.BneX1X0Minus12,       // 0x10: bne x1, x0, loopA
-            Addi(1, 0, 600),                              // 0x14: addi x1, x0, 600
-            Addi(3, 3, 3),                                 // 0x18: loopB: addi x3, x3, 3
-            Addi(3, 3, 3),                                 // 0x1C
-            Addi(1, 1, -1),                                // 0x20
-            LoopHeaderTrackerTests.BneX1X0Minus12,       // 0x24: bne x1, x0, loopB
-            LoopHeaderTrackerTests.Ebreak                // 0x28
+            Addi(1, 0, 600),                       // 0x00: addi x1, x0, 600
+            Addi(2, 2, 1),                         // 0x04: loopA: addi x2, x2, 1
+            Addi(2, 2, 1),                         // 0x08
+            Addi(1, 1, -1),                        // 0x0C
+            LoopHeaderTrackerTests.BneX1X0Minus12, // 0x10: bne x1, x0, loopA
+            Addi(1, 0, 600),                       // 0x14: addi x1, x0, 600
+            Addi(3, 3, 3),                         // 0x18: loopB: addi x3, x3, 3
+            Addi(3, 3, 3),                         // 0x1C
+            Addi(1, 1, -1),                        // 0x20
+            LoopHeaderTrackerTests.BneX1X0Minus12, // 0x24: bne x1, x0, loopB
+            LoopHeaderTrackerTests.Ebreak          // 0x28
         );
 
         var mechanism = new Rv32Mechanism();
@@ -86,8 +88,8 @@ public class LoopHeaderTrackerTests {
 
         // Markers are emitted in execution order: all of loopA's before any of loopB's, each
         // header's own count strictly increasing 1..599.
-        (ulong Pc, long Count)[] loopAMarkers = [.. tracker.Markers.Take(599)];
-        (ulong Pc, long Count)[] loopBMarkers = [.. tracker.Markers.Skip(599)];
+        (ulong Pc, long Count)[] loopAMarkers = [.. tracker.Markers.Take(599),];
+        (ulong Pc, long Count)[] loopBMarkers = [.. tracker.Markers.Skip(599),];
         Assert.All(loopAMarkers, m => Assert.Equal(0x04UL, m.Pc));
         Assert.All(loopBMarkers, m => Assert.Equal(0x18UL, m.Pc));
         Assert.Equal(Enumerable.Range(1, 599).Select(i => (long)i), loopAMarkers.Select(m => m.Count));
@@ -102,15 +104,15 @@ public class LoopHeaderTrackerTests {
         var mem = new FlatMemory(4096);
         Load(
             mem,
-            Addi(5, 0, 1),                     // 0x00: helper: addi x5, x0, 1
-            LoopHeaderTrackerTests.Jalr(0, 1, 0), // 0x04: helper: jalr x0, 0(ra)  (ret)
-            LoopHeaderTrackerTests.Jal(1, -8),    // 0x08: main: jal ra, helper (backward call)
-            LoopHeaderTrackerTests.Ebreak       // 0x0C: main halts after return
+            Addi(5, 0, 1),                // 0x00: helper: addi x5, x0, 1
+            Jalr(0, 1, 0),                // 0x04: helper: jalr x0, 0(ra)  (ret)
+            Jal(1, -8),                   // 0x08: main: jal ra, helper (backward call)
+            LoopHeaderTrackerTests.Ebreak // 0x0C: main halts after return
         );
 
         var mechanism = new Rv32Mechanism();
         var tracker = new LoopHeaderTracker(mechanism.Decoder, 0, 4096);
-        new SingleCycleTrain(mechanism, mem, entryPoint: 0x08, commitObserver: tracker).Run();
+        new SingleCycleTrain(mechanism, mem, 0x08, commitObserver: tracker).Run();
 
         Assert.Empty(tracker.Markers);
         Assert.Empty(tracker.HeaderIterationCounts);
@@ -126,13 +128,13 @@ public class LoopHeaderTrackerTests {
         var mem = new FlatMemory(4096);
         Load(
             mem,
-            Addi(6, 0, 100),                       // 0x00: main: addi x6, x0, 100
-            Jal(1, 0x14),                           // 0x04: loop: jal ra, helper (forward call)
-            Addi(6, 6, -1),                          // 0x08: addi x6, x6, -1
-            Bne(6, 0, -8),                            // 0x0C: bne x6, x0, loop
-            Ebreak,                                  // 0x10: main halts
-            Addi(5, 5, 1),                            // 0x18: helper: addi x5, x5, 1
-            Jalr(0, 1, 0)                             // 0x1C: helper: jalr x0, 0(ra) (ret -> 0x08)
+            Addi(6, 0, 100),               // 0x00: main: addi x6, x0, 100
+            Jal(1, 0x14),                  // 0x04: loop: jal ra, helper (forward call)
+            Addi(6, 6, -1),                // 0x08: addi x6, x6, -1
+            Bne(6, 0, -8),                 // 0x0C: bne x6, x0, loop
+            LoopHeaderTrackerTests.Ebreak, // 0x10: main halts
+            Addi(5, 5, 1),                 // 0x18: helper: addi x5, x5, 1
+            Jalr(0, 1, 0)                  // 0x1C: helper: jalr x0, 0(ra) (ret -> 0x08)
         );
 
         var mechanism = new Rv32Mechanism();
@@ -153,17 +155,17 @@ public class LoopHeaderTrackerTests {
         var mem = new FlatMemory(4096);
         Load(
             mem,
-            Addi(1, 0, 600),                            // 0x00: addi x1, x0, 600
-            Addi(2, 2, 1),                               // 0x04: loopA: addi x2, x2, 1
-            Addi(2, 2, 1),                               // 0x08
-            Addi(1, 1, -1),                               // 0x0C
-            LoopHeaderTrackerTests.BneX1X0Minus12,       // 0x10: bne x1, x0, loopA
-            Addi(1, 0, 600),                              // 0x14: addi x1, x0, 600
-            Addi(3, 3, 3),                                 // 0x18: loopB: addi x3, x3, 3
-            Addi(3, 3, 3),                                 // 0x1C
-            Addi(1, 1, -1),                                // 0x20
-            LoopHeaderTrackerTests.BneX1X0Minus12,       // 0x24: bne x1, x0, loopB
-            LoopHeaderTrackerTests.Ebreak                // 0x28
+            Addi(1, 0, 600),                       // 0x00: addi x1, x0, 600
+            Addi(2, 2, 1),                         // 0x04: loopA: addi x2, x2, 1
+            Addi(2, 2, 1),                         // 0x08
+            Addi(1, 1, -1),                        // 0x0C
+            LoopHeaderTrackerTests.BneX1X0Minus12, // 0x10: bne x1, x0, loopA
+            Addi(1, 0, 600),                       // 0x14: addi x1, x0, 600
+            Addi(3, 3, 3),                         // 0x18: loopB: addi x3, x3, 3
+            Addi(3, 3, 3),                         // 0x1C
+            Addi(1, 1, -1),                        // 0x20
+            LoopHeaderTrackerTests.BneX1X0Minus12, // 0x24: bne x1, x0, loopB
+            LoopHeaderTrackerTests.Ebreak          // 0x28
         );
 
         var mechanism = new Rv32Mechanism();
@@ -182,8 +184,8 @@ public class LoopHeaderTrackerTests {
         var mem = new FlatMemory(4096);
         Load(
             mem,
-            Addi(1, 1, 1),                     // 0x00: loop: addi x1, x1, 1
-            LoopHeaderTrackerTests.Jal(0, -4)  // 0x04: jal x0, loop (unconditional backward jump)
+            Addi(1, 1, 1), // 0x00: loop: addi x1, x1, 1
+            Jal(0, -4)     // 0x04: jal x0, loop (unconditional backward jump)
         );
 
         var mechanism = new Rv32Mechanism();

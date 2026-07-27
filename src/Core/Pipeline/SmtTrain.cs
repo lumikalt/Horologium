@@ -346,7 +346,7 @@ internal sealed class SmtCore(
         ctx.DLayers.Accessor.SetRequestPc(pc);
         ExecuteResult result = ctx.Mechanism.Executor.Execute(instr, ctx.ArchState, ctx.DLayers.Accessor);
 
-        if (result.RequestBlock) {
+        if (result.RequestBlock)
             // Still blocked (e.g. futex(FUTEX_WAIT) that hasn't cleared): don't retire,
             // don't apply SideEffect/register write, don't advance Pc — ctx.ArchState.Pc is
             // already this instruction's own Pc, so leaving it untouched IS the retry-in-
@@ -357,7 +357,6 @@ internal sealed class SmtCore(
             // disjoint object never touched here, so sibling harts (including whichever one
             // is expected to clear this block) keep advancing normally.
             return true;
-        }
 
         _retiredCounter.Increment();
 

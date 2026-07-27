@@ -1,6 +1,8 @@
 #region
 
 using Mechanism;
+using Pipeline;
+using RiscV32.Syscalls;
 
 #endregion
 
@@ -22,10 +24,10 @@ namespace RiscV32.MultiCore;
 ///         multi-hart workloads where harts share a flat physical memory.
 ///     </para>
 ///     <para>
-///         <paramref name="activeHartCount" /> pre-allocates every hart's <see cref="IMechanism" />
+///         <c>activeHartCount</c> pre-allocates every hart's <see cref="IMechanism" />
 ///         and <see cref="IArchState" /> up front (mirroring every other constructor parameter,
 ///         which is always a fixed, known-at-construction-time array) but only the first
-///         <paramref name="activeHartCount" /> start out running — the rest are <em>dormant</em>
+///         <c>activeHartCount</c> start out running — the rest are <em>dormant</em>
 ///         until <see cref="SpawnHart" /> activates one, which is how <c>clone()</c>
 ///         (<see cref="LinuxSyscallEmulator" />, wired to this kernel via
 ///         <see cref="LinuxSyscallEmulator.Spawner" />) brings a thread to life. This kernel does
@@ -95,20 +97,34 @@ public sealed class MultiHartKernel : IHartSpawner {
     public MultiHartKernel(IMemory[] perHartMemory, params IMechanism[] mechanisms)
         : this(perHartMemory, mechanisms.Length, mechanisms) { }
 
+    public long Ticks { get; private set; }
+    public int HartCount => _mechanisms.Length;
+
+    /// <inheritdoc />
+    public int SpawnHart(IArchState initialState) {
+        int slot = Array.IndexOf(_dormant, true);
+        if (slot < 0)
+            throw new InvalidOperationException(
+                "MultiHartKernel.SpawnHart: no dormant hart slots remain — pre-allocate more mechanisms " +
+                "than the workload's peak thread count."
+            );
+
+        _states[slot] = initialState;
+        _dormant[slot] = false;
+        _halted[slot] = false;
+        return slot;
+    }
+
     private static bool[] BuildDormantFlags(int hartCount, int activeHartCount) {
-        if (activeHartCount < 0 || activeHartCount > hartCount) {
+        if (activeHartCount < 0 || activeHartCount > hartCount)
             throw new ArgumentOutOfRangeException(
                 nameof(activeHartCount), activeHartCount, $"Must be between 0 and hart count ({hartCount})."
             );
-        }
 
         var dormant = new bool[hartCount];
-        for (var i = activeHartCount; i < hartCount; i++) dormant[i] = true;
+        for (int i = activeHartCount; i < hartCount; i++) dormant[i] = true;
         return dormant;
     }
-
-    public long Ticks { get; private set; }
-    public int HartCount => _mechanisms.Length;
 
     /// <summary>Returns the live architectural state of the given hart.</summary>
     public IArchState StateOf(int hartId) => _states[hartId];
@@ -140,22 +156,6 @@ public sealed class MultiHartKernel : IHartSpawner {
     ///     trap-return).
     /// </summary>
     public void SetObserver(int hartId, ICommitObserver observer) => _observers[hartId] = observer;
-
-    /// <inheritdoc />
-    public int SpawnHart(IArchState initialState) {
-        int slot = Array.IndexOf(_dormant, true);
-        if (slot < 0) {
-            throw new InvalidOperationException(
-                "MultiHartKernel.SpawnHart: no dormant hart slots remain — pre-allocate more mechanisms " +
-                "than the workload's peak thread count."
-            );
-        }
-
-        _states[slot] = initialState;
-        _dormant[slot] = false;
-        _halted[slot] = false;
-        return slot;
-    }
 
     /// <summary>
     ///     Advance every non-halted, non-dormant hart by one instruction.

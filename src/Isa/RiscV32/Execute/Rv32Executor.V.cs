@@ -406,7 +406,7 @@ public partial class Rv32Executor {
             VWideOp.Mul   => (ulong)(Sx(a) * Sx(b)),
             // vwsll (Zvbb): zero-extend vs2[i] to 2*SEW, then shift left mod 2*SEW.
             VWideOp.Sll => Zx(a) << (int)(b & (ulong)(ewBytes * 16 - 1)),
-            _             => throw new InvalidOperationException($"Unknown VWideOp {op}"),
+            _           => throw new InvalidOperationException($"Unknown VWideOp {op}"),
         };
 
         long Sx(ulong v) => ewBytes switch {
@@ -531,7 +531,11 @@ public partial class Rv32Executor {
     // Zvbb/Zvkb: vbrev8.v/vrev8.v/vbrev.v/vclz.v/vctz.v/vcpop.v — unary per-element bitmanip ops
     // sharing the VXUNARY0 opcode slot with vzext/vsext above.
     private static ExecuteResult ExecuteVBitmanipUnary(
-        IArchState state, VBitmanipUnaryOp op, int vd, int vs2, bool masked
+        IArchState state,
+        VBitmanipUnaryOp op,
+        int vd,
+        int vs2,
+        bool masked
     ) {
         (uint vl, int ewBytes) = VGetVlEw(state);
         byte[] vs2Data = VState(state).VectorRegisters.Read(vs2);
@@ -1244,7 +1248,7 @@ public partial class Rv32Executor {
             VIntOp.Or   => a | b,
             VIntOp.Xor  => a ^ b,
             VIntOp.Andn => a & ~b, // vandn (Zvbb/Zvkb): vs2 & ~(vs1/rs1)
-            VIntOp.Mov  => b, // vmv.v.v/x/i: broadcast second operand (vs1 or scalar or imm)
+            VIntOp.Mov  => b,      // vmv.v.v/x/i: broadcast second operand (vs1 or scalar or imm)
             VIntOp.Minu => a < b ? a : b,
             VIntOp.Maxu => a > b ? a : b,
             VIntOp.Min => ewBytes switch {
@@ -1264,9 +1268,9 @@ public partial class Rv32Executor {
                 2 => (ushort)((short)(ushort)(a & 0xFFFF) >> (int)(b & 15)),
                 _ => (ulong)(uint)((int)(uint)(a & 0xFFFFFFFF) >> (int)(b & 31)),
             },
-            VIntOp.Rol => RotateElement(a & mask, (int)(b & (uint)shiftMask), bits, left: true),
-            VIntOp.Ror => RotateElement(a & mask, (int)(b & (uint)shiftMask), bits, left: false),
-            _ => 0,
+            VIntOp.Rol => RotateElement(a & mask, (int)(b & (uint)shiftMask), bits, true),
+            VIntOp.Ror => RotateElement(a & mask, (int)(b & (uint)shiftMask), bits, false),
+            _          => 0,
         };
         return r & mask;
     }
@@ -1396,11 +1400,13 @@ public partial class Rv32Executor {
             for (var i = 0; i < 64; i++)
                 if (((y >> i) & 1) != 0)
                     result ^= x << i;
-        } else {
+        }
+        else {
             for (var i = 1; i < 64; i++)
                 if (((y >> i) & 1) != 0)
                     result ^= x >> (64 - i);
         }
+
         return result;
     }
 

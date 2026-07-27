@@ -48,13 +48,15 @@ public class RealLinkedLoopPointTests {
         workload.Load(mem);
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, WordSize, Argv, [],
+            mem, stackTop, RealLinkedLoopPointTests.WordSize, RealLinkedLoopPointTests.Argv, [],
             InitialStackBuilder.BuildStandardAuxv(
                 workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
             )
         );
 
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, TextWriter.Null, WordSize);
+        var handler = new LinuxSyscallEmulator(
+            workload.InitialBreak, TextWriter.Null, RealLinkedLoopPointTests.WordSize
+        );
         var mech = new Rv64Mechanism(syscallHandler: handler);
         IReadOnlyList<IMechanism> mechanisms = [mech,];
         var kernel = new MultiHartKernel(mem, mech);
@@ -76,7 +78,7 @@ public class RealLinkedLoopPointTests {
 
         LoopPointCheckpointSet captured = MultiHartLoopPointExperiment.CaptureLoopPointCheckpoints(
             kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, targetGlobalInstructions, excludedRanges,
-            profileMaxTicks: 8_000_000
+            8_000_000
         );
 
         Assert.True(captured.SimPoints.IntervalCount >= 2, "expected multiple regions across the compute loop");
@@ -88,16 +90,23 @@ public class RealLinkedLoopPointTests {
         Assert.Equal(captured.RegionInstructionCounts.Sum(), reconstructed, 1e-6);
 
         (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) MechanismsFactory() {
-            var freshHandler = new LinuxSyscallEmulator(workload.InitialBreak, TextWriter.Null, WordSize);
+            var freshHandler = new LinuxSyscallEmulator(
+                workload.InitialBreak, TextWriter.Null, RealLinkedLoopPointTests.WordSize
+            );
             var freshMech = new Rv64Mechanism(syscallHandler: freshHandler);
             return ([freshMech,], freshHandler);
         }
 
-        ISteppableTrain DetailedTrainFactory(IMechanism m, IMemory runMem, ulong restartPc, InstructionCounter counter) =>
+        ISteppableTrain DetailedTrainFactory(
+            IMechanism m,
+            IMemory runMem,
+            ulong restartPc,
+            InstructionCounter counter
+        ) =>
             new FiveStageTrain(m, runMem, restartPc, commitObserver: counter);
 
         LoopPointResult result = MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
-            captured, MechanismsFactory, DetailedTrainFactory, warmupInstructions: 2_000
+            captured, MechanismsFactory, DetailedTrainFactory, 2_000
         );
 
         Assert.Equal(captured.SimPoints.Points.Count, result.RegionMeasurements.Count);
@@ -114,7 +123,9 @@ public class RealLinkedLoopPointTests {
             // on this exact, once-shipped bug).
             DialBoardSnapshot? pipeline = hartResult.Find("five_stage.pipeline");
             Assert.NotNull(pipeline);
-            Assert.True(pipeline.Counters["retired"] > 0, "expected genuine forward progress, not a stuck-fetch livelock");
+            Assert.True(
+                pipeline.Counters["retired"] > 0, "expected genuine forward progress, not a stuck-fetch livelock"
+            );
         }
     }
 }

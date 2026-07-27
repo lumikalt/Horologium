@@ -88,9 +88,9 @@ public class ZvbbTests {
         return _exe.Execute(instr, state, _mem);
     }
 
-    private void ConfigVl4E8(Rv32ArchState s) => Exec(Vsetivli(10, 4, VtypeiE8M1Tama), s);
-    private void ConfigVl4E32(Rv32ArchState s) => Exec(Vsetivli(10, 4, VtypeiE32M1Tama), s);
-    private void ConfigVl2E64(Rv32ArchState s) => Exec(Vsetivli(10, 2, VtypeiE64M1Tama), s);
+    private void ConfigVl4E8(Rv32ArchState s) => Exec(Vsetivli(10, 4, ZvbbTests.VtypeiE8M1Tama), s);
+    private void ConfigVl4E32(Rv32ArchState s) => Exec(Vsetivli(10, 4, ZvbbTests.VtypeiE32M1Tama), s);
+    private void ConfigVl2E64(Rv32ArchState s) => Exec(Vsetivli(10, 2, ZvbbTests.VtypeiE64M1Tama), s);
 
     // ── Zvbb/Zvkb: vandn ──────────────────────────────────────────────────────────────────────
 
@@ -368,7 +368,7 @@ public class ZvbbTests {
         Rv32ArchState s = MakeState();
         ConfigVl2E64(s);
         SetVReg64(s, 2, [0x8000000000000000UL, 0UL,]); // x = u^63
-        s.IntegerRegisters.Write(5, 2u);                // y = u^1 (rs1 zero-extends to 64 bits)
+        s.IntegerRegisters.Write(5, 2u);               // y = u^1 (rs1 zero-extends to 64 bits)
 
         // x*y = u^63 * u^1 = u^64 over GF(2): entirely bit 64, i.e. bit 0 of the high word —
         // nothing lands in the low half, everything lands in the high half.
@@ -380,8 +380,8 @@ public class ZvbbTests {
     }
 
     [Theory]
-    [InlineData(VtypeiE8M1Tama)]
-    [InlineData(VtypeiE32M1Tama)]
+    [InlineData(ZvbbTests.VtypeiE8M1Tama)]
+    [InlineData(ZvbbTests.VtypeiE32M1Tama)]
     public void Execute_VclmulVv_WrongSew_Traps(int vtypei) {
         Rv32ArchState s = MakeState();
         Exec(Vsetivli(10, 2, vtypei), s);

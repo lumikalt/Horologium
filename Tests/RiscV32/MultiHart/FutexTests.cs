@@ -6,6 +6,8 @@ using RiscV32.Memory;
 using RiscV32.MultiCore;
 using RiscV32.Syscalls;
 
+// ReSharper disable InconsistentNaming
+
 #endregion
 
 namespace Tests.RiscV32.MultiHart;
@@ -27,7 +29,7 @@ public class FutexTests {
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
     private static uint Sw(int rs2, int rs1, int imm) {
-        var immU = (uint)imm & 0xFFF;
+        uint immU = (uint)imm & 0xFFF;
         uint imm11_5 = (immU >> 5) & 0x7F;
         uint imm4_0 = immU & 0x1F;
         return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
@@ -81,7 +83,9 @@ public class FutexTests {
         );
 
         var handler = new LinuxSyscallEmulator(0x400);
-        var kernel = new MultiHartKernel(mem, 2, new Rv32Mechanism(syscallHandler: handler), new Rv32Mechanism(syscallHandler: handler));
+        var kernel = new MultiHartKernel(
+            mem, 2, new Rv32Mechanism(syscallHandler: handler), new Rv32Mechanism(syscallHandler: handler)
+        );
         kernel.SetEntryPoint(0, 0x00);
         kernel.SetEntryPoint(1, 0x40);
 

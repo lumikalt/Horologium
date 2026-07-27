@@ -393,7 +393,7 @@ internal sealed class SuperscalarCore(
             DLayers.Accessor.SetRequestPc(head.Pc);
             ExecuteResult result = mechanism.Executor.Execute(instr, ArchState, DLayers.Accessor);
 
-            if (result.RequestBlock) {
+            if (result.RequestBlock)
                 // Still blocked (e.g. futex(FUTEX_WAIT) that hasn't cleared): unlike every
                 // other outcome below, don't dequeue at all — the instruction stays exactly
                 // where it is at the fetch-queue head, so the next StepIssue call re-peeks and
@@ -404,7 +404,6 @@ internal sealed class SuperscalarCore(
                 // residual, not FetchBubbles — this is a backend/syscall block, not a
                 // fetch-side one.
                 break;
-            }
 
             _fetchQueue.Dequeue();
             classIssued[fuSlot]++;

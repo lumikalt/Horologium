@@ -84,11 +84,11 @@ public sealed class LoopHeaderTracker(
 
     public void OnCommit(ulong pc, uint rawEncoding, IArchState state) {
         if (_hasPrevious
-            && pc != _previousPc + (ulong)_previousSize
-            && pc <= _previousPc
-            && pc >= rangeStart && pc < rangeEnd
-            && _previousIsLoopEdgeCandidate
-            && !IsExcluded(pc)) {
+         && pc != _previousPc + (ulong)_previousSize
+         && pc <= _previousPc
+         && pc >= rangeStart && pc < rangeEnd
+         && _previousIsLoopEdgeCandidate
+         && !IsExcluded(pc)) {
             long count = _headerIterationCounts.GetValueOrDefault(pc) + 1;
             _headerIterationCounts[pc] = count;
             _markers.Add((pc, count));
@@ -127,7 +127,7 @@ public static class SyncLibrarySymbols {
     ///     file/open-file-list variants), the public pthread API (<c>pthread_*</c>/<c>__pthread_*</c>),
     ///     POSIX semaphores, and GNU OpenMP's runtime (<c>gomp_*</c>/<c>GOMP_*</c>).
     /// </summary>
-    public static readonly IReadOnlyList<string> DefaultNamePrefixes = [
+    private static readonly IReadOnlyList<string> DefaultNamePrefixes = [
         "__tl_", "__vm_", "__wait", "__timedwait", "__lock", "__unlock", "__ofl_", "__lockfile",
         "__unlockfile", "pthread_", "__pthread_", "sem_", "gomp_", "GOMP_",
     ];
@@ -141,11 +141,11 @@ public static class SyncLibrarySymbols {
         IElfWorkload workload,
         IReadOnlyList<string>? namePrefixes = null
     ) {
-        IReadOnlyList<string> prefixes = namePrefixes ?? DefaultNamePrefixes;
+        IReadOnlyList<string> prefixes = namePrefixes ?? SyncLibrarySymbols.DefaultNamePrefixes;
         return [
             .. workload.EnumerateSymbols()
-                .Where(sym => prefixes.Any(sym.Name.StartsWith))
-                .Select(sym => (sym.Address, sym.Address + sym.Size)),
+                       .Where(sym => prefixes.Any(sym.Name.StartsWith))
+                       .Select(sym => (sym.Address, sym.Address + sym.Size)),
         ];
     }
 }
@@ -157,7 +157,7 @@ public static class SyncLibrarySymbols {
 ///     <c>MultiHartKernel</c>'s per-hart slots (<c>SetObserver</c>) for the profiling-pass run, then
 ///     read <see cref="RegionBbvs" /> — feed it straight into <c>SimPointAnalysis.Analyze</c>, unchanged.
 ///     <para>
-///         A region's length target is <paramref name="targetGlobalInstructions" /> — the paper's
+///         A region's length target is <c>targetGlobalInstructions</c> — the paper's
 ///         "approximately N × 100 million <em>global</em> (all-threads) instructions" for an
 ///         N-threaded application (Section III-A) — measured as a single counter shared across every
 ///         hart, incremented once per <em>non-excluded</em> commit on <em>any</em> hart (spin-loop
@@ -192,12 +192,25 @@ public sealed class MultiHartLoopPointProfiler {
     private readonly BbvProfiler[] _bbvProfilers;
     private readonly IReadOnlyList<(ulong Start, ulong End)> _excludedRanges;
     private readonly LoopHeaderTracker[] _loopTrackers;
+    private readonly Action<int>? _onRegionBoundary;
     private readonly List<IReadOnlyDictionary<ulong, long>> _regionBbvs = [];
     private readonly List<long> _regionInstructionCounts = [];
-    private readonly Action<int>? _onRegionBoundary;
     private readonly long _targetGlobalInstructions;
     private long _instructionsSinceLastBoundary;
 
+    /// <param name="hartDecoders">One decoder per hart, used to detect each hart's loop headers.</param>
+    /// <param name="rangeStart">Start of the main program image's address range (inclusive).</param>
+    /// <param name="rangeEnd">End of the main program image's address range (exclusive).</param>
+    /// <param name="targetGlobalInstructions">
+    ///     A region's length target — the paper's "approximately N × 100 million <em>global</em>
+    ///     (all-threads) instructions" for an N-threaded application (Section III-A); see this
+    ///     class's <see cref="MultiHartLoopPointProfiler" /> summary for the full boundary-crossing
+    ///     semantics.
+    /// </param>
+    /// <param name="excludedRanges">
+    ///     Synchronization-library address ranges (e.g. libc/libpthread) whose instructions execute
+    ///     but don't count toward <paramref name="targetGlobalInstructions" /> or close a region.
+    /// </param>
     /// <param name="onRegionBoundary">
     ///     Fires once per region boundary crossed during the pass, after the just-closed region is
     ///     appended to <see cref="RegionBbvs" />/<see cref="RegionInstructionCounts" />, with the index
@@ -218,8 +231,7 @@ public sealed class MultiHartLoopPointProfiler {
     ) {
         if (hartDecoders.Count == 0)
             throw new ArgumentException("At least one hart decoder required.", nameof(hartDecoders));
-        if (targetGlobalInstructions <= 0)
-            throw new ArgumentOutOfRangeException(nameof(targetGlobalInstructions));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(targetGlobalInstructions);
 
         _targetGlobalInstructions = targetGlobalInstructions;
         _onRegionBoundary = onRegionBoundary;
@@ -294,7 +306,7 @@ public sealed class MultiHartLoopPointProfiler {
         long largestRaw = -1;
         foreach ((ulong pc, long count) in raw) {
             var scaled = (long)Math.Round((double)count / total * MultiHartLoopPointProfiler.NormalizationScale);
-            ulong key = MultiHartLoopPointProfiler.NamespaceKey(hartId, pc);
+            ulong key = NamespaceKey(hartId, pc);
             result[key] = scaled;
             allocated += scaled;
             if (count > largestRaw) {

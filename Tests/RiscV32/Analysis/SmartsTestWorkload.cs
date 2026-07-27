@@ -7,6 +7,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable InconsistentNaming
+
 #endregion
 
 namespace Tests.RiscV32.Analysis;
@@ -20,7 +22,7 @@ namespace Tests.RiscV32.Analysis;
 internal static class SmartsTestWorkload {
     internal const int Iters = 4000;
     internal const ulong AccumulatorAddress = 128;
-    internal const ulong ScratchLoadAddress = 64;
+    private const ulong ScratchLoadAddress = 64;
     private const uint Ebreak = 0x00100073;
 
     private static void Load(FlatMemory mem, params uint[] words) {
@@ -44,7 +46,7 @@ internal static class SmartsTestWorkload {
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b010 << 12) | (rd << 7) | 0b0000011);
 
     private static uint Sw(int rs2, int rs1, int imm) {
-        var immU = (uint)imm & 0xFFF;
+        uint immU = (uint)imm & 0xFFF;
         uint imm11_5 = (immU >> 5) & 0x7F;
         uint imm4_0 = immU & 0x1F;
         return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
@@ -77,16 +79,16 @@ internal static class SmartsTestWorkload {
         Load(
             mem,
             Lui(1, 1),                                              // 0x00: x1 = 0x1000 (4096)
-            Addi(1, 1, Iters - 4096),                                // 0x04: x1 += (Iters - 4096) = Iters
-            Addi(4, 0, (int)SmartsTestWorkload.ScratchLoadAddress),  // 0x08: x4 = scratch address
-            Addi(5, 0, (int)SmartsTestWorkload.AccumulatorAddress),  // 0x0C: x5 = accumulator address
-            Lw(3, 5, 0),                                             // 0x10: loop: lw x3, 0(x5)
-            Addi(3, 3, 1),                                           // 0x14: addi x3, x3, 1
-            Sw(3, 5, 0),                                             // 0x18: sw x3, 0(x5)
-            Lw(6, 4, 0),                                             // 0x1C: lw x6, 0(x4)
+            Addi(1, 1, SmartsTestWorkload.Iters - 4096),            // 0x04: x1 += (Iters - 4096) = Iters
+            Addi(4, 0, (int)SmartsTestWorkload.ScratchLoadAddress), // 0x08: x4 = scratch address
+            Addi(5, 0, (int)SmartsTestWorkload.AccumulatorAddress), // 0x0C: x5 = accumulator address
+            Lw(3, 5, 0),                                            // 0x10: loop: lw x3, 0(x5)
+            Addi(3, 3, 1),                                          // 0x14: addi x3, x3, 1
+            Sw(3, 5, 0),                                            // 0x18: sw x3, 0(x5)
+            Lw(6, 4, 0),                                            // 0x1C: lw x6, 0(x4)
             Addi(1, 1, -1),                                         // 0x20: addi x1, x1, -1
-            SmartsTestWorkload.Bne(1, 0, -20),                      // 0x24: bne x1, x0, loop
-            SmartsTestWorkload.Ebreak                                // 0x28
+            Bne(1, 0, -20),                                         // 0x24: bne x1, x0, loop
+            SmartsTestWorkload.Ebreak                               // 0x28
         );
         return mem;
     }
@@ -99,15 +101,16 @@ internal static class SmartsTestWorkload {
     // count. That count is the systematic-sampling schedule's own closed form (last unit's
     // measured window ends at J + (N-1)*K + U), not anything read back from SmartsDriver's
     // internals — this reference must stay independent of the code path it's checking.
-    internal static long ExpectedTotalInstructions(SmartsParameters p) => p.J + (long)(p.N - 1) * p.K + p.U;
+    internal static long ExpectedTotalInstructions(SmartsParameters p) => p.J + (p.N - 1) * p.K + p.U;
 
     internal static int RunFunctionalReferenceAccumulator(long totalInstructions) {
-        FlatMemory mem = SmartsTestWorkload.BuildProgram();
+        FlatMemory mem = BuildProgram();
         var mechanism = new Rv32Mechanism();
         var counter = new InstructionCounter();
         var train = new SingleCycleTrain(mechanism, mem, commitObserver: counter);
         train.BeginStepping();
         while (counter.Count < totalInstructions && train.StepCycle()) { }
+
         train.FinishStepping();
         return (int)mem.Read(SmartsTestWorkload.AccumulatorAddress, 4);
     }
@@ -128,12 +131,13 @@ internal static class SmartsTestWorkload {
         long totalInstructions,
         Func<IMechanism, IMemory, InstructionCounter, ISteppableTrain> trainFactory
     ) {
-        FlatMemory mem = SmartsTestWorkload.BuildProgram();
+        FlatMemory mem = BuildProgram();
         var mechanism = new Rv32Mechanism();
         var counter = new InstructionCounter();
         ISteppableTrain train = trainFactory(mechanism, mem, counter);
         train.BeginStepping();
         while (counter.Count < totalInstructions && train.StepCycle()) { }
+
         train.FinishStepping();
         return (int)mem.Read(SmartsTestWorkload.AccumulatorAddress, 4);
     }

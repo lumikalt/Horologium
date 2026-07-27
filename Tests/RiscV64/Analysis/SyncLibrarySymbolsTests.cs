@@ -17,7 +17,7 @@ public class SyncLibrarySymbolsTests {
 
     [Fact]
     public void ExcludedRanges_CoversKnownMuslSyncFunctions_ButNotMain() {
-        var workload = new Rv64ElfWorkload(SyncLibrarySymbolsTests.PthreadProbeElf, 16 * 1024 * 1024);
+        var workload = new Rv64ElfWorkload(PthreadProbeElf, 16 * 1024 * 1024);
         IReadOnlyList<(ulong Start, ulong End)> ranges = SyncLibrarySymbols.ExcludedRanges(workload);
 
         Assert.NotEmpty(ranges);
@@ -36,7 +36,7 @@ public class SyncLibrarySymbolsTests {
 
     [Fact]
     public void ExcludedRanges_RespectsACustomPrefixList() {
-        var workload = new Rv64ElfWorkload(SyncLibrarySymbolsTests.PthreadProbeElf, 16 * 1024 * 1024);
+        var workload = new Rv64ElfWorkload(PthreadProbeElf, 16 * 1024 * 1024);
         ulong tlLock = workload.FindSymbol("__tl_lock");
 
         IReadOnlyList<(ulong Start, ulong End)> onlyMain = SyncLibrarySymbols.ExcludedRanges(workload, ["main",]);

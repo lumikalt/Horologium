@@ -23,7 +23,7 @@ public static class SmartsStatistics {
     /// </summary>
     public static double CoefficientOfVariation(IReadOnlyList<double> samples) {
         if (samples.Count < 2) return 0.0;
-        double mean = SmartsStatistics.Mean(samples);
+        double mean = Mean(samples);
         if (mean == 0.0) return 0.0;
 
         double sumSq = samples.Sum(x => (x - mean) * (x - mean));

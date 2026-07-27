@@ -459,7 +459,14 @@ public record RvVFpNCvt(VFpNCvtOp Op, int Vd, int Vs2, bool Masked) : RvOp;
 
 // vbrev8.v/vrev8.v/vbrev.v/vclz.v/vctz.v/vcpop.v: OPMVV, funct6=0x12 (VXUNARY0) — the same
 // opcode-space slot as vzext/vsext (RvVExt), extended with more vs1 sub-selectors (8-14).
-public enum VBitmanipUnaryOp { Brev8, Rev8, Brev, Clz, Ctz, Cpop, }
+public enum VBitmanipUnaryOp {
+    Brev8,
+    Rev8,
+    Brev,
+    Clz,
+    Ctz,
+    Cpop,
+}
 
 public record RvVBitmanipUnaryVv(VBitmanipUnaryOp Op, int Vd, int Vs2, bool Masked) : RvOp;
 

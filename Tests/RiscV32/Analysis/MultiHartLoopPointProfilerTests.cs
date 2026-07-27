@@ -1,10 +1,11 @@
 #region
 
-using Mechanism;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 using RiscV32.MultiCore;
+
+// ReSharper disable InconsistentNaming
 
 #endregion
 
@@ -55,8 +56,8 @@ public class MultiHartLoopPointProfilerTests {
         // in-progress addi) -- all credited to that hart's own loop-start PC. Complete() flushes the
         // in-progress partial block too, so no instructions are lost off either hart's tally.
         var mem = new FlatMemory(0x200);
-        mem.Load(0x00, ToBytes(AddiX1X1Plus1, Jal(0, -4)));
-        mem.Load(0x40, ToBytes(AddiX1X1Plus1, Jal(0, -4)));
+        mem.Load(0x00, ToBytes(MultiHartLoopPointProfilerTests.AddiX1X1Plus1, Jal(0, -4)));
+        mem.Load(0x40, ToBytes(MultiHartLoopPointProfilerTests.AddiX1X1Plus1, Jal(0, -4)));
 
         var mech0 = new Rv32Mechanism();
         var mech1 = new Rv32Mechanism();
@@ -77,8 +78,10 @@ public class MultiHartLoopPointProfilerTests {
 
         IReadOnlyDictionary<ulong, long> region0 = profiler.RegionBbvs[0];
         Assert.Equal(2, region0.Count); // one key per hart, no collision
-        Assert.Equal(NormalizationScale, region0[NamespaceKey(0, 0x00)]);
-        Assert.Equal(NormalizationScale, region0[NamespaceKey(1, 0x40)]); // hart 1's own loop lives at 0x40
+        Assert.Equal(MultiHartLoopPointProfilerTests.NormalizationScale, region0[NamespaceKey(0, 0x00)]);
+        Assert.Equal(
+            MultiHartLoopPointProfilerTests.NormalizationScale, region0[NamespaceKey(1, 0x40)]
+        ); // hart 1's own loop lives at 0x40
     }
 
     [Fact]
@@ -93,8 +96,8 @@ public class MultiHartLoopPointProfilerTests {
         // and hart 0's own loop-start key (0x00) is not accidentally reused for hart 1's namespaced
         // contribution.
         var mem = new FlatMemory(0x200);
-        mem.Load(0x00, ToBytes(AddiX1X1Plus1, Jal(0, -4)));
-        mem.Load(0x40, ToBytes(AddiX1X1Plus1, Jal(0, -4)));
+        mem.Load(0x00, ToBytes(MultiHartLoopPointProfilerTests.AddiX1X1Plus1, Jal(0, -4)));
+        mem.Load(0x40, ToBytes(MultiHartLoopPointProfilerTests.AddiX1X1Plus1, Jal(0, -4)));
 
         var mech0 = new Rv32Mechanism();
         var mech1 = new Rv32Mechanism();
@@ -110,10 +113,10 @@ public class MultiHartLoopPointProfilerTests {
 
         Assert.True(profiler.RegionBbvs.Count >= 3);
         foreach (IReadOnlyDictionary<ulong, long> region in profiler.RegionBbvs) {
-            long hart0Total = region.Where(kv => (kv.Key >> 48) == 0).Sum(kv => kv.Value);
-            long hart1Total = region.Where(kv => (kv.Key >> 48) == 1).Sum(kv => kv.Value);
-            Assert.Equal(NormalizationScale, hart0Total);
-            Assert.Equal(NormalizationScale, hart1Total);
+            long hart0Total = region.Where(kv => kv.Key >> 48 == 0).Sum(kv => kv.Value);
+            long hart1Total = region.Where(kv => kv.Key >> 48 == 1).Sum(kv => kv.Value);
+            Assert.Equal(MultiHartLoopPointProfilerTests.NormalizationScale, hart0Total);
+            Assert.Equal(MultiHartLoopPointProfilerTests.NormalizationScale, hart1Total);
         }
     }
 
@@ -131,10 +134,10 @@ public class MultiHartLoopPointProfilerTests {
         //   0x08: real: addi x1, x1, 1        (excluded range ends here; real work loop)
         //   0x0C: jal  x0, -4 (-> 0x08)
         const uint addiX2 = 0x00110113; // addi x2, x2, 1
-        uint bneSpin = Bne(2, 3, -4); // bne x2, x3, -4 (-> 0x00)
+        uint bneSpin = Bne(2, 3, -4);   // bne x2, x3, -4 (-> 0x00)
 
         var mem = new FlatMemory(0x100);
-        mem.Load(0x00, ToBytes(addiX2, bneSpin, AddiX1X1Plus1, Jal(0, -4)));
+        mem.Load(0x00, ToBytes(addiX2, bneSpin, MultiHartLoopPointProfilerTests.AddiX1X1Plus1, Jal(0, -4)));
 
         var mech = new Rv32Mechanism();
         var kernel = new MultiHartKernel(mem, mech);
@@ -152,7 +155,7 @@ public class MultiHartLoopPointProfilerTests {
         Assert.NotEmpty(profiler.RegionBbvs);
         IReadOnlyDictionary<ulong, long> region0 = profiler.RegionBbvs[0];
         Assert.DoesNotContain(NamespaceKey(0, 0x00), region0.Keys); // spin PC never enters the BBV
-        Assert.Contains(NamespaceKey(0, 0x08), region0.Keys); // real loop's start PC does
+        Assert.Contains(NamespaceKey(0, 0x08), region0.Keys);       // real loop's start PC does
     }
 
     private static uint Bne(int rs1, int rs2, int immOffset) {

@@ -94,7 +94,7 @@ public static class SignalExtractor {
         if (name.EndsWith(SignalExtractor.WindowedSuffix)) {
             (string gear, string metric) = SplitName(name[..^SignalExtractor.WindowedSuffix.Length]);
             (string numer, string[] denom) = metric switch {
-                "ipc" => ("retired", (string[])["cycles",]),
+                "ipc" => ("retired", ["cycles",]),
                 _ when metric.EndsWith("_hit_rate") =>
                     ($"{metric[..^"_hit_rate".Length]}_hits",
                      (string[])[$"{metric[..^"_hit_rate".Length]}_hits", $"{metric[..^"_hit_rate".Length]}_misses",]),

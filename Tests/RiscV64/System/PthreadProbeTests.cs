@@ -36,7 +36,7 @@ public class PthreadProbeTests {
     [Fact]
     public void PthreadCreateAndJoin_RealCompiledBinary_RunsToCompletion() {
         const int memorySizeBytes = 16 * 1024 * 1024;
-        var workload = new Rv64ElfWorkload(PthreadProbeTests.PthreadProbeElf, memorySizeBytes);
+        var workload = new Rv64ElfWorkload(PthreadProbeElf, memorySizeBytes);
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
@@ -74,7 +74,7 @@ public class PthreadProbeTests {
 
         Assert.False(kernel.IsDormant(1)); // both pthread_create calls actually spawned
         Assert.False(kernel.IsDormant(2));
-        string output = sw.ToString();
+        var output = sw.ToString();
         Assert.Contains("thread 1 running\n", output);
         Assert.Contains("thread 2 running\n", output);
         // "done\n" printed only after both pthread_join calls return, so its presence at all (not

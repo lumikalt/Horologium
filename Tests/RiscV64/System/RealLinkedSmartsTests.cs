@@ -1,6 +1,5 @@
 #region
 
-using Mechanism;
 using Pipeline;
 using RiscV32.Analysis;
 using RiscV32.Config;
@@ -35,18 +34,18 @@ public class RealLinkedSmartsTests {
 
     [Fact]
     public void SmartsArgv_OnRealBinary_MeasuresPlausibleCpiThroughStartupAndCompute() {
-        Rv64ElfWorkload workload = RealLinkedSmartsTests.MakeWorkload();
+        Rv64ElfWorkload workload = MakeWorkload();
         var mechanism = new Rv64Mechanism(
             syscallHandler: new LinuxSyscallEmulator(
                 workload.InitialBreak, TextWriter.Null, RealLinkedSmartsTests.WordSize
             )
         );
-        var parameters = new SmartsParameters(U: 3_000, W: 0, K: 5_000, J: 0, N: 5);
-        var config = new TrainConfig(Pipeline: "ooo", RobCapacity: 32);
+        var parameters = new SmartsParameters(3_000, 0, 5_000, 0, 5);
+        var config = new TrainConfig("ooo", RobCapacity: 32);
 
         SmartsResult result = Experiment.RunSmarts(
-            workload, mechanism, config, parameters, argv: RealLinkedSmartsTests.Argv,
-            wordSize: RealLinkedSmartsTests.WordSize
+            workload, mechanism, config, parameters, RealLinkedSmartsTests.Argv,
+            RealLinkedSmartsTests.WordSize
         );
 
         Assert.NotEmpty(result.Units);
@@ -55,7 +54,7 @@ public class RealLinkedSmartsTests {
 
     [Fact]
     public void SmartsArgv_OnNonElfWorkload_Throws() {
-        Rv64ElfWorkload elfWorkload = RealLinkedSmartsTests.MakeWorkload();
+        Rv64ElfWorkload elfWorkload = MakeWorkload();
 
         // A bare-metal-shaped IWorkload (no IElfWorkload) — should be rejected up front rather
         // than silently running with an un-injected stack pointer.
@@ -63,11 +62,12 @@ public class RealLinkedSmartsTests {
         var mechanism = new Rv64Mechanism(
             syscallHandler: new LinuxSyscallEmulator(0, TextWriter.Null, RealLinkedSmartsTests.WordSize)
         );
-        var parameters = new SmartsParameters(U: 10, W: 5, K: 50, J: 0, N: 1);
-        var config = new TrainConfig(Pipeline: "ooo");
+        var parameters = new SmartsParameters(10, 5, 50, 0, 1);
+        var config = new TrainConfig("ooo");
 
-        Assert.Throws<NotSupportedException>(
-            () => Experiment.RunSmarts(bareWorkload, mechanism, config, parameters, argv: RealLinkedSmartsTests.Argv)
+        Assert.Throws<NotSupportedException>(() => Experiment.RunSmarts(
+                                                 bareWorkload, mechanism, config, parameters, RealLinkedSmartsTests.Argv
+                                             )
         );
     }
 }

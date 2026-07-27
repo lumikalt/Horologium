@@ -814,13 +814,13 @@ public partial class Rv32Executor : IExecutor {
                 ExecuteVAesRound(state, pc, vd, vs2, false, kind),
             RvVaesRoundVs (var kind, var vd, var vs2) =>
                 ExecuteVAesRound(state, pc, vd, vs2, true, kind),
-            RvVaesZVs (var vd, var vs2) => ExecuteVAesZ(state, pc, vd, vs2),
+            RvVaesZVs (var vd, var vs2)              => ExecuteVAesZ(state, pc, vd, vs2),
             RvVaesKf1Vi (var vd, var vs2, var round) => ExecuteVAesKf1(state, pc, vd, vs2, round),
             RvVaesKf2Vi (var vd, var vs2, var round) => ExecuteVAesKf2(state, pc, vd, vs2, round),
 
             // ── Zvksed: SM4 round/key-schedule instructions ─────────────────────────────────
-            RvSm4RVv (var vd, var vs2) => ExecuteSm4R(state, pc, vd, vs2, false),
-            RvSm4RVs (var vd, var vs2) => ExecuteSm4R(state, pc, vd, vs2, true),
+            RvSm4RVv (var vd, var vs2)            => ExecuteSm4R(state, pc, vd, vs2, false),
+            RvSm4RVs (var vd, var vs2)            => ExecuteSm4R(state, pc, vd, vs2, true),
             RvSm4KVi (var vd, var vs2, var round) => ExecuteSm4K(state, pc, vd, vs2, round),
 
             // ── Zvknha/Zvknhb: SHA-2 compression/message-schedule instructions ──────────────
@@ -830,11 +830,11 @@ public partial class Rv32Executor : IExecutor {
 
             // ── Zvksh: SM3 compression/message-schedule instructions ────────────────────────
             RvSm3CVi (var vd, var vs2, var round) => ExecuteSm3C(state, pc, vd, vs2, round),
-            RvSm3MeVv (var vd, var vs1, var vs2) => ExecuteSm3Me(state, pc, vd, vs1, vs2),
+            RvSm3MeVv (var vd, var vs1, var vs2)  => ExecuteSm3Me(state, pc, vd, vs1, vs2),
 
             // ── Zvkg: GHASH add-multiply/multiply instructions ───────────────────────────────
             RvVGhshVv (var vd, var vs1, var vs2) => ExecuteVGhsh(state, pc, vd, vs1, vs2),
-            RvVGmulVv (var vd, var vs2) => ExecuteVGmul(state, pc, vd, vs2),
+            RvVGmulVv (var vd, var vs2)          => ExecuteVGmul(state, pc, vd, vs2),
 
             RvVMulVv (var op2, var vd, var vs2, var vs1, var masked) =>
                 ExecuteVMul(

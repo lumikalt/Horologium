@@ -1,11 +1,12 @@
 #region
 
-using Mechanism;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 using RiscV32.MultiCore;
 using RiscV32.Syscalls;
+
+// ReSharper disable InconsistentNaming
 
 #endregion
 
@@ -54,7 +55,7 @@ public class CloneTests {
     private static uint Lui(int rd, int imm20) => (uint)(((imm20 & 0xFFFFF) << 12) | (rd << 7) | 0b0110111);
 
     private static uint Sw(int rs2, int rs1, int imm) {
-        var immU = (uint)imm & 0xFFF;
+        uint immU = (uint)imm & 0xFFF;
         uint imm11_5 = (immU >> 5) & 0x7F;
         uint imm4_0 = immU & 0x1F;
         return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
@@ -114,7 +115,7 @@ public class CloneTests {
 
     [Fact]
     public void Clone_SpawnsDormantHart_WithCorrectSpAndTp() {
-        FlatMemory mem = CloneTests.BuildProgram();
+        FlatMemory mem = BuildProgram();
         var handler = new LinuxSyscallEmulator(0x400);
         var mech0 = new Rv32Mechanism(syscallHandler: handler, hartId: 0);
         // hartId must match the dormant slot this mechanism will be spawned into (1) — clone()'s
@@ -134,11 +135,11 @@ public class CloneTests {
         Assert.False(kernel.IsDormant(1));
         // clone()'s return value is a tid (hartId + 1, never 0), not the raw 0-based MultiHartKernel
         // slot index — the new hart landed in slot 1, so its tid is 2.
-        Assert.Equal(2UL, mem.Read(CloneTests.ParentResultAddr, 4)); // parent saw the new hart's tid
-        Assert.Equal(2UL, mem.Read(CloneTests.PtidAddr, 4));         // CLONE_PARENT_SETTID wrote the same tid
-        Assert.Equal(0x1230_00UL, mem.Read(CloneTests.ChildTpAddr, 4));  // tls (a3) became the child's tp
-        Assert.Equal(0x300UL, mem.Read(CloneTests.ChildSpAddr, 4));      // newsp (a1) became the child's sp
-        Assert.Equal(777UL, mem.Read(CloneTests.ChildMarkerAddr, 4));    // child actually executed
+        Assert.Equal(2UL, mem.Read(CloneTests.ParentResultAddr, 4));    // parent saw the new hart's tid
+        Assert.Equal(2UL, mem.Read(CloneTests.PtidAddr, 4));            // CLONE_PARENT_SETTID wrote the same tid
+        Assert.Equal(0x1230_00UL, mem.Read(CloneTests.ChildTpAddr, 4)); // tls (a3) became the child's tp
+        Assert.Equal(0x300UL, mem.Read(CloneTests.ChildSpAddr, 4));     // newsp (a1) became the child's sp
+        Assert.Equal(777UL, mem.Read(CloneTests.ChildMarkerAddr, 4));   // child actually executed
         // The decisive consistency check: the child's own gettid() must reproduce the exact tid
         // clone() handed the parent — proving the two independently-computed values actually agree
         // for this setup, not just individually looking plausible.
@@ -149,10 +150,10 @@ public class CloneTests {
     public void Clone_WithNoSpawnerWired_ReturnsENoSys() {
         // Single-hart mode (no MultiHartKernel involved at all) must be unaffected by clone()'s
         // existence — it should behave exactly like any other unimplemented syscall.
-        FlatMemory mem = CloneTests.BuildProgram();
+        FlatMemory mem = BuildProgram();
         var handler = new LinuxSyscallEmulator(0x400);
         var mech = new Rv32Mechanism(syscallHandler: handler);
-        var train = new SingleCycleTrain(mech, mem, 0x00);
+        var train = new SingleCycleTrain(mech, mem);
 
         train.Run(200);
 

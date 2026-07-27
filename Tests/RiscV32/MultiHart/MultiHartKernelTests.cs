@@ -319,8 +319,8 @@ public class MultiHartKernelTests {
         const uint addiX1 = 0x00108093; // addi x1, x1, 1
 
         var mem = new FlatMemory(0x200);
-        mem.Load(0x00, ToBytes(addiX1, MultiHartKernelTests.Jal(0, -4)));
-        mem.Load(0x40, ToBytes(addiX1, MultiHartKernelTests.Jal(0, -4)));
+        mem.Load(0x00, ToBytes(addiX1, Jal(0, -4)));
+        mem.Load(0x40, ToBytes(addiX1, Jal(0, -4)));
 
         var kernel = new MultiHartKernel(mem, new Rv32Mechanism(), new Rv32Mechanism());
         kernel.SetEntryPoint(0, 0x00);
@@ -343,9 +343,9 @@ public class MultiHartKernelTests {
     private static uint Jal(int rd, int immOffset) {
         var imm = (uint)immOffset;
         uint bit20 = (imm >> 20) & 1;
-        uint bits10_1 = (imm >> 1) & 0x3FF;
+        uint bits10To1 = (imm >> 1) & 0x3FF;
         uint bit11 = (imm >> 11) & 1;
-        uint bits19_12 = (imm >> 12) & 0xFF;
-        return (bit20 << 31) | (bits10_1 << 21) | (bit11 << 20) | (bits19_12 << 12) | ((uint)rd << 7) | 0b1101111u;
+        uint bits19To12 = (imm >> 12) & 0xFF;
+        return (bit20 << 31) | (bits10To1 << 21) | (bit11 << 20) | (bits19To12 << 12) | ((uint)rd << 7) | 0b1101111u;
     }
 }

@@ -1,7 +1,6 @@
 #region
 
 using Mechanism;
-using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
@@ -33,14 +32,14 @@ public class SmartsPipelineShadowDecisiveTest {
         var counterFs = new InstructionCounter();
         var trainFs = new FiveStageTrain(mechFs, memFs, commitObserver: counterFs);
         trainFs.Run();
-        int accFs = (int)memFs.Read(SmartsTestWorkload.AccumulatorAddress, 4);
+        var accFs = (int)memFs.Read(SmartsTestWorkload.AccumulatorAddress, 4);
 
         FlatMemory memSc = SmartsTestWorkload.BuildProgram();
         var mechSc = new Rv32Mechanism();
         var counterSc = new InstructionCounter();
         var trainSc = new SingleCycleTrain(mechSc, memSc, commitObserver: counterSc);
         trainSc.Run();
-        int accSc = (int)memSc.Read(SmartsTestWorkload.AccumulatorAddress, 4);
+        var accSc = (int)memSc.Read(SmartsTestWorkload.AccumulatorAddress, 4);
 
         Assert.Equal(counterSc.Count, counterFs.Count);
         Assert.Equal(accSc, accFs);
@@ -65,14 +64,14 @@ public class SmartsPipelineShadowDecisiveTest {
         var counterOoo = new InstructionCounter();
         var trainOoo = new OooTrain(mechOoo, memOoo, commitObserver: counterOoo);
         trainOoo.Run();
-        int accOoo = (int)memOoo.Read(SmartsTestWorkload.AccumulatorAddress, 4);
+        var accOoo = (int)memOoo.Read(SmartsTestWorkload.AccumulatorAddress, 4);
 
         FlatMemory memSc = SmartsTestWorkload.BuildProgram();
         var mechSc = new Rv32Mechanism();
         var counterSc = new InstructionCounter();
         var trainSc = new SingleCycleTrain(mechSc, memSc, commitObserver: counterSc);
         trainSc.Run();
-        int accSc = (int)memSc.Read(SmartsTestWorkload.AccumulatorAddress, 4);
+        var accSc = (int)memSc.Read(SmartsTestWorkload.AccumulatorAddress, 4);
 
         Assert.Equal(counterSc.Count, counterOoo.Count);
         Assert.Equal(accSc, accOoo);

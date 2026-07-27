@@ -8,6 +8,8 @@ using RiscV32;
 using RiscV32.Memory;
 using RiscV32.Syscalls;
 
+// ReSharper disable InconsistentNaming
+
 #endregion
 
 namespace Tests.Pipeline;
@@ -48,7 +50,7 @@ public class MultiHartPipelineCloneTests {
     private static uint Lui(int rd, int imm20) => (uint)(((imm20 & 0xFFFFF) << 12) | (rd << 7) | 0b0110111);
 
     private static uint Sw(int rs2, int rs1, int imm) {
-        var immU = (uint)imm & 0xFFF;
+        uint immU = (uint)imm & 0xFFF;
         uint imm11_5 = (immU >> 5) & 0x7F;
         uint imm4_0 = immU & 0x1F;
         return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
@@ -84,26 +86,26 @@ public class MultiHartPipelineCloneTests {
         const int cloneParentSetTid = 0x0010_0000;
         Load(
             mem,
-            Lui(10, (cloneSetTls | cloneParentSetTid) >> 12), // 0x00: a0 = flags
-            Addi(11, 0, 0x300),                               // 0x04: a1 = newsp
-            Addi(12, 0, (int)PtidAddr),                       // 0x08: a2 = ptid
-            Lui(13, 0x123),                                   // 0x0C: a3 = tls
-            Addi(14, 0, 0),                                   // 0x10: a4 = ctid (unused)
-            Addi(17, 0, 220),                                 // 0x14: a7 = SYS_clone
-            Ecall,                                            // 0x18
-            Bne(10, 0, 0x2C),                                 // 0x1C: parent (a0!=0) skips ahead to 0x48
-            Addi(5, 4, 0),                                    // 0x20: child: t0 = tp
-            Sw(5, 0, (int)ChildTpAddr),                       // 0x24
-            Addi(6, 2, 0),                                    // 0x28: child: t1 = sp
-            Sw(6, 0, (int)ChildSpAddr),                       // 0x2C
-            Addi(7, 0, 777),                                  // 0x30: child: marker
-            Sw(7, 0, (int)ChildMarkerAddr),                   // 0x34
-            Addi(17, 0, 178),                                 // 0x38: child: a7 = SYS_gettid
-            Ecall,                                            // 0x3C
-            Sw(10, 0, (int)ChildGettidAddr),                  // 0x40: child: store gettid()'s return
-            Ebreak,                                           // 0x44: child halts
-            Sw(10, 0, (int)ParentResultAddr),                 // 0x48: parent: store clone()'s return
-            Ebreak                                            // 0x4C: parent halts
+            Lui(10, (cloneSetTls | cloneParentSetTid) >> 12),             // 0x00: a0 = flags
+            Addi(11, 0, 0x300),                                           // 0x04: a1 = newsp
+            Addi(12, 0, (int)MultiHartPipelineCloneTests.PtidAddr),       // 0x08: a2 = ptid
+            Lui(13, 0x123),                                               // 0x0C: a3 = tls
+            Addi(14, 0, 0),                                               // 0x10: a4 = ctid (unused)
+            Addi(17, 0, 220),                                             // 0x14: a7 = SYS_clone
+            MultiHartPipelineCloneTests.Ecall,                            // 0x18
+            Bne(10, 0, 0x2C),                                             // 0x1C: parent (a0!=0) skips ahead to 0x48
+            Addi(5, 4, 0),                                                // 0x20: child: t0 = tp
+            Sw(5, 0, (int)MultiHartPipelineCloneTests.ChildTpAddr),       // 0x24
+            Addi(6, 2, 0),                                                // 0x28: child: t1 = sp
+            Sw(6, 0, (int)MultiHartPipelineCloneTests.ChildSpAddr),       // 0x2C
+            Addi(7, 0, 777),                                              // 0x30: child: marker
+            Sw(7, 0, (int)MultiHartPipelineCloneTests.ChildMarkerAddr),   // 0x34
+            Addi(17, 0, 178),                                             // 0x38: child: a7 = SYS_gettid
+            MultiHartPipelineCloneTests.Ecall,                            // 0x3C
+            Sw(10, 0, (int)MultiHartPipelineCloneTests.ChildGettidAddr),  // 0x40: child: store gettid()'s return
+            MultiHartPipelineCloneTests.Ebreak,                           // 0x44: child halts
+            Sw(10, 0, (int)MultiHartPipelineCloneTests.ParentResultAddr), // 0x48: parent: store clone()'s return
+            MultiHartPipelineCloneTests.Ebreak                            // 0x4C: parent halts
         );
         return mem;
     }
@@ -113,7 +115,7 @@ public class MultiHartPipelineCloneTests {
         FlatMemory mem = BuildProgram();
         var handler = new LinuxSyscallEmulator(0x400);
         var mech0 = new Rv32Mechanism(syscallHandler: handler, hartId: 0);
-        var train0 = new FiveStageTrain(mech0, mem, entryPoint: 0x00);
+        var train0 = new FiveStageTrain(mech0, mem);
 
         // spawnTrainFactory mirrors the "read Pc before construction, thread it through as the
         // constructor's own entryPoint" pattern every checkpoint-restore path in this codebase uses —
@@ -122,7 +124,7 @@ public class MultiHartPipelineCloneTests {
         // train appended) for a later gettid() to agree with clone()'s own returned tid, exactly the
         // same invariant CloneTests documents for MultiHartKernel.
         ISteppableTrain SpawnTrainFactory(IArchState initialState) =>
-            new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler, hartId: 1), mem, entryPoint: initialState.Pc);
+            new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler, hartId: 1), mem, initialState.Pc);
 
         var pipeline = new MultiHartPipeline(SpawnTrainFactory, train0);
         handler.Spawner = pipeline;
@@ -132,15 +134,21 @@ public class MultiHartPipelineCloneTests {
         pipeline.Run(200);
 
         Assert.Equal(2, pipeline.HartCount); // clone() actually appended a second, real train
-        Assert.Equal(2UL, mem.Read(ParentResultAddr, 4)); // parent saw the new hart's tid (slot 1 -> tid 2)
-        Assert.Equal(2UL, mem.Read(PtidAddr, 4));         // CLONE_PARENT_SETTID wrote the same tid
-        Assert.Equal(0x1230_00UL, mem.Read(ChildTpAddr, 4)); // tls (a3) became the child's tp
-        Assert.Equal(0x300UL, mem.Read(ChildSpAddr, 4));     // newsp (a1) became the child's sp
-        Assert.Equal(777UL, mem.Read(ChildMarkerAddr, 4));   // child actually executed on its own train
+        Assert.Equal(
+            2UL, mem.Read(MultiHartPipelineCloneTests.ParentResultAddr, 4)
+        ); // parent saw the new hart's tid (slot 1 -> tid 2)
+        Assert.Equal(2UL, mem.Read(MultiHartPipelineCloneTests.PtidAddr, 4)); // CLONE_PARENT_SETTID wrote the same tid
+        Assert.Equal(
+            0x1230_00UL, mem.Read(MultiHartPipelineCloneTests.ChildTpAddr, 4)
+        );                                                                           // tls (a3) became the child's tp
+        Assert.Equal(0x300UL, mem.Read(MultiHartPipelineCloneTests.ChildSpAddr, 4)); // newsp (a1) became the child's sp
+        Assert.Equal(
+            777UL, mem.Read(MultiHartPipelineCloneTests.ChildMarkerAddr, 4)
+        ); // child actually executed on its own train
         // Decisive consistency check: the child's own gettid() must reproduce the exact tid clone()
         // handed the parent — the same cross-check CloneTests uses for MultiHartKernel, here proving
         // it holds for a genuinely constructed detailed-pipeline train too, not just an IArchState.
-        Assert.Equal(2UL, mem.Read(ChildGettidAddr, 4));
+        Assert.Equal(2UL, mem.Read(MultiHartPipelineCloneTests.ChildGettidAddr, 4));
     }
 
     [Fact]
@@ -148,7 +156,7 @@ public class MultiHartPipelineCloneTests {
         FlatMemory mem = BuildProgram();
         var handler = new LinuxSyscallEmulator(0x400);
         var mech0 = new Rv32Mechanism(syscallHandler: handler, hartId: 0);
-        var train0 = new FiveStageTrain(mech0, mem, entryPoint: 0x00);
+        var train0 = new FiveStageTrain(mech0, mem);
         var pipeline = new MultiHartPipeline(train0); // no spawnTrainFactory
         handler.Spawner = pipeline;
 
@@ -173,16 +181,18 @@ public class MultiHartPipelineCloneTests {
         var handler = new LinuxSyscallEmulator(0x400);
         var mech0 = new Rv32Mechanism(syscallHandler: handler, hartId: 0);
 
-        LoadAt(mem, 0x200, Ebreak); // hart 1: a plain, unrelated program that just halts immediately
+        LoadAt(
+            mem, 0x200, MultiHartPipelineCloneTests.Ebreak
+        ); // hart 1: a plain, unrelated program that just halts immediately
 
         var bus = new MoesifBus(mem);
         var def0 = new DeferredBus(bus);
         var def1 = new DeferredBus(bus);
-        var train0 = new FiveStageTrain(mech0, new MoesifCache(def0, 256, 2, 64), 0x00);
+        var train0 = new FiveStageTrain(mech0, new MoesifCache(def0, 256, 2, 64));
         var train1 = new FiveStageTrain(new Rv32Mechanism(), new MoesifCache(def1, 256, 2, 64), 0x200);
 
         ISteppableTrain SpawnTrainFactory(IArchState initialState) =>
-            new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler, hartId: 1), mem, entryPoint: initialState.Pc);
+            new FiveStageTrain(new Rv32Mechanism(syscallHandler: handler, hartId: 1), mem, initialState.Pc);
 
         var pipeline = new MultiHartPipeline(SpawnTrainFactory, train0, train1);
         handler.Spawner = pipeline;

@@ -10,6 +10,8 @@ using RiscV32.MultiCore;
 using RiscV32.State;
 using RiscV32.Syscalls;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 #endregion
 
 namespace Tests.RiscV32.MultiHart;
@@ -41,23 +43,23 @@ public class MultiHartCheckpointTests {
 
     private static uint Sw(int rs2, int rs1, int imm) {
         var immU = (uint)imm;
-        uint imm11_5 = (immU >> 5) & 0x7F;
-        uint imm4_0 = immU & 0x1F;
-        return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
+        uint imm11To5 = (immU >> 5) & 0x7F;
+        uint imm4To0 = immU & 0x1F;
+        return (imm11To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4To0 << 7) | 0b0100011u;
     }
 
     private static uint Bne(int rs1, int rs2, int immOffset) {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static void LoadProgram(FlatMemory mem, ulong baseAddr) {
-        var words = new[] { Addi(1, 1, 1), Sw(1, 3, 0), Addi(2, 2, -1), Bne(2, 0, -12), MultiHartCheckpointTests.Ebreak, };
+        uint[] words = [Addi(1, 1, 1), Sw(1, 3, 0), Addi(2, 2, -1), Bne(2, 0, -12), MultiHartCheckpointTests.Ebreak,];
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4), words[i]);
         mem.Load(baseAddr, bytes);
@@ -74,7 +76,7 @@ public class MultiHartCheckpointTests {
         var coldMem = new FlatMemory(0x2000);
         LoadProgram(coldMem, 0x00);
         LoadProgram(coldMem, 0x40);
-        var coldTrain0 = new FiveStageTrain(new Rv32Mechanism(), coldMem, 0x00);
+        var coldTrain0 = new FiveStageTrain(new Rv32Mechanism(), coldMem);
         var coldTrain1 = new FiveStageTrain(new Rv32Mechanism(), coldMem, 0x40);
         coldTrain0.ArchState.IntegerRegisters.Write(2, hart0Iterations);
         coldTrain0.ArchState.IntegerRegisters.Write(3, hart0Addr);
@@ -115,8 +117,8 @@ public class MultiHartCheckpointTests {
 
         // ── Restore into fresh FiveStageTrains and run the rest of the way.
         var restoreMem = new FlatMemory(0x2000);
-        var restoreTrain0 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, 0);
-        var restoreTrain1 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, 0);
+        var restoreTrain0 = new FiveStageTrain(new Rv32Mechanism(), restoreMem);
+        var restoreTrain1 = new FiveStageTrain(new Rv32Mechanism(), restoreMem);
         checkpoint.RestoreInto([restoreTrain0.ArchState, restoreTrain1.ArchState,], restoreMem, null);
 
         new MultiHartPipeline(restoreTrain0, restoreTrain1).Run(10_000);
@@ -156,8 +158,8 @@ public class MultiHartCheckpointTests {
         var restoreMem = new FlatMemory(0x2000);
         var counter0 = new InstructionCounter();
         var counter1 = new InstructionCounter();
-        var train0 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, 0, commitObserver: counter0);
-        var train1 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, 0, commitObserver: counter1);
+        var train0 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, commitObserver: counter0);
+        var train1 = new FiveStageTrain(new Rv32Mechanism(), restoreMem, commitObserver: counter1);
         checkpoint.RestoreInto([train0.ArchState, train1.ArchState,], restoreMem, null);
 
         RevolutionResult[] results = MultiHartWarmupMeasureDriver.RunWarmupThenMeasure(
@@ -201,7 +203,7 @@ public class MultiHartCheckpointTests {
         // always assigns hart id 1).
         var cloningHartState = new Rv32ArchState();
         cloningHartState.IntegerRegisters.Write(10, cloneChildCleartid); // a0 = flags
-        cloningHartState.IntegerRegisters.Write(14, ctidAddr);            // a4 = ctid
+        cloningHartState.IntegerRegisters.Write(14, ctidAddr);           // a4 = ctid
         handler.Handle(220, cloningHartState, mem, 0, 0);
 
         // Move brk, exactly as pthread_probe.elf's musl startup would before any thread runs.

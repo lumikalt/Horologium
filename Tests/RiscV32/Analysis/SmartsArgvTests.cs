@@ -32,17 +32,17 @@ public class SmartsArgvTests {
     public void SeedInitialState_FiresExactlyOnce_AndSurvivesIntoTheFirstUnit() {
         FlatMemory mem = SmartsTestWorkload.BuildProgram();
         var mechanism = new Rv32Mechanism();
-        MemoryLayers iLayers = MemoryLayers.Build(mem, MemoryConfig.None);
-        MemoryLayers dLayers = MemoryLayers.Build(mem, SmartsTestWorkload.DCache());
-        var parameters = new SmartsParameters(U: 60, W: 12, K: 600, J: 60, N: 3);
+        var iLayers = MemoryLayers.Build(mem, MemoryConfig.None);
+        var dLayers = MemoryLayers.Build(mem, SmartsTestWorkload.DCache());
+        var parameters = new SmartsParameters(60, 12, 600, 60, 3);
 
         var seedCalls = 0;
         ulong? observedAtFirstUnit = null;
 
         SmartsDriver.Run(
             mechanism, 0, iLayers, dLayers, null, parameters, SmartsDriver.FiveStage(),
-            onUnitEntry: (_, _, state) => observedAtFirstUnit ??= state.IntegerRegisters.Read(2),
-            seedInitialState: state => {
+            (_, _, state) => observedAtFirstUnit ??= state.IntegerRegisters.Read(2),
+            state => {
                 seedCalls++;
                 state.IntegerRegisters.Write(2, SmartsArgvTests.SeededSp);
             }
@@ -56,11 +56,12 @@ public class SmartsArgvTests {
     public void RunSmarts_WithArgvOnNonElfWorkload_Throws() {
         var workload = new RawBinaryWorkload(new byte[64], memorySizeBytes: 4096);
         var mechanism = new Rv32Mechanism();
-        var parameters = new SmartsParameters(U: 10, W: 5, K: 20, J: 0, N: 1);
-        var config = new TrainConfig(Pipeline: "five_stage");
+        var parameters = new SmartsParameters(10, 5, 20, 0, 1);
+        var config = new TrainConfig();
 
-        Assert.Throws<NotSupportedException>(
-            () => Experiment.RunSmarts(workload, mechanism, config, parameters, argv: ["prog",])
+        Assert.Throws<NotSupportedException>(() => Experiment.RunSmarts(
+                                                 workload, mechanism, config, parameters, ["prog",]
+                                             )
         );
     }
 }

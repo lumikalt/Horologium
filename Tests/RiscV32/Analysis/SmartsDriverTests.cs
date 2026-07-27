@@ -8,6 +8,10 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable AccessToModifiedClosure -- trainRef is a deliberate forward reference: the
+// commitObserver closure is only ever invoked from trainRef.Run(), which runs after trainRef is
+// assigned.
+
 #endregion
 
 namespace Tests.RiscV32.Analysis;
@@ -42,7 +46,7 @@ namespace Tests.RiscV32.Analysis;
 ///     </para>
 /// </summary>
 public class SmartsDriverTests {
-    private static SmartsParameters Parameters() => new(U: 60, W: 12, K: 600, J: 60, N: 30);
+    private static SmartsParameters Parameters() => new(60, 12, 600, 60, 30);
 
     // The oracle for "did the handoff preserve state" is a continuous FiveStageTrain run of the
     // same total instruction count, not a functional SingleCycleTrain reference — see
@@ -62,7 +66,7 @@ public class SmartsDriverTests {
     // Single continuous detailed run of the whole program — the ground truth SMARTS estimates
     // are compared against. Uses the same (continuously trained, never reset) predictor
     // instance for its entire lifetime, same as the "warm" SMARTS scenario below.
-    private static (double Cpi, FlatMemory Memory) RunFullDetailed() {
+    private static double RunFullDetailed() {
         FlatMemory mem = SmartsTestWorkload.BuildProgram();
         var mechanism = new Rv32Mechanism();
         var counter = new InstructionCounter();
@@ -70,7 +74,7 @@ public class SmartsDriverTests {
             mechanism, mem, predictor: new NBitBp(), dMemConfig: SmartsTestWorkload.DCache(), commitObserver: counter
         );
         RevolutionResult result = train.Run();
-        return (result.TotalTicks / (double)counter.Count, mem);
+        return result.TotalTicks / (double)counter.Count;
     }
 
     // sharedPredictor null models "no functional warming at all": SingleCycleCore never trains
@@ -83,11 +87,11 @@ public class SmartsDriverTests {
     ) {
         FlatMemory mem = SmartsTestWorkload.BuildProgram();
         var mechanism = new Rv32Mechanism();
-        MemoryLayers iLayers = MemoryLayers.Build(mem, MemoryConfig.None);
-        MemoryLayers dLayers = MemoryLayers.Build(mem, SmartsTestWorkload.DCache());
+        var iLayers = MemoryLayers.Build(mem, MemoryConfig.None);
+        var dLayers = MemoryLayers.Build(mem, SmartsTestWorkload.DCache());
 
         SmartsResult result = SmartsDriver.Run(
-            mechanism, 0, iLayers, dLayers, sharedPredictor, SmartsDriverTests.Parameters(), SmartsDriver.FiveStage(),
+            mechanism, 0, iLayers, dLayers, sharedPredictor, Parameters(), SmartsDriver.FiveStage(),
             onUnitEntry
         );
         return (result, mem);
@@ -95,7 +99,7 @@ public class SmartsDriverTests {
 
     [Fact]
     public void WarmPredictor_TracksTrueCpi() {
-        (double trueCpi, _) = RunFullDetailed();
+        double trueCpi = RunFullDetailed();
         (SmartsResult warm, FlatMemory mem) = RunSmarts(new NBitBp());
 
         Assert.False(warm.Halted);
@@ -111,7 +115,7 @@ public class SmartsDriverTests {
 
     [Fact]
     public void ColdPredictor_IsMoreBiasedThanWarm() {
-        (double trueCpi, _) = RunFullDetailed();
+        double trueCpi = RunFullDetailed();
         (SmartsResult warm, _) = RunSmarts(new NBitBp());
         (SmartsResult cold, FlatMemory coldMem) = RunSmarts(null);
 
@@ -143,7 +147,8 @@ public class SmartsDriverTests {
             new NBitBp(),
             (_, position, state) => {
                 capturedPositions.Add(position);
-                captured[position] = (state.Pc, [..Enumerable.Range(0, 32).Select(r => state.IntegerRegisters.Read(r)),]);
+                captured[position] = (
+                    state.Pc, [..Enumerable.Range(0, 32).Select(r => state.IntegerRegisters.Read(r)),]);
             }
         );
 
@@ -160,7 +165,7 @@ public class SmartsDriverTests {
             capturedPositions,
             idx => reference[capturedPositions[idx]] = (
                 trainRef!.ArchState.Pc,
-                [..Enumerable.Range(0, 32).Select(r => trainRef!.ArchState.IntegerRegisters.Read(r)),]
+                [..Enumerable.Range(0, 32).Select(r => trainRef.ArchState.IntegerRegisters.Read(r)),]
             )
         );
         trainRef = new SingleCycleTrain(refMechanism, refMem, commitObserver: counter);

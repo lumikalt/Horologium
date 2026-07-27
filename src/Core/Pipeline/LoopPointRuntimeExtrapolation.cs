@@ -34,12 +34,11 @@ public static class LoopPointRuntimeExtrapolation {
         SimPointResult simPoints,
         IReadOnlyList<long> regionInstructionCounts
     ) {
-        if (regionInstructionCounts.Count != simPoints.IntervalCount) {
+        if (regionInstructionCounts.Count != simPoints.IntervalCount)
             throw new ArgumentException(
                 $"regionInstructionCounts.Count ({regionInstructionCounts.Count}) must equal " +
                 $"simPoints.IntervalCount ({simPoints.IntervalCount}).", nameof(regionInstructionCounts)
             );
-        }
 
         var clusterTotals = new Dictionary<int, long>();
         for (var i = 0; i < simPoints.Phases.Count; i++) {
@@ -72,11 +71,10 @@ public static class LoopPointRuntimeExtrapolation {
     ) {
         double total = 0;
         foreach ((int regionIndex, double multiplier) in multipliers) {
-            if (!representativeRuntimes.TryGetValue(regionIndex, out double runtime)) {
+            if (!representativeRuntimes.TryGetValue(regionIndex, out double runtime))
                 throw new ArgumentException(
                     $"No runtime supplied for representative region {regionIndex}.", nameof(representativeRuntimes)
                 );
-            }
 
             total += runtime * multiplier;
         }

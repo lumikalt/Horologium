@@ -61,6 +61,148 @@ public class ZvkTests {
     // between "reference" and "production" would otherwise pass silently.
     private static readonly int[] ShiftRowsPermutation = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11,];
 
+    // ── Independent AES inverse-cipher reference — built by inverting the forward reference
+    // above (functional S-box/permutation inversion, not a transcribed inverse formula), so an
+    // error in the forward reference wouldn't be silently mirrored into the inverse one ────────
+
+    private static readonly byte[] SboxInvRefTable = BuildSboxInvRefTable();
+
+    private static readonly int[] ShiftRowsInvPermutation = BuildInvPermutation(ZvkTests.ShiftRowsPermutation);
+
+    // ── FIPS-197 known-answer tests (AES-128, Nk=4, Nr=10) ──────────────────────────────────────
+    // Round-key schedule transcribed verbatim from the published NIST FIPS-197 Appendix A.1 key
+    // expansion example (key 2b7e1516...), and the cipher trace from Appendix B (which explicitly
+    // reuses the Appendix A.1 schedule) — not derived from this codebase or from ZvkTests' own
+    // from-scratch reference. This validates SubBytes+ShiftRows+MixColumns+round-composition
+    // against an external authority instead of only against ourselves.
+
+    private static readonly byte[][] Fips197A1RoundKeys = [
+        Convert.FromHexString("2b7e151628aed2a6abf7158809cf4f3c"), // rk0 (the raw key)
+        Convert.FromHexString("a0fafe1788542cb123a339392a6c7605"), // rk1
+        Convert.FromHexString("f2c295f27a96b9435935807a7359f67f"), // rk2
+        Convert.FromHexString("3d80477d4716fe3e1e237e446d7a883b"), // rk3
+        Convert.FromHexString("ef44a541a8525b7fb671253bdb0bad00"), // rk4
+        Convert.FromHexString("d4d1c6f87c839d87caf2b8bc11f915bc"), // rk5
+        Convert.FromHexString("6d88a37a110b3efddbf98641ca0093fd"), // rk6
+        Convert.FromHexString("4e54f70e5f5fc9f384a64fb24ea6dc4f"), // rk7
+        Convert.FromHexString("ead27321b58dbad2312bf5607f8d292f"), // rk8
+        Convert.FromHexString("ac7766f319fadc2128d12941575c006e"), // rk9
+        Convert.FromHexString("d014f9a8c9ee2589e13f0cc8b6630ca6"), // rk10
+    ];
+
+    private static readonly byte[] Fips197BPlaintext = Convert.FromHexString("3243f6a8885a308d313198a2e0370734");
+    private static readonly byte[] Fips197BCiphertext = Convert.FromHexString("3925841d02dc09fbdc118597196a0b32");
+
+    // ── Zvksed: SM4 block cipher, validated against GB/T 32907-2016 Example 1 (the standard
+    // "key==plaintext" SM4 known-answer test, via draft-ribose-cfrg-sm4's transcription of the
+    // published round-key/round-state trace) — key expansion (vsm4k.vi) and both encrypt and
+    // decrypt directions of the round function (vsm4r.vv), which are identical except for the
+    // order round keys are consumed in.
+    //
+    // SM4 applies a final "reverse transformation R" (swap word0<->word3, word1<->word2) that is
+    // NOT part of vsm4r.vv/vsm4k.vi themselves — confirmed empirically via a throwaway `dotnet fsi`
+    // script implementing the algorithm independently, since guessing the input/output word-order
+    // convention by hand (rather than testing it) proved unreliable. Encryption's current state
+    // starts as the plaintext directly (no pre-reversal) and needs R applied to the final result;
+    // decryption is exactly symmetric (ciphertext directly as the starting state, R applied to the
+    // final result) with round-key groups consumed in reverse group order *and* reverse word order
+    // within each group (the last group's words are consumed key-by-key from its own end backwards).
+
+    private static readonly byte[] Sm4Fk = Convert.FromHexString("A3B1BAC656AA3350677D9197B27022DC");
+    private static readonly byte[] Sm4Key = Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210");
+    private static readonly byte[] Sm4Ciphertext = Convert.FromHexString("681EDF34D206965E86B3E94F536E4246");
+
+    private static readonly byte[][] Sm4RoundKeyGroups = [
+        Convert.FromHexString("F12186F941662B615A6AB19A7BA92077"), // rk[0:3]
+        Convert.FromHexString("367360F4776A0C61B6BB89B324763151"), // rk[4:7]
+        Convert.FromHexString("A520307CB7584DBDC30753ED7EE55B57"), // rk[8:11]
+        Convert.FromHexString("6988608C30D895B744BA14AF104495A1"), // rk[12:15]
+        Convert.FromHexString("D120B42873B55FA3CC87496692244439"), // rk[16:19]
+        Convert.FromHexString("E89E641F98CA015AC715906099E1FD2E"), // rk[20:23]
+        Convert.FromHexString("B79BD80C1D2115B00E228AEBF1780C81"), // rk[24:27]
+        Convert.FromHexString("428D36546229349601CF72E59124A012"), // rk[28:31]
+    ];
+
+    // ── Zvknha/Zvknhb: SHA-2 compression (vsha2c[hl].vv) + message schedule (vsha2ms.vv) ────────
+    // Validated end-to-end against System.Security.Cryptography.SHA256/SHA512 — an independently
+    // implemented, real oracle — rather than a hand-transcribed round-by-round trace, since
+    // NIST FIPS 180-4's on-disk text does not include a worked example with intermediate values
+    // (same situation as FIPS-197's Appendix C, see the Zvkned AES tests above) and manually
+    // re-deriving 64/80 rounds of intermediate arithmetic would itself be transcription-error
+    // prone. The K/H0 constant tables below *are* transcribed from FIPS 180-4 §4.2.2/§4.2.3/§5.3.3
+    // (~/dl/NIST.FIPS.180-4.pdf) — but only feed the SETUP of a real multi-round computation
+    // exercised through the actual instructions under test, so a wrong end-to-end digest would
+    // still be caught even if a single constant were mistyped.
+    //
+    // Word-index-to-named-variable mapping (vs2={a,b,e,f} at idx3,2,1,0; vd={c,d,g,h} at
+    // idx3,2,1,0; vsha2ms's vs2={W11,W10,W9,W4}/vs1={W15,W14,-,W12} at idx3,2,1,0) was confirmed
+    // against the RISC-V Sail reference model (github.com/riscv/sail-riscv,
+    // model/extensions/vector_crypto/zvknhab_insts.sail), not derived from the spec's prose
+    // concatenation notation alone — that notation is genuinely ambiguous without seeing how
+    // get_velem/read_vreg actually index elements.
+
+    private static readonly ulong[] Sha256K = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+
+    private static readonly ulong[] Sha256H0 = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
+
+    private static readonly ulong[] Sha512K = [
+        0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
+        0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
+        0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2,
+        0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694,
+        0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
+        0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5,
+        0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4,
+        0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70,
+        0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df,
+        0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
+        0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30,
+        0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8,
+        0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8,
+        0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3,
+        0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
+        0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b,
+        0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178,
+        0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b,
+        0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c,
+        0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
+    ];
+
+    private static readonly ulong[] Sha512H0 = [
+        0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
+        0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+    ];
+
+    // ── Zvkg: GHASH add-multiply (vghsh.vv) + multiply (vgmul.vv) ───────────────────────────────
+    // McGrew & Viega, "The Galois/Counter Mode of Operation (GCM)" (full specification with worked
+    // test cases; ~/dl/gcm-spec.pdf) Test Case 4, the single most widely reused AES-GCM test
+    // vector across independent implementations. Uniquely among the KATs in this file, the spec
+    // publishes the raw intermediate GHASH(H, A, C) value directly (not just a final tag), so this
+    // validates vghsh.vv on its own — no AES/CTR-mode harness needed, unlike a full-GCM check.
+
+    private static readonly byte[] GcmTest4H = Convert.FromHexString("b83b533708bf535d0aa6e52980d53b78");
+
+    private static readonly byte[] GcmTest4A =
+        Convert.FromHexString("feedfacedeadbeeffeedfacedeadbeefabaddad2");
+
+    private static readonly byte[] GcmTest4C = Convert.FromHexString(
+        "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091"
+    );
+
+    private static readonly byte[] GcmTest4LenBlock = Convert.FromHexString("00000000000000a000000000000001e0");
+    private static readonly byte[] GcmTest4Ghash = Convert.FromHexString("698e57f70e6ecc7fd9463b7260a9ae5f");
+
     private readonly Rv32Decoder _dec = new();
     private readonly Rv32Executor _exe = new();
     private readonly FlatMemory _mem = new(4096);
@@ -112,7 +254,7 @@ public class ZvkTests {
         return _exe.Execute(instr, state, _mem);
     }
 
-    private void ApplySideEffect(ExecuteResult r, Rv32ArchState state) => r.SideEffect?.Invoke(state);
+    private static void ApplySideEffect(ExecuteResult r, Rv32ArchState state) => r.SideEffect?.Invoke(state);
 
     private void Vsetivli(Rv32ArchState state, int vl, int vtypei) =>
         ApplySideEffect(Exec(Vsetivli(0, vl, vtypei), state), state);
@@ -155,13 +297,13 @@ public class ZvkTests {
     }
 
     private static byte GfMulSmall(byte x, int y) {
-        byte Xtime(byte v) => (byte)((v << 1) ^ ((v & 0x80) != 0 ? 0x1B : 0));
         byte r = 0;
         if ((y & 0x1) != 0) r ^= x;
         if ((y & 0x2) != 0) r ^= Xtime(x);
         if ((y & 0x4) != 0) r ^= Xtime(Xtime(x));
         if ((y & 0x8) != 0) r ^= Xtime(Xtime(Xtime(x)));
         return r;
+        byte Xtime(byte v) => (byte)((v << 1) ^ ((v & 0x80) != 0 ? 0x1B : 0));
     }
 
     private static byte[] AesSubBytesRef(byte[] state) {
@@ -201,21 +343,13 @@ public class ZvkTests {
     private static byte[] AesEfRef(byte[] state, byte[] key) =>
         Xor16(AesShiftRowsRef(AesSubBytesRef(state)), key);
 
-    // ── Independent AES inverse-cipher reference — built by inverting the forward reference
-    // above (functional S-box/permutation inversion, not a transcribed inverse formula), so an
-    // error in the forward reference wouldn't be silently mirrored into the inverse one ────────
-
-    private static readonly byte[] SboxInvRefTable = BuildSboxInvRefTable();
-
     private static byte[] BuildSboxInvRefTable() {
         var table = new byte[256];
         for (var x = 0; x < 256; x++) table[AesSboxFwdRef((byte)x)] = (byte)x;
         return table;
     }
 
-    private static byte AesSboxInvRef(byte x) => SboxInvRefTable[x];
-
-    private static readonly int[] ShiftRowsInvPermutation = BuildInvPermutation(ZvkTests.ShiftRowsPermutation);
+    private static byte AesSboxInvRef(byte x) => ZvkTests.SboxInvRefTable[x];
 
     private static int[] BuildInvPermutation(int[] perm) {
         var inv = new int[perm.Length];
@@ -231,7 +365,7 @@ public class ZvkTests {
 
     private static byte[] AesShiftRowsInvRef(byte[] state) {
         var result = new byte[16];
-        for (var i = 0; i < 16; i++) result[i] = state[ShiftRowsInvPermutation[i]];
+        for (var i = 0; i < 16; i++) result[i] = state[ZvkTests.ShiftRowsInvPermutation[i]];
         return result;
     }
 
@@ -241,10 +375,14 @@ public class ZvkTests {
         var result = new byte[16];
         for (var c = 0; c < 4; c++) {
             byte s0 = state[4 * c], s1 = state[4 * c + 1], s2 = state[4 * c + 2], s3 = state[4 * c + 3];
-            result[4 * c] = (byte)(GfMulSmall(s0, 0xE) ^ GfMulSmall(s1, 0xB) ^ GfMulSmall(s2, 0xD) ^ GfMulSmall(s3, 0x9));
-            result[4 * c + 1] = (byte)(GfMulSmall(s0, 0x9) ^ GfMulSmall(s1, 0xE) ^ GfMulSmall(s2, 0xB) ^ GfMulSmall(s3, 0xD));
-            result[4 * c + 2] = (byte)(GfMulSmall(s0, 0xD) ^ GfMulSmall(s1, 0x9) ^ GfMulSmall(s2, 0xE) ^ GfMulSmall(s3, 0xB));
-            result[4 * c + 3] = (byte)(GfMulSmall(s0, 0xB) ^ GfMulSmall(s1, 0xD) ^ GfMulSmall(s2, 0x9) ^ GfMulSmall(s3, 0xE));
+            result[4 * c]
+                = (byte)(GfMulSmall(s0, 0xE) ^ GfMulSmall(s1, 0xB) ^ GfMulSmall(s2, 0xD) ^ GfMulSmall(s3, 0x9));
+            result[4 * c + 1]
+                = (byte)(GfMulSmall(s0, 0x9) ^ GfMulSmall(s1, 0xE) ^ GfMulSmall(s2, 0xB) ^ GfMulSmall(s3, 0xD));
+            result[4 * c + 2]
+                = (byte)(GfMulSmall(s0, 0xD) ^ GfMulSmall(s1, 0x9) ^ GfMulSmall(s2, 0xE) ^ GfMulSmall(s3, 0xB));
+            result[4 * c + 3]
+                = (byte)(GfMulSmall(s0, 0xB) ^ GfMulSmall(s1, 0xD) ^ GfMulSmall(s2, 0x9) ^ GfMulSmall(s3, 0xE));
         }
 
         return result;
@@ -332,30 +470,6 @@ public class ZvkTests {
         for (int j = i + 1; j < 4; j++)
             Assert.NotEqual(results[i], results[j]);
     }
-
-    // ── FIPS-197 known-answer tests (AES-128, Nk=4, Nr=10) ──────────────────────────────────────
-    // Round-key schedule transcribed verbatim from the published NIST FIPS-197 Appendix A.1 key
-    // expansion example (key 2b7e1516...), and the cipher trace from Appendix B (which explicitly
-    // reuses the Appendix A.1 schedule) — not derived from this codebase or from ZvkTests' own
-    // from-scratch reference. This validates SubBytes+ShiftRows+MixColumns+round-composition
-    // against an external authority instead of only against ourselves.
-
-    private static readonly byte[][] Fips197A1RoundKeys = [
-        Convert.FromHexString("2b7e151628aed2a6abf7158809cf4f3c"), // rk0 (the raw key)
-        Convert.FromHexString("a0fafe1788542cb123a339392a6c7605"), // rk1
-        Convert.FromHexString("f2c295f27a96b9435935807a7359f67f"), // rk2
-        Convert.FromHexString("3d80477d4716fe3e1e237e446d7a883b"), // rk3
-        Convert.FromHexString("ef44a541a8525b7fb671253bdb0bad00"), // rk4
-        Convert.FromHexString("d4d1c6f87c839d87caf2b8bc11f915bc"), // rk5
-        Convert.FromHexString("6d88a37a110b3efddbf98641ca0093fd"), // rk6
-        Convert.FromHexString("4e54f70e5f5fc9f384a64fb24ea6dc4f"), // rk7
-        Convert.FromHexString("ead27321b58dbad2312bf5607f8d292f"), // rk8
-        Convert.FromHexString("ac7766f319fadc2128d12941575c006e"), // rk9
-        Convert.FromHexString("d014f9a8c9ee2589e13f0cc8b6630ca6"), // rk10
-    ];
-
-    private static readonly byte[] Fips197BPlaintext = Convert.FromHexString("3243f6a8885a308d313198a2e0370734");
-    private static readonly byte[] Fips197BCiphertext = Convert.FromHexString("3925841d02dc09fbdc118597196a0b32");
 
     // round[r].start is the state already AddRoundKey'd with rk[r-1] (round[1].start = plaintext
     // XOR rk[0]), so vaesem.vv(round[r].start, rk[r]) == round[r+1].start for r=1..9, and
@@ -558,6 +672,24 @@ public class ZvkTests {
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }
 
+    [Fact]
+    public void VaesefVs_Lmul4_BroadcastsSingleKeyToEveryGroup() {
+        Rv32ArchState s = MakeState();
+        Vsetivli(s, 16, ZvkTests.VtypeiE32M4Tama);
+
+        byte[] key = Block(1350);
+        WriteBlock(s, 16, key);
+        var states = new byte[4][];
+        for (var g = 0; g < 4; g++) {
+            states[g] = Block((uint)(1450 + g));
+            WriteBlock(s, 8 + g, states[g]);
+        }
+
+        ApplySideEffect(Exec(VaesEfVs(8, 16), s), s);
+
+        for (var g = 0; g < 4; g++) Assert.Equal(AesEfRef(states[g], key), ReadBlock(s, 8 + g));
+    }
+
     // ── vaesz.vs: round-0 op, broadcasts vs2 as a plain XOR (no S-box/ShiftRows/MixColumns) ────
 
     [Fact]
@@ -645,7 +777,7 @@ public class ZvkTests {
 
         Rv32ArchState s = MakeState();
         Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
-        WriteBlock(s, 8, roundKeys[0]); // regA
+        WriteBlock(s, 8, roundKeys[0]);  // regA
         WriteBlock(s, 12, roundKeys[1]); // regB
 
         for (var round = 2; round <= 14; round++) {
@@ -673,36 +805,6 @@ public class ZvkTests {
 
         Assert.Equal(ReadBlock(s, 9), ReadBlock(s, 8));
     }
-
-    // ── Zvksed: SM4 block cipher, validated against GB/T 32907-2016 Example 1 (the standard
-    // "key==plaintext" SM4 known-answer test, via draft-ribose-cfrg-sm4's transcription of the
-    // published round-key/round-state trace) — key expansion (vsm4k.vi) and both encrypt and
-    // decrypt directions of the round function (vsm4r.vv), which are identical except for the
-    // order round keys are consumed in.
-    //
-    // SM4 applies a final "reverse transformation R" (swap word0<->word3, word1<->word2) that is
-    // NOT part of vsm4r.vv/vsm4k.vi themselves — confirmed empirically via a throwaway `dotnet fsi`
-    // script implementing the algorithm independently, since guessing the input/output word-order
-    // convention by hand (rather than testing it) proved unreliable. Encryption's current state
-    // starts as the plaintext directly (no pre-reversal) and needs R applied to the final result;
-    // decryption is exactly symmetric (ciphertext directly as the starting state, R applied to the
-    // final result) with round-key groups consumed in reverse group order *and* reverse word order
-    // within each group (the last group's words are consumed key-by-key from its own end backwards).
-
-    private static readonly byte[] Sm4Fk = Convert.FromHexString("A3B1BAC656AA3350677D9197B27022DC");
-    private static readonly byte[] Sm4Key = Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210");
-    private static readonly byte[] Sm4Ciphertext = Convert.FromHexString("681EDF34D206965E86B3E94F536E4246");
-
-    private static readonly byte[][] Sm4RoundKeyGroups = [
-        Convert.FromHexString("F12186F941662B615A6AB19A7BA92077"), // rk[0:3]
-        Convert.FromHexString("367360F4776A0C61B6BB89B324763151"), // rk[4:7]
-        Convert.FromHexString("A520307CB7584DBDC30753ED7EE55B57"), // rk[8:11]
-        Convert.FromHexString("6988608C30D895B744BA14AF104495A1"), // rk[12:15]
-        Convert.FromHexString("D120B42873B55FA3CC87496692244439"), // rk[16:19]
-        Convert.FromHexString("E89E641F98CA015AC715906099E1FD2E"), // rk[20:23]
-        Convert.FromHexString("B79BD80C1D2115B00E228AEBF1780C81"), // rk[24:27]
-        Convert.FromHexString("428D36546229349601CF72E59124A012"), // rk[28:31]
-    ];
 
     private static byte[] ReverseWordOrder(byte[] block16) {
         var result = new byte[16];
@@ -789,67 +891,6 @@ public class ZvkTests {
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }
 
-    // ── Zvknha/Zvknhb: SHA-2 compression (vsha2c[hl].vv) + message schedule (vsha2ms.vv) ────────
-    // Validated end-to-end against System.Security.Cryptography.SHA256/SHA512 — an independently
-    // implemented, real oracle — rather than a hand-transcribed round-by-round trace, since
-    // NIST FIPS 180-4's on-disk text does not include a worked example with intermediate values
-    // (same situation as FIPS-197's Appendix C, see the Zvkned AES tests above) and manually
-    // re-deriving 64/80 rounds of intermediate arithmetic would itself be transcription-error
-    // prone. The K/H0 constant tables below *are* transcribed from FIPS 180-4 §4.2.2/§4.2.3/§5.3.3
-    // (~/dl/NIST.FIPS.180-4.pdf) — but only feed the SETUP of a real multi-round computation
-    // exercised through the actual instructions under test, so a wrong end-to-end digest would
-    // still be caught even if a single constant were mistyped.
-    //
-    // Word-index-to-named-variable mapping (vs2={a,b,e,f} at idx3,2,1,0; vd={c,d,g,h} at
-    // idx3,2,1,0; vsha2ms's vs2={W11,W10,W9,W4}/vs1={W15,W14,-,W12} at idx3,2,1,0) was confirmed
-    // against the RISC-V Sail reference model (github.com/riscv/sail-riscv,
-    // model/extensions/vector_crypto/zvknhab_insts.sail), not derived from the spec's prose
-    // concatenation notation alone — that notation is genuinely ambiguous without seeing how
-    // get_velem/read_vreg actually index elements.
-
-    private static readonly ulong[] Sha256K = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-    ];
-
-    private static readonly ulong[] Sha256H0 = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-    ];
-
-    private static readonly ulong[] Sha512K = [
-        0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
-        0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
-        0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2,
-        0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694,
-        0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
-        0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5,
-        0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4,
-        0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70,
-        0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df,
-        0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
-        0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30,
-        0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8,
-        0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8,
-        0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3,
-        0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
-        0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b,
-        0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178,
-        0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b,
-        0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c,
-        0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
-    ];
-
-    private static readonly ulong[] Sha512H0 = [
-        0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
-        0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
-    ];
-
     private static void SetGroupWord(byte[] group, int wordIndex, int wordBytes, ulong value) {
         int o = wordIndex * wordBytes;
         for (var b = 0; b < wordBytes; b++) group[o + b] = (byte)(value >> (8 * b));
@@ -889,7 +930,7 @@ public class ZvkTests {
         var padded = new byte[numBlocks * blockBytes];
         Array.Copy(message, padded, msgLen);
         padded[msgLen] = 0x80;
-        var bitLen = (ulong)msgLen * 8;
+        ulong bitLen = (ulong)msgLen * 8;
         for (var i = 0; i < 8; i++) padded[padded.Length - 1 - i] = (byte)(bitLen >> (8 * i));
         return padded;
     }
@@ -905,10 +946,13 @@ public class ZvkTests {
         int wordBytes = sewBits / 8;
         int egwBytes = wordBytes * 4;
         int regsPerGroup = egwBytes / 16;
-        int vtypei = sewBits == 32 ? VtypeiE32M1Tama : VtypeiE64M2Tama;
+        int vtypei = sewBits == 32 ? ZvkTests.VtypeiE32M1Tama : ZvkTests.VtypeiE64M2Tama;
 
-        int RegBase(int slot) => 1 + slot * regsPerGroup;
-        int rHi = RegBase(0), rLo = RegBase(1), rMsWordsA = RegBase(2), rMsWordsB = RegBase(3), rMsWordsC = RegBase(4),
+        int rHi = RegBase(0),
+            rLo = RegBase(1),
+            rMsWordsA = RegBase(2),
+            rMsWordsB = RegBase(3),
+            rMsWordsC = RegBase(4),
             rMsgConst = RegBase(5);
 
         byte[] padded = Sha2Pad(message, wordBytes);
@@ -1006,6 +1050,8 @@ public class ZvkTests {
         }
 
         return h;
+
+        int RegBase(int slot) => 1 + slot * regsPerGroup;
     }
 
     private static ulong BigEndianWord(byte[] data, int offset, int wordBytes) {
@@ -1031,7 +1077,7 @@ public class ZvkTests {
     )]
     public void Sha256_EndToEnd_MatchesDotNetSha256(string messageText) {
         byte[] message = Encoding.ASCII.GetBytes(messageText);
-        ulong[] actual = RunSha2(message, 32, Sha256K, Sha256H0, 64);
+        ulong[] actual = RunSha2(message, 32, ZvkTests.Sha256K, ZvkTests.Sha256H0, 64);
         byte[] actualBytes = WordsToBigEndianBytes(actual, 4);
 
         Assert.Equal(SHA256.HashData(message), actualBytes);
@@ -1043,7 +1089,7 @@ public class ZvkTests {
     [InlineData("The quick brown fox jumps over the lazy dog")]
     public void Sha512_EndToEnd_MatchesDotNetSha512(string messageText) {
         byte[] message = Encoding.ASCII.GetBytes(messageText);
-        ulong[] actual = RunSha2(message, 64, Sha512K, Sha512H0, 80);
+        ulong[] actual = RunSha2(message, 64, ZvkTests.Sha512K, ZvkTests.Sha512H0, 80);
         byte[] actualBytes = WordsToBigEndianBytes(actual, 8);
 
         Assert.Equal(SHA512.HashData(message), actualBytes);
@@ -1060,9 +1106,9 @@ public class ZvkTests {
         Rv32ArchState s = MakeState();
         Vsetivli(s, 8, ZvkTests.VtypeiE64M4Tama);
 
-        ulong[][] oldWords = [[1, 2, 3, 4], [100, 200, 300, 400],];
-        ulong[][] midWords = [[5, 6, 7, 8], [500, 600, 700, 800],];
-        ulong[][] newWords = [[9, 0, 10, 11], [900, 0, 1000, 1100],];
+        ulong[][] oldWords = [[1, 2, 3, 4,], [100, 200, 300, 400,],];
+        ulong[][] midWords = [[5, 6, 7, 8,], [500, 600, 700, 800,],];
+        ulong[][] newWords = [[9, 0, 10, 11,], [900, 0, 1000, 1100,],];
 
         var vdIn = new byte[64];
         var vs2 = new byte[64];
@@ -1084,7 +1130,7 @@ public class ZvkTests {
         }
 
         WriteGroup(s, 4, vdIn, 64); // regs 4-7
-        WriteGroup(s, 8, vs2, 64); // regs 8-11
+        WriteGroup(s, 8, vs2, 64);  // regs 8-11
         WriteGroup(s, 12, vs1, 64); // regs 12-15
         ApplySideEffect(Exec(Sha2MsVv(4, 8, 12), s), s);
         byte[] outAll = ReadGroup(s, 4, 64);
@@ -1148,7 +1194,9 @@ public class ZvkTests {
         // vs1 = W[7:0], vs2 = W[15:8] — element j maps directly to word j for both (no reversal
         // on the input side; confirmed against the Sail model's plain read_vreg-indexed access).
         WriteGroup(s, 8, Convert.FromHexString("6162638000000000000000000000000000000000000000000000000000000000"), 32);
-        WriteGroup(s, 10, Convert.FromHexString("0000000000000000000000000000000000000000000000000000000000000018"), 32);
+        WriteGroup(
+            s, 10, Convert.FromHexString("0000000000000000000000000000000000000000000000000000000000000018"), 32
+        );
 
         ApplySideEffect(Exec(Sm3MeVv(12, 10, 8), s), s);
 
@@ -1177,7 +1225,9 @@ public class ZvkTests {
 
         // vs2 = message words; only w0,w1,w4,w5 are read (physical idx7,6,3,2 respectively per
         // the same element-order reversal), the rest are don't-care (zeroed here).
-        WriteGroup(s, 10, Convert.FromHexString("0000000000000000000000000000000000000000000000000000000061626380"), 32);
+        WriteGroup(
+            s, 10, Convert.FromHexString("0000000000000000000000000000000000000000000000000000000061626380"), 32
+        );
 
         ApplySideEffect(Exec(Sm3CVi(8, 10, 0), s), s); // rnds=0 -> rounds 0 and 1
 
@@ -1212,7 +1262,9 @@ public class ZvkTests {
     // (V_{i+1} = CF(V_i, B_i) xor V_i — GB/T 32905-2016 §5.3.3), unlike SHA-2's modular addition.
     private byte[] RunSm3(byte[] message) {
         byte[] padded = Sha2Pad(message, 4);
-        uint[] iv = [0x7380166fu, 0x4914b2b9u, 0x172442d7u, 0xda8a0600u, 0xa96f30bcu, 0x163138aau, 0xe38dee4du, 0xb0fb0e4eu,];
+        uint[] iv = [
+            0x7380166fu, 0x4914b2b9u, 0x172442d7u, 0xda8a0600u, 0xa96f30bcu, 0x163138aau, 0xe38dee4du, 0xb0fb0e4eu,
+        ];
         var state = (uint[])iv.Clone();
 
         Rv32ArchState s = MakeState();
@@ -1310,25 +1362,6 @@ public class ZvkTests {
         Assert.Equal(RvTrapCause.IllegalInstruction, r.Trap!.Cause);
     }
 
-    // ── Zvkg: GHASH add-multiply (vghsh.vv) + multiply (vgmul.vv) ───────────────────────────────
-    // McGrew & Viega, "The Galois/Counter Mode of Operation (GCM)" (full specification with worked
-    // test cases; ~/dl/gcm-spec.pdf) Test Case 4, the single most widely reused AES-GCM test
-    // vector across independent implementations. Uniquely among the KATs in this file, the spec
-    // publishes the raw intermediate GHASH(H, A, C) value directly (not just a final tag), so this
-    // validates vghsh.vv on its own — no AES/CTR-mode harness needed, unlike a full-GCM check.
-
-    private static readonly byte[] GcmTest4H = Convert.FromHexString("b83b533708bf535d0aa6e52980d53b78");
-
-    private static readonly byte[] GcmTest4A =
-        Convert.FromHexString("feedfacedeadbeeffeedfacedeadbeefabaddad2");
-
-    private static readonly byte[] GcmTest4C = Convert.FromHexString(
-        "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091"
-    );
-
-    private static readonly byte[] GcmTest4LenBlock = Convert.FromHexString("00000000000000a000000000000001e0");
-    private static readonly byte[] GcmTest4Ghash = Convert.FromHexString("698e57f70e6ecc7fd9463b7260a9ae5f");
-
     private static byte[] PadTo16(byte[] data) {
         if (data.Length == 16) return data;
         var result = new byte[16];
@@ -1341,38 +1374,39 @@ public class ZvkTests {
         Rv32ArchState s = MakeState();
         Vsetivli(s, 4, ZvkTests.VtypeiE32M1Tama);
 
-        var blocks = new List<byte[]>();
-        blocks.Add(GcmTest4A[..16]); // AAD block 1 (full)
-        blocks.Add(PadTo16(GcmTest4A[16..])); // AAD block 2 (4 bytes, zero-padded)
-        for (var off = 0; off + 16 <= GcmTest4C.Length; off += 16)
-            blocks.Add(GcmTest4C[off..(off + 16)]); // ciphertext blocks 1-3 (full)
-        int rem = GcmTest4C.Length % 16;
-        if (rem != 0) blocks.Add(PadTo16(GcmTest4C[^rem..])); // ciphertext block 4 (12 bytes, zero-padded)
-        blocks.Add(GcmTest4LenBlock); // len(A) || len(C), in bits
+        var blocks = new List<byte[]> {
+            ZvkTests.GcmTest4A[..16],          // AAD block 1 (full)
+            PadTo16(ZvkTests.GcmTest4A[16..]), // AAD block 2 (4 bytes, zero-padded)
+        };
+        for (var off = 0; off + 16 <= ZvkTests.GcmTest4C.Length; off += 16)
+            blocks.Add(ZvkTests.GcmTest4C[off..(off + 16)]); // ciphertext blocks 1-3 (full)
+        int rem = ZvkTests.GcmTest4C.Length % 16;
+        if (rem != 0) blocks.Add(PadTo16(ZvkTests.GcmTest4C[^rem..])); // ciphertext block 4 (12 bytes, zero-padded)
+        blocks.Add(ZvkTests.GcmTest4LenBlock);                         // len(A) || len(C), in bits
 
-        WriteBlock(s, 12, GcmTest4H); // vs2 = H, constant across the chain
-        WriteBlock(s, 8, new byte[16]); // vd = Y0 = 0
+        WriteBlock(s, 12, ZvkTests.GcmTest4H); // vs2 = H, constant across the chain
+        WriteBlock(s, 8, new byte[16]);        // vd = Y0 = 0
 
         foreach (byte[] block in blocks) {
             WriteBlock(s, 16, block); // vs1 = Xi
             ApplySideEffect(Exec(VghshVv(8, 12, 16), s), s);
         }
 
-        Assert.Equal(GcmTest4Ghash, ReadBlock(s, 8));
+        Assert.Equal(ZvkTests.GcmTest4Ghash, ReadBlock(s, 8));
     }
 
     [Fact]
     public void VgmulVv_MatchesVghshVvWithZeroX() {
         Rv32ArchState viaGmul = MakeState();
         Vsetivli(viaGmul, 4, ZvkTests.VtypeiE32M1Tama);
-        WriteBlock(viaGmul, 8, GcmTest4LenBlock); // arbitrary multiplier
-        WriteBlock(viaGmul, 12, GcmTest4H);
+        WriteBlock(viaGmul, 8, ZvkTests.GcmTest4LenBlock); // arbitrary multiplier
+        WriteBlock(viaGmul, 12, ZvkTests.GcmTest4H);
         ApplySideEffect(Exec(VgmulVv(8, 12), viaGmul), viaGmul);
 
         Rv32ArchState viaGhsh = MakeState();
         Vsetivli(viaGhsh, 4, ZvkTests.VtypeiE32M1Tama);
-        WriteBlock(viaGhsh, 8, GcmTest4LenBlock);
-        WriteBlock(viaGhsh, 12, GcmTest4H);
+        WriteBlock(viaGhsh, 8, ZvkTests.GcmTest4LenBlock);
+        WriteBlock(viaGhsh, 12, ZvkTests.GcmTest4H);
         WriteBlock(viaGhsh, 16, new byte[16]); // X = 0
         ApplySideEffect(Exec(VghshVv(8, 12, 16), viaGhsh), viaGhsh);
 

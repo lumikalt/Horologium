@@ -3629,10 +3629,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool HasLoadAccess,
         ulong LoadAddr,
         int LoadBytes,
-        bool LoadWasForwarded,    // true if TryForwardFromStore supplied the register value
-        bool RequestHalt = false, // true for an HTIF tohost-exit store: halt after commit
+        bool LoadWasForwarded,     // true if TryForwardFromStore supplied the register value
+        bool RequestHalt = false,  // true for an HTIF tohost-exit store: halt after commit
         bool RequestBlock = false, // true for a still-blocked syscall (e.g. futex FUTEX_WAIT)
-        ulong InstrId = 0,        // per-instruction age, for pruning in-flight results on a partial squash
+        ulong InstrId = 0,         // per-instruction age, for pruning in-flight results on a partial squash
         Action<IArchState>? SideEffect
             = null, // deferred to Commit for scalar ops; null for vec/uve (applied at Execute)
         int LatencyOverride

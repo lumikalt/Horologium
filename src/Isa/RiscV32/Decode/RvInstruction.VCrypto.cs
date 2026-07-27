@@ -7,7 +7,12 @@ namespace RiscV32.Decode;
 // VLEN=128 in this codebase) always occupies exactly one physical vector register regardless of
 // LMUL.
 
-public enum VAesRoundKind { DecryptMiddle, DecryptFinal, EncryptMiddle, EncryptFinal }
+public enum VAesRoundKind {
+    DecryptMiddle,
+    DecryptFinal,
+    EncryptMiddle,
+    EncryptFinal,
+}
 
 // vaes{d,e}{m,f}.vv: vd is both the round-state source and the new-round-state destination; the
 // round key comes from the element group in vs2 matching vd's group index.
@@ -55,7 +60,7 @@ public record RvSm4KVi(int Vd, int Vs2, int Round) : RvOp;
 // vs1 is a genuine third vector source register — funct6 alone selects the operation, vs1 is
 // never repurposed as a sub-op selector or immediate here.
 
-public enum Sha2CompressKind { High, Low }
+public enum Sha2CompressKind { High, Low, }
 
 // vsha2ch.vv/vsha2cl.vv: two rounds of SHA-2 compression (spec §3.21). vs2 holds working-state
 // words {a,b,e,f}, vd holds {c,d,g,h} — both read as input and vd overwritten with the new

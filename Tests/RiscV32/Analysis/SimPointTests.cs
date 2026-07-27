@@ -90,7 +90,7 @@ public class SimPointTests {
 
         Assert.Equal(2, profiler.Intervals.Count);
         Assert.Equal(2L, profiler.Intervals[1][0x08]); // remainder continues under its own address
-        Assert.Equal(4, profiler.TotalInstructions); // no instruction lost or double-counted by the cut
+        Assert.Equal(4, profiler.TotalInstructions);   // no instruction lost or double-counted by the cut
     }
 
     [Fact]

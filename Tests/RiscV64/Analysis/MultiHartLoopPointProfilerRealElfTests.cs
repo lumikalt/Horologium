@@ -54,7 +54,7 @@ public class MultiHartLoopPointProfilerRealElfTests {
         ulong mmapLimit = workload.BaseAddress + 14UL * 1024 * 1024;
         var handler = new LinuxSyscallEmulator(workload.InitialBreak, new StringWriter(), 8, mmapBase, mmapLimit);
 
-        Rv64Mechanism[] mechanisms = [
+        IMechanism[] mechanisms = [
             new Rv64Mechanism(syscallHandler: handler, hartId: 0),
             new Rv64Mechanism(syscallHandler: handler, hartId: 1),
             new Rv64Mechanism(syscallHandler: handler, hartId: 2),
@@ -87,9 +87,9 @@ public class MultiHartLoopPointProfilerRealElfTests {
         // any weight at all. pthread_probe.elf must actually pass through more than one such count
         // (single-threaded startup/teardown vs. 3-hart steady state) for this to be a real test of
         // variable parallelism rather than an accidental single case.
-        var activeHartCounts = profiler.RegionBbvs
-            .Select(region => region.Keys.Select(k => k >> 48).Distinct().Count())
-            .ToList();
+        List<int> activeHartCounts = profiler.RegionBbvs
+                                             .Select(region => region.Keys.Select(k => k >> 48).Distinct().Count())
+                                             .ToList();
         Assert.True(
             activeHartCounts.Distinct().Count() >= 2,
             $"expected at least 2 distinct active-hart-counts across regions, got: [{string.Join(",", activeHartCounts)}]"

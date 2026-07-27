@@ -28,11 +28,11 @@ namespace Mechanism;
 public sealed class MultiHartCheckpoint {
     private const uint Magic = 0x5254524F; // "ORTR" little-endian — distinct from ArchitecturalCheckpoint's
     private const int Version = 1;
+    private readonly ulong[][] _hartIntRegs;
 
     private readonly byte[][] _hartIsaBlobs;
     private readonly ulong[] _hartPcs;
     private readonly int[] _hartPrivileges;
-    private readonly ulong[][] _hartIntRegs;
     private readonly byte[] _memoryData;
     private readonly byte[]? _syscallHandlerBlob;
 
@@ -64,6 +64,12 @@ public sealed class MultiHartCheckpoint {
     /// <summary>Number of harts this checkpoint covers.</summary>
     public int HartCount => _hartPcs.Length;
 
+    /// <summary>Base address of the shared-memory snapshot.</summary>
+    public ulong MemoryBaseAddress { get; }
+
+    /// <summary>Size of the shared-memory snapshot in bytes.</summary>
+    public int MemorySizeBytes { get; }
+
     /// <summary>
     ///     Hart <paramref name="hartId" />'s PC at capture time. Detailed pipeline trains
     ///     (e.g. <c>FiveStageTrain</c>) track their own fetch-address state separately from
@@ -75,12 +81,6 @@ public sealed class MultiHartCheckpoint {
     ///     already does with <c>ArchitecturalCheckpoint.Pc</c>.
     /// </summary>
     public ulong PcOf(int hartId) => _hartPcs[hartId];
-
-    /// <summary>Base address of the shared-memory snapshot.</summary>
-    public ulong MemoryBaseAddress { get; }
-
-    /// <summary>Size of the shared-memory snapshot in bytes.</summary>
-    public int MemorySizeBytes { get; }
 
     /// <summary>
     ///     Captures every hart in <paramref name="hartStates" /> plus one shared-memory snapshot and
@@ -179,7 +179,9 @@ public sealed class MultiHartCheckpoint {
             handlerBlob = handlerLen > 0 ? r.ReadBytes(handlerLen) : [];
         }
 
-        return new MultiHartCheckpoint(tick, pcs, privileges, intRegs, isaBlobs, memData, memBase, memSize, handlerBlob);
+        return new MultiHartCheckpoint(
+            tick, pcs, privileges, intRegs, isaBlobs, memData, memBase, memSize, handlerBlob
+        );
     }
 
     /// <summary>
@@ -197,12 +199,11 @@ public sealed class MultiHartCheckpoint {
     ) {
         if (hartStates.Count != HartCount)
             throw new CheckpointException($"Checkpoint has {HartCount} harts, but {hartStates.Count} were given.");
-        if (sharedMemory.BaseAddress != MemoryBaseAddress || sharedMemory.SizeBytes != MemorySizeBytes) {
+        if (sharedMemory.BaseAddress != MemoryBaseAddress || sharedMemory.SizeBytes != MemorySizeBytes)
             throw new CheckpointException(
                 $"Memory mismatch: checkpoint has base=0x{MemoryBaseAddress:X} size={MemorySizeBytes}, " +
                 $"but target has base=0x{sharedMemory.BaseAddress:X} size={sharedMemory.SizeBytes}."
             );
-        }
 
         for (var h = 0; h < HartCount; h++) {
             IArchState state = hartStates[h];

@@ -425,8 +425,7 @@ internal sealed class PipelineCore : Gear {
         // Mirrors the serialize-until-retired immunity every other train already
         // has for this instruction by construction (OoO/Cpr head-of-queue issue,
         // Dae full-drain barrier, Superscalar/Smt inherently sequential execute).
-        if (!stall && incoming is { MayAccessArbitraryMemory: true, })
-            stall = idExLast.IsValid || exMemLast.IsValid;
+        if (!stall && incoming is { MayAccessArbitraryMemory: true, }) stall = idExLast.IsValid || exMemLast.IsValid;
 
         // Reconcile any branch leaving EX with the prediction made at fetch.
         // The predictor is trained on every resolved branch; a flush (and a
@@ -494,7 +493,8 @@ internal sealed class PipelineCore : Gear {
         // real target.
         if (exMemLast is {
                 IsValid: true,
-                Result: { IsHalt: true, } or { HasTrap: true, } or { IsReturnFromTrap: true, } or { RequestBlock: true, },
+                Result: { IsHalt: true, } or { HasTrap: true, } or { IsReturnFromTrap: true, } or
+                        { RequestBlock: true, },
             }
          || (memWbLast is { IsValid: true, }
           && (memWbLast.IsHalt || memWbLast.HasTrap || memWbLast.IsReturnFromTrap || memWbLast.RequestBlock))) {

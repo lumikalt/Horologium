@@ -84,7 +84,7 @@ public sealed class Rv64ElfWorkload : IElfWorkload {
 
     /// <inheritdoc />
     public IReadOnlyList<(string Name, ulong Address, ulong Size)> EnumerateSymbols() =>
-        [.. EnumerateSymbolEntries().Where(e => e.Name.Length > 0 && e.Size > 0)];
+        [.. EnumerateSymbolEntries().Where(e => e.Name.Length > 0 && e.Size > 0),];
 
     // Reads through _elfBytes.AsSpan(offset) per call rather than holding one ReadOnlySpan<byte>
     // local across the method — a span (ref struct) can't be preserved across a yield boundary.

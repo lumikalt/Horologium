@@ -721,7 +721,7 @@ public partial class Rv32Decoder {
         // in) is used for dispatch below — with zimm6hi=1 the folded 6-bit value is 0x15, which
         // collides with vrol.vv/vx's real funct6 and would otherwise misdecode.
         if (funct3 == 3 && ((raw >> 27) & 0x1F) == 0x0A) {
-            var uimm6 = (int)(((raw >> 26) & 1) << 5) | rs1;
+            int uimm6 = (int)(((raw >> 26) & 1) << 5) | rs1;
             return new RvInstruction(
                 pc, raw, -1, [], ToothClass.Vector,
                 new RvVIntAluVi(VIntOp.Ror, vd, vs2, uimm6, masked)
@@ -880,24 +880,24 @@ public partial class Rv32Decoder {
             };
 
         VIntOp? intOp = funct6 switch {
-            0  => VIntOp.Add,
-            2  => VIntOp.Sub,
-            3  => VIntOp.Rsub,
-            4  => VIntOp.Minu,
-            5  => VIntOp.Min,
-            6  => VIntOp.Maxu,
-            7  => VIntOp.Max,
-            9  => VIntOp.And,
-            10 => VIntOp.Or,
-            11 => VIntOp.Xor,
-            23 => VIntOp.Mov, // vmv.v.v / vmv.v.x / vmv.v.i (vm=1, unmasked)
-            37 => VIntOp.Sll,
-            40 => VIntOp.Srl,
-            41 => VIntOp.Sra,
-            1  => VIntOp.Andn, // vandn (Zvbb/Zvkb): VV/VX only
-            0x14 => VIntOp.Ror, // vror (Zvbb/Zvkb): VV/VX here; .vi intercepted above
-            0x15 => VIntOp.Rol, // vrol (Zvbb/Zvkb): VV/VX only
-            _  => null,
+            0    => VIntOp.Add,
+            2    => VIntOp.Sub,
+            3    => VIntOp.Rsub,
+            4    => VIntOp.Minu,
+            5    => VIntOp.Min,
+            6    => VIntOp.Maxu,
+            7    => VIntOp.Max,
+            9    => VIntOp.And,
+            10   => VIntOp.Or,
+            11   => VIntOp.Xor,
+            23   => VIntOp.Mov, // vmv.v.v / vmv.v.x / vmv.v.i (vm=1, unmasked)
+            37   => VIntOp.Sll,
+            40   => VIntOp.Srl,
+            41   => VIntOp.Sra,
+            1    => VIntOp.Andn, // vandn (Zvbb/Zvkb): VV/VX only
+            0x14 => VIntOp.Ror,  // vror (Zvbb/Zvkb): VV/VX here; .vi intercepted above
+            0x15 => VIntOp.Rol,  // vrol (Zvbb/Zvkb): VV/VX only
+            _    => null,
         };
 
         VMaskCmpOp? cmpOp = funct6 switch {
@@ -1006,21 +1006,21 @@ public partial class Rv32Decoder {
         };
 
         RvOp op = funct6 switch {
-            0x28 when vs1 == 16 => new RvSm4RVv(vd, vs2),
+            0x28 when vs1 == 16   => new RvSm4RVv(vd, vs2),
             0x28 when vs1 == 0x11 => new RvVGmulVv(vd, vs2),
-            0x28 => new RvVaesRoundVv(RoundKind(raw, vs1), vd, vs2),
-            0x29 when vs1 == 7 => new RvVaesZVs(vd, vs2),
-            0x29 when vs1 == 16 => new RvSm4RVs(vd, vs2),
-            0x29 => new RvVaesRoundVs(RoundKind(raw, vs1), vd, vs2),
-            0x21 => new RvSm4KVi(vd, vs2, vs1),
-            0x22 => new RvVaesKf1Vi(vd, vs2, vs1),
-            0x2A => new RvVaesKf2Vi(vd, vs2, vs1),
-            0x2D => new RvSha2MsVv(vd, vs1, vs2),
-            0x2E => new RvSha2CVv(Sha2CompressKind.High, vd, vs1, vs2),
-            0x2F => new RvSha2CVv(Sha2CompressKind.Low, vd, vs1, vs2),
-            0x20 => new RvSm3MeVv(vd, vs1, vs2),
-            0x2B => new RvSm3CVi(vd, vs2, vs1),
-            0x2C => new RvVGhshVv(vd, vs1, vs2),
+            0x28                  => new RvVaesRoundVv(RoundKind(raw, vs1), vd, vs2),
+            0x29 when vs1 == 7    => new RvVaesZVs(vd, vs2),
+            0x29 when vs1 == 16   => new RvSm4RVs(vd, vs2),
+            0x29                  => new RvVaesRoundVs(RoundKind(raw, vs1), vd, vs2),
+            0x21                  => new RvSm4KVi(vd, vs2, vs1),
+            0x22                  => new RvVaesKf1Vi(vd, vs2, vs1),
+            0x2A                  => new RvVaesKf2Vi(vd, vs2, vs1),
+            0x2D                  => new RvSha2MsVv(vd, vs1, vs2),
+            0x2E                  => new RvSha2CVv(Sha2CompressKind.High, vd, vs1, vs2),
+            0x2F                  => new RvSha2CVv(Sha2CompressKind.Low, vd, vs1, vs2),
+            0x20                  => new RvSm3MeVv(vd, vs1, vs2),
+            0x2B                  => new RvSm3CVi(vd, vs2, vs1),
+            0x2C                  => new RvVGhshVv(vd, vs1, vs2),
             _ => throw new IllegalInstructionException(
                 raw, $"V-crypto op (opcode 0x77): unsupported funct6=0x{funct6:X2}"
             ),

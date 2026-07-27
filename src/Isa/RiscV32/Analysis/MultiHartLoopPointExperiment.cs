@@ -92,7 +92,10 @@ public static class MultiHartLoopPointExperiment {
     /// <param name="rangeStart">Loop-header detection is restricted to <c>[rangeStart, rangeEnd)</c> — the main program image.</param>
     /// <param name="rangeEnd">See <paramref name="rangeStart" />.</param>
     /// <param name="targetGlobalInstructions">Section III-C's per-region global (all-harts) filtered-instruction target.</param>
-    /// <param name="excludedRanges">Spin-loop/sync-library ranges to exclude from both BBV weight and the region-length target (see <c>SyncLibrarySymbols</c>).</param>
+    /// <param name="excludedRanges">
+    ///     Spin-loop/sync-library ranges to exclude from both BBV weight and the region-length target
+    ///     (see <c>SyncLibrarySymbols</c>).
+    /// </param>
     /// <param name="profileMaxTicks">Tick budget for the profiling pass.</param>
     public static LoopPointCheckpointSet CaptureLoopPointCheckpoints(
         MultiHartKernel kernel,
@@ -119,7 +122,10 @@ public static class MultiHartLoopPointExperiment {
             // same instance (real clone()'s CLONE_FILES) — first match is the shared handler.
             ICheckpointableSyscallHandler? handler = null;
             foreach (IMechanism m in mechanisms)
-                if (m.SyscallHandler is ICheckpointableSyscallHandler h) { handler = h; break; }
+                if (m.SyscallHandler is ICheckpointableSyscallHandler h) {
+                    handler = h;
+                    break;
+                }
 
             using var ms = new MemoryStream();
             MultiHartCheckpoint.Save(ms, hartStates, sharedMemory, handler, (ulong)kernel.Ticks);
@@ -129,10 +135,10 @@ public static class MultiHartLoopPointExperiment {
 
         SnapshotRegionStart(0); // region 0's start is the pre-run state — no boundary fires for it.
 
-        var decoders = mechanisms.Select(m => m.Decoder).ToList();
+        List<IDecoder> decoders = mechanisms.Select(m => m.Decoder).ToList();
         var profiler = new MultiHartLoopPointProfiler(
             decoders, rangeStart, rangeEnd, targetGlobalInstructions, excludedRanges,
-            onRegionBoundary: SnapshotRegionStart
+            SnapshotRegionStart
         );
         for (var h = 0; h < mechanisms.Count; h++) kernel.SetObserver(h, profiler.HartObserver(h));
 
@@ -183,7 +189,8 @@ public static class MultiHartLoopPointExperiment {
     /// <param name="warmupInstructions">Global (all-harts) unmeasured warmup instructions per region, run after restore.</param>
     public static LoopPointResult MeasureLoopPointCheckpoints(
         LoopPointCheckpointSet captured,
-        Func<(IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler)> hartMechanismsFactory,
+        Func<(IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler)>
+            hartMechanismsFactory,
         Func<IMechanism, IMemory, ulong, InstructionCounter, ISteppableTrain> detailedTrainFactory,
         long warmupInstructions
     ) {
@@ -215,14 +222,15 @@ public static class MultiHartLoopPointExperiment {
                 }
 
                 ulong pc = chk.PcOf(h);
-                if (pc < captured.MemoryBaseAddress || pc >= captured.MemoryBaseAddress + (ulong)captured.MemorySizeBytes) {
+                if (pc < captured.MemoryBaseAddress
+                 || pc >= captured.MemoryBaseAddress + (ulong)captured.MemorySizeBytes)
                     throw new InvalidOperationException(
                         $"LoopPoint region {regionIndex}: hart {h} is marked live but its checkpointed " +
                         $"PC 0x{pc:X} falls outside the workload's mapped memory " +
-                        $"[0x{captured.MemoryBaseAddress:X}, 0x{captured.MemoryBaseAddress + (ulong)captured.MemorySizeBytes:X}) " +
+                        $"[0x{captured.MemoryBaseAddress:X}, 0x{captured.MemoryBaseAddress + (ulong)captured.MemorySizeBytes:X}) "
+                       +
                         "— refusing to measure a hart that would fetch garbage as code."
                     );
-                }
 
                 var counter = new InstructionCounter();
                 counters.Add(counter);

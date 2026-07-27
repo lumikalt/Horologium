@@ -23,15 +23,6 @@ public class MultiHartWarmupMeasureDriverDeadlockTests {
     private const uint AddiX1Plus1 = 0x0010_8093; // addi x1, x1, 1
     private const uint Ebreak = 0x0010_0073;
 
-    private sealed class NeverClearingHandler : ISyscallHandler {
-        public int CallCount { get; private set; }
-
-        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) {
-            CallCount++;
-            return new ExecuteResult { RequestBlock = true, };
-        }
-    }
-
     /// <summary>
     ///     Hart 0 blocks forever on an ecall no one will ever clear; hart 1 halts almost immediately.
     ///     The measure target (a huge instruction count neither hart can ever reach) would hang the
@@ -46,14 +37,14 @@ public class MultiHartWarmupMeasureDriverDeadlockTests {
     private static void RunScenario() {
         var mem0 = new FlatMemory(0x100);
         var hart0Bytes = new byte[12];
-        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(0), Ecall);
-        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(4), AddiX1Plus1);
-        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(8), Ebreak);
+        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(0), MultiHartWarmupMeasureDriverDeadlockTests.Ecall);
+        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(4), MultiHartWarmupMeasureDriverDeadlockTests.AddiX1Plus1);
+        BitConverter.TryWriteBytes(hart0Bytes.AsSpan(8), MultiHartWarmupMeasureDriverDeadlockTests.Ebreak);
         mem0.Load(0x00, hart0Bytes);
 
         var mem1 = new FlatMemory(0x100);
         var hart1Bytes = new byte[4];
-        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(0), Ebreak);
+        BitConverter.TryWriteBytes(hart1Bytes.AsSpan(0), MultiHartWarmupMeasureDriverDeadlockTests.Ebreak);
         mem1.Load(0x00, hart1Bytes);
 
         var handler = new NeverClearingHandler();
@@ -71,5 +62,14 @@ public class MultiHartWarmupMeasureDriverDeadlockTests {
         // (which does retire, per FiveStageTrain's halt semantics) and contributed no more after.
         Assert.True(handler.CallCount > 1, "expected the blocked ecall to have been retried more than once");
         Assert.Equal(0UL, train0.ArchState.IntegerRegisters.Read(1));
+    }
+
+    private sealed class NeverClearingHandler : ISyscallHandler {
+        public int CallCount { get; private set; }
+
+        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) {
+            CallCount++;
+            return new ExecuteResult { RequestBlock = true, };
+        }
     }
 }

@@ -6,6 +6,8 @@ using RiscV32.Memory;
 using RiscV32.MultiCore;
 using RiscV32.Syscalls;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 #endregion
 
 namespace Tests.RiscV32.MultiHart;
@@ -26,10 +28,10 @@ public class HartIdentityTests {
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
     private static uint Sw(int rs2, int rs1, int imm) {
-        var immU = (uint)imm & 0xFFF;
-        uint imm11_5 = (immU >> 5) & 0x7F;
-        uint imm4_0 = immU & 0x1F;
-        return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
+        uint immU = (uint)imm & 0xFFF;
+        uint imm11To5 = (immU >> 5) & 0x7F;
+        uint imm4To0 = immU & 0x1F;
+        return (imm11To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4To0 << 7) | 0b0100011u;
     }
 
     // beq rs1, rs2, immOffset — used (not jal) for hart 0's infinite loop below, since a jal that
@@ -39,10 +41,10 @@ public class HartIdentityTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b000u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b000u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static void Load(FlatMemory mem, ulong baseAddr, params uint[] words) {
@@ -67,8 +69,8 @@ public class HartIdentityTests {
     [Fact]
     public void Gettid_ReturnsDistinctPerHartValue_NeverZero() {
         var mem = new FlatMemory(0x400);
-        uint[] hart0 = [.. HartIdentityTests.GettidAndStore(HartIdentityTests.Hart0TidAddr), HartIdentityTests.Ebreak,];
-        uint[] hart1 = [.. HartIdentityTests.GettidAndStore(HartIdentityTests.Hart1TidAddr), HartIdentityTests.Ebreak,];
+        uint[] hart0 = [.. GettidAndStore(HartIdentityTests.Hart0TidAddr), HartIdentityTests.Ebreak,];
+        uint[] hart1 = [.. GettidAndStore(HartIdentityTests.Hart1TidAddr), HartIdentityTests.Ebreak,];
         Load(mem, 0x00, hart0);
         Load(mem, 0x40, hart1);
 
@@ -96,16 +98,16 @@ public class HartIdentityTests {
         Load(
             mem,
             0x00,
-            Addi(5, 5, 1),    // 0x00: t0 += 1
-            Beq(0, 0, -4)     // 0x04: unconditional branch back to 0x00
+            Addi(5, 5, 1), // 0x00: t0 += 1
+            Beq(0, 0, -4)  // 0x04: unconditional branch back to 0x00
         );
 
         // Hart 1: SYS_exit_group (94) immediately.
         Load(
             mem,
             0x40,
-            Addi(10, 0, 0),   // a0 = exit status
-            Addi(17, 0, 94),  // a7 = SYS_exit_group
+            Addi(10, 0, 0),  // a0 = exit status
+            Addi(17, 0, 94), // a7 = SYS_exit_group
             HartIdentityTests.Ecall,
             Addi(6, 0, 555),
             Sw(6, 0, (int)HartIdentityTests.Hart1MarkerAddr)
@@ -118,7 +120,7 @@ public class HartIdentityTests {
         kernel.SetEntryPoint(0, 0x00);
         kernel.SetEntryPoint(1, 0x40);
 
-        kernel.Run(1_000_000);
+        kernel.Run();
 
         // If exit_group only halted the calling hart (the bug this test guards against), hart 0's
         // back-branch loop would run for the full 1,000,000 ticks; RequestHaltAll must cut it short.

@@ -37,9 +37,9 @@ public class SpinLoopFilteringEndToEndTests {
         Rv64ElfWorkload Workload,
         MultiHartKernel Kernel,
         IReadOnlyList<(ulong Start, ulong End)> ExcludedRanges
-    ) Boot(out Rv64Mechanism[] mechanisms) {
+        ) Boot(out IMechanism[] mechanisms) {
         const int memorySizeBytes = 16 * 1024 * 1024;
-        var workload = new Rv64ElfWorkload(SpinLoopFilteringEndToEndTests.PthreadProbeElf, memorySizeBytes);
+        var workload = new Rv64ElfWorkload(PthreadProbeElf, memorySizeBytes);
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
@@ -72,7 +72,7 @@ public class SpinLoopFilteringEndToEndTests {
     [Fact]
     public void WithoutExclusion_RealContendedSyncLibraryLoops_ProduceMarkersInsideExcludedRanges() {
         (Rv64ElfWorkload workload, MultiHartKernel kernel, IReadOnlyList<(ulong Start, ulong End)> ranges) =
-            Boot(out Rv64Mechanism[] mechanisms);
+            Boot(out IMechanism[] mechanisms);
 
         var trackers = new LoopHeaderTracker[mechanisms.Length];
         for (var i = 0; i < mechanisms.Length; i++) {
@@ -86,16 +86,17 @@ public class SpinLoopFilteringEndToEndTests {
         Assert.False(kernel.IsDormant(1)); // both pthread_create calls actually spawned
         Assert.False(kernel.IsDormant(2));
 
-        bool anyMarkerInExcludedRange = trackers.Any(
-            t => t.Markers.Any(m => ranges.Any(r => m.Pc >= r.Start && m.Pc < r.End))
-        );
+        bool anyMarkerInExcludedRange
+            = trackers.Any(t => t.Markers.Any(m => ranges.Any(r => m.Pc >= r.Start && m.Pc < r.End))
+            );
         Assert.True(anyMarkerInExcludedRange); // real contention actually exercises a spin-loop back-edge
     }
 
     [Fact]
     public void WithExclusion_ThoseSameMarkersDisappear_EveryOtherMarkerSurvivesUnchanged() {
-        (Rv64ElfWorkload unfilteredWorkload, MultiHartKernel unfilteredKernel, IReadOnlyList<(ulong Start, ulong End)> ranges) =
-            Boot(out Rv64Mechanism[] unfilteredMechanisms);
+        (Rv64ElfWorkload unfilteredWorkload, MultiHartKernel unfilteredKernel,
+         IReadOnlyList<(ulong Start, ulong End)> ranges) =
+            Boot(out IMechanism[] unfilteredMechanisms);
 
         var unfilteredTrackers = new LoopHeaderTracker[unfilteredMechanisms.Length];
         for (var i = 0; i < unfilteredMechanisms.Length; i++) {
@@ -109,7 +110,7 @@ public class SpinLoopFilteringEndToEndTests {
         unfilteredKernel.Run(2_000_000);
 
         (Rv64ElfWorkload workload, MultiHartKernel kernel, IReadOnlyList<(ulong Start, ulong End)> _) =
-            Boot(out Rv64Mechanism[] mechanisms);
+            Boot(out IMechanism[] mechanisms);
 
         var filteredTrackers = new LoopHeaderTracker[mechanisms.Length];
         for (var i = 0; i < mechanisms.Length; i++) {
@@ -123,18 +124,20 @@ public class SpinLoopFilteringEndToEndTests {
         kernel.Run(2_000_000);
 
         for (var i = 0; i < mechanisms.Length; i++) {
-            int excludedCount = unfilteredTrackers[i].Markers.Count(
-                m => ranges.Any(r => m.Pc >= r.Start && m.Pc < r.End)
-            );
+            int excludedCount = unfilteredTrackers[i].Markers
+                                                     .Count(m => ranges.Any(r => m.Pc >= r.Start && m.Pc < r.End)
+                                                      );
             Assert.True(excludedCount > 0); // this hart genuinely hit an excluded header at least once
 
             Assert.DoesNotContain(filteredTrackers[i].Markers, m => ranges.Any(r => m.Pc >= r.Start && m.Pc < r.End));
 
             // Every marker outside an excluded range survives filtering untouched: the unfiltered
             // run's non-excluded markers count exactly matches the filtered run's marker count.
-            int nonExcludedUnfilteredCount = unfilteredTrackers[i].Markers.Count(
-                m => !ranges.Any(r => m.Pc >= r.Start && m.Pc < r.End)
-            );
+            int nonExcludedUnfilteredCount = unfilteredTrackers[i].Markers
+                                                                  .Count(m => !ranges.Any(r => m.Pc >= r.Start
+                                                                                  && m.Pc < r.End
+                                                                         )
+                                                                   );
             Assert.Equal(nonExcludedUnfilteredCount, filteredTrackers[i].Markers.Count);
         }
     }

@@ -60,8 +60,8 @@ string? loopPointArgvRaw = null; // --looppoint-argv "<args>": required — Loop
 long smartsU = 0; // --smarts <U> <W> <K>: SMARTS systematic sampling (Wunderlich et al., ISCA 2003)
 long smartsW = 0;
 long smartsK = 0;
-long smartsN = 10_000; // --smarts-n <n>: sampling units to measure (paper's own n_init default)
-long smartsJ = 0;      // --smarts-offset <j>: starting offset of the first sampling unit
+long smartsN = 10_000;        // --smarts-n <n>: sampling units to measure (paper's own n_init default)
+long smartsJ = 0;             // --smarts-offset <j>: starting offset of the first sampling unit
 string? smartsArgvRaw = null; // --smarts-argv "<args>": opts --smarts into Linux-ABI entry (psABI
 // initial stack + a LinuxSyscallEmulator shared for the whole run — see
 // Experiment.RunSmarts's doc comment for why SMARTS needs no per-pass fresh
@@ -108,23 +108,23 @@ for (var i = 0; i < args.Length; i++)
         case "--snapshot-interval":
             snapshotInterval = args[i + 1] == "auto" ? (++i, -1L).Item2 : long.Parse(args[++i]);
             break;
-        case "--format":                format = args[++i]; break;
-        case "--trace-json":            traceJsonPath = args[++i]; break;
-        case "--simpoint":              simpointInterval = long.Parse(args[++i]); break;
-        case "--simpoint-warmup":       simpointWarmup = long.Parse(args[++i]); break;
-        case "--simpoint-argv":         simpointArgvRaw = args[++i]; break;
-        case "--looppoint":              loopPointInterval = long.Parse(args[++i]); break;
-        case "--looppoint-warmup":       loopPointWarmup = long.Parse(args[++i]); break;
-        case "--looppoint-argv":         loopPointArgvRaw = args[++i]; break;
-        case "--looppoint-max-harts":    loopPointMaxHarts = long.Parse(args[++i]); break;
+        case "--format":              format = args[++i]; break;
+        case "--trace-json":          traceJsonPath = args[++i]; break;
+        case "--simpoint":            simpointInterval = long.Parse(args[++i]); break;
+        case "--simpoint-warmup":     simpointWarmup = long.Parse(args[++i]); break;
+        case "--simpoint-argv":       simpointArgvRaw = args[++i]; break;
+        case "--looppoint":           loopPointInterval = long.Parse(args[++i]); break;
+        case "--looppoint-warmup":    loopPointWarmup = long.Parse(args[++i]); break;
+        case "--looppoint-argv":      loopPointArgvRaw = args[++i]; break;
+        case "--looppoint-max-harts": loopPointMaxHarts = long.Parse(args[++i]); break;
         case "--smarts":
             smartsU = long.Parse(args[++i]);
             smartsW = long.Parse(args[++i]);
             smartsK = long.Parse(args[++i]);
             break;
-        case "--smarts-n":      smartsN = long.Parse(args[++i]); break;
-        case "--smarts-offset": smartsJ = long.Parse(args[++i]); break;
-        case "--smarts-argv":   smartsArgvRaw = args[++i]; break;
+        case "--smarts-n":              smartsN = long.Parse(args[++i]); break;
+        case "--smarts-offset":         smartsJ = long.Parse(args[++i]); break;
+        case "--smarts-argv":           smartsArgvRaw = args[++i]; break;
         case "--checkpoint-save":       checkpointSavePath = args[++i]; break;
         case "--checkpoint-load":       checkpointLoadPath = args[++i]; break;
         case "--checkpoint-save-micro": checkpointSaveMicroPath = args[++i]; break;
@@ -505,7 +505,7 @@ if (loopPointInterval > 0) {
     // --looppoint run exactly; they're only carved out of the workload's own memory once a real
     // thread-spawning workload is opted into via --looppoint-max-harts, since pthread_create's
     // mmap'd thread stacks are the only thing that needs the arena.
-    int lpHartCount = (int)Math.Max(1, loopPointMaxHarts);
+    var lpHartCount = (int)Math.Max(1, loopPointMaxHarts);
     ulong lpMmapBase = 0, lpMmapLimit = 0;
     if (lpHartCount > 1) {
         lpMmapBase = lpElfWorkload.BaseAddress + (ulong)lpElfWorkload.MemorySize / 2;
@@ -513,13 +513,14 @@ if (loopPointInterval > 0) {
     }
 
     (IReadOnlyList<IMechanism> Mechanisms, LinuxSyscallEmulator Handler) BuildLoopPointMechanisms() {
-        var handler = new LinuxSyscallEmulator(lpElfWorkload.InitialBreak, TextWriter.Null, lpWordSize, lpMmapBase, lpMmapLimit);
+        var handler = new LinuxSyscallEmulator(
+            lpElfWorkload.InitialBreak, TextWriter.Null, lpWordSize, lpMmapBase, lpMmapLimit
+        );
         var mechanisms = new IMechanism[lpHartCount];
-        for (var h = 0; h < lpHartCount; h++) {
+        for (var h = 0; h < lpHartCount; h++)
             mechanisms[h] = xlen == 64
                 ? new Rv64Mechanism(syscallHandler: handler, hartId: h)
                 : new Rv32Mechanism(syscallHandler: handler, hartId: h);
-        }
 
         return (mechanisms, handler);
     }
@@ -581,7 +582,12 @@ if (loopPointInterval > 0) {
             return (freshMechanisms, freshHandler);
         }
 
-        ISteppableTrain LpDetailedTrainFactory(IMechanism mech, IMemory mem, ulong restartPc, InstructionCounter counter) =>
+        ISteppableTrain LpDetailedTrainFactory(
+            IMechanism mech,
+            IMemory mem,
+            ulong restartPc,
+            InstructionCounter counter
+        ) =>
             new FiveStageTrain(mech, mem, restartPc, commitObserver: counter);
 
         LoopPointResult lpResult = MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
@@ -652,7 +658,7 @@ if (smartsK > 0) {
                 )
             : mechanismFactory(smartsWorkload.HtifTohostAddress);
         SmartsResult result = Experiment.RunSmarts(
-            smartsWorkload, smartsMechanism, cfg, smartsParams, argv: smartsArgv, wordSize: smartsWordSize
+            smartsWorkload, smartsMechanism, cfg, smartsParams, smartsArgv, smartsWordSize
         );
 
         Console.WriteLine($"## {name}");
@@ -662,11 +668,13 @@ if (smartsK > 0) {
         );
         Console.WriteLine($"  Mean CPI: {result.MeanCpi:F4}   Mean IPC: {1.0 / result.MeanCpi:F4}");
         Console.WriteLine($"  Coefficient of variation: {result.CoefficientOfVariation:F4}");
-        foreach ((string label, double z) in new (string, double)[] {
+        foreach ((string label, double z) in new[] {
                      ("95%", SmartsStatistics.Z95), ("99.7%", SmartsStatistics.Z997),
                  }) {
             double ci = result.ConfidenceInterval(z);
-            Console.WriteLine($"  {label} confidence interval: CPI {result.MeanCpi:F4} ± {ci * result.MeanCpi:F4} ({ci:P2})");
+            Console.WriteLine(
+                $"  {label} confidence interval: CPI {result.MeanCpi:F4} ± {ci * result.MeanCpi:F4} ({ci:P2})"
+            );
         }
 
         int nTuned = result.RequiredSampleSize(SmartsStatistics.Z997, 0.03);

@@ -19,11 +19,11 @@ public class LoopPointRuntimeExtrapolationTests {
     // Points has one SimulationPoint per cluster, IntervalIndex naming the representative.)
     private static SimPointResult FourRegionTwoClusterFixture() =>
         new(
-            IntervalCount: 4,
-            K: 2,
-            Phases: [0, 1, 0, 1,],
-            Points: [new SimulationPoint(0, 0, 0.5), new SimulationPoint(3, 1, 0.5),],
-            SingleSimulationPoint: 0
+            4,
+            2,
+            [0, 1, 0, 1,],
+            [new SimulationPoint(0, 0, 0.5), new SimulationPoint(3, 1, 0.5),],
+            0
         );
 
     [Fact]
@@ -74,8 +74,9 @@ public class LoopPointRuntimeExtrapolationTests {
         IReadOnlyDictionary<int, double> multipliers = LoopPointRuntimeExtrapolation.ComputeMultipliers(sp, inscounts);
 
         var incompleteRuntimes = new Dictionary<int, double> { [0] = 10.0, }; // missing region 3
-        Assert.Throws<ArgumentException>(
-            () => LoopPointRuntimeExtrapolation.ExtrapolateTotalRuntime(multipliers, incompleteRuntimes)
+        Assert.Throws<ArgumentException>(() => LoopPointRuntimeExtrapolation.ExtrapolateTotalRuntime(
+                                             multipliers, incompleteRuntimes
+                                         )
         );
     }
 }

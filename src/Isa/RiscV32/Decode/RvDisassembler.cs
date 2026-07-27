@@ -286,8 +286,8 @@ public static class RvDisassembler {
 
         // Zvbb/Zvkb/Zvbc
         RvVBitmanipUnaryVv op => $"{VBitmanipUnaryStr(op.Op)}.v v{op.Vd}, v{op.Vs2}{MaskSuffix(op.Masked)}",
-        RvVClmulVv op => $"{VClmulStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
-        RvVClmulVx op => $"{VClmulStr(op.Op)}.vx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
+        RvVClmulVv op         => $"{VClmulStr(op.Op)}.vv v{op.Vd}, v{op.Vs2}, v{op.Vs1}{MaskSuffix(op.Masked)}",
+        RvVClmulVx op         => $"{VClmulStr(op.Op)}.vx v{op.Vd}, v{op.Vs2}, {Xi(op.Rs1)}{MaskSuffix(op.Masked)}",
 
         null => "???",
         _    => payload.GetType().Name,
@@ -301,7 +301,7 @@ public static class RvDisassembler {
         VIntOp.Sll  => "vsll", VIntOp.Srl  => "vsrl", VIntOp.Sra  => "vsra",
         VIntOp.Minu => "vminu", VIntOp.Min => "vmin",
         VIntOp.Maxu => "vmaxu", VIntOp.Max => "vmax",
-        VIntOp.Andn => "vandn", VIntOp.Rol  => "vrol", VIntOp.Ror => "vror",
+        VIntOp.Andn => "vandn", VIntOp.Rol => "vrol", VIntOp.Ror => "vror",
         _           => "v?",
     };
 
@@ -346,7 +346,7 @@ public static class RvDisassembler {
     private static string VBitmanipUnaryStr(VBitmanipUnaryOp op) => op switch {
         VBitmanipUnaryOp.Brev8 => "vbrev8", VBitmanipUnaryOp.Rev8 => "vrev8",
         VBitmanipUnaryOp.Brev  => "vbrev",
-        VBitmanipUnaryOp.Clz   => "vclz", VBitmanipUnaryOp.Ctz   => "vctz",
+        VBitmanipUnaryOp.Clz   => "vclz", VBitmanipUnaryOp.Ctz => "vctz",
         VBitmanipUnaryOp.Cpop  => "vcpop",
         _                      => "v?",
     };

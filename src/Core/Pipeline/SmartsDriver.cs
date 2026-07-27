@@ -144,9 +144,9 @@ public static class SmartsDriver {
     /// <param name="seedInitialState">
     ///     Invoked exactly once, on whichever train (functional fast-forward or detailed) is
     ///     constructed first for the whole run, immediately after construction and before its
-    ///     <c>BeginStepping()</c> — the one point at which there is no <paramref name="carried" />
+    ///     <c>BeginStepping()</c> — the one point at which there is no <c>carried</c>
     ///     state yet for <see cref="ArchStateTransfer.CopyInto" /> to copy in. Lets a caller seed
-    ///     register state <c>Wind()</c> itself never sets (e.g. writing a psABI initial stack
+    ///     register state <c>Wind()</c> itself never sets (e.g., writing a psABI initial stack
     ///     pointer into x2 for Linux-ABI entry) without needing its own train instance just to do it.
     /// </param>
     public static SmartsResult Run(
@@ -166,7 +166,7 @@ public static class SmartsDriver {
         var halted = false;
 
         for (var i = 0; i < parameters.N && !halted; i++) {
-            long targetStart = parameters.J + (long)i * parameters.K;
+            long targetStart = parameters.J + i * parameters.K;
 
             // Warming should start W instructions before the measured window, clamped so it
             // never precedes instruction 0 (early units) and never rewinds behind wherever the
@@ -179,11 +179,14 @@ public static class SmartsDriver {
                 var ffCounter = new InstructionCounter();
                 ulong resumePc = carried?.Pc ?? entryPoint;
                 var functional = new SingleCycleTrain(mechanism, iLayers, dLayers, resumePc, ffCounter, predictor);
-                if (carried is not null) ArchStateTransfer.CopyInto(carried, functional.ArchState);
-                else seedInitialState?.Invoke(functional.ArchState);
+                if (carried is not null)
+                    ArchStateTransfer.CopyInto(carried, functional.ArchState);
+                else
+                    seedInitialState?.Invoke(functional.ArchState);
 
                 functional.BeginStepping();
                 while (ffCounter.Count < ffNeeded && functional.StepCycle()) { }
+
                 functional.FinishStepping();
 
                 globalPos += ffCounter.Count;
@@ -202,8 +205,10 @@ public static class SmartsDriver {
             ISteppableTrain detailed = detailedTrainFactory(
                 mechanism, iLayers, dLayers, predictor, detailedEntryPc, detailedCounter
             );
-            if (carried is not null) ArchStateTransfer.CopyInto(carried, detailed.ArchState!);
-            else seedInitialState?.Invoke(detailed.ArchState!);
+            if (carried is not null)
+                ArchStateTransfer.CopyInto(carried, detailed.ArchState!);
+            else
+                seedInitialState?.Invoke(detailed.ArchState!);
 
             RevolutionResult rev = WarmupMeasureDriver.RunWarmupThenMeasure(
                 detailed, detailedCounter, warmupLen, parameters.U
@@ -221,10 +226,9 @@ public static class SmartsDriver {
             // that already halted (program exit) mid-window has nothing left to drain, and
             // Drain() correctly refuses — same halt-boundary caveat as
             // --checkpoint-save-micro's own Drain() call in the Runner CLI.
-            if (completedWindow && detailed is OooTrain ooo) {
+            if (completedWindow && detailed is OooTrain ooo)
                 try { ooo.Drain(); }
                 catch (InvalidOperationException) { completedWindow = false; }
-            }
 
             long measured = Math.Max(0, measuredCount - warmupLen);
             if (measured > 0) units.Add(new SmartsUnitResult(i, measured, rev.TotalTicks));
@@ -262,7 +266,11 @@ public static class SmartsDriver {
     ///     starting mid-drain-recovery from the previous unit's boundary.
     /// </summary>
     public static SmartsDetailedTrainFactory Ooo(
-        int issueWidth = 2, int robCapacity = 32, int iqCapacity = 8, int lqCapacity = 0, int sqCapacity = 0
+        int issueWidth = 2,
+        int robCapacity = 32,
+        int iqCapacity = 8,
+        int lqCapacity = 0,
+        int sqCapacity = 0
     ) =>
         (mechanism, iLayers, dLayers, predictor, entryPoint, counter) =>
             new OooTrain(

@@ -35,7 +35,7 @@ namespace Tests.RiscV64.Analysis;
 ///         What this does NOT prove: a tick-level comparison against a full cold multi-hart run
 ///         through the detailed pipeline from t=0. That would need <c>MultiHartPipeline</c> to support
 ///         dynamic hart activation (clone() spawning a hart onto a live detailed-pipeline run), which
-///         doesn't exist and is out of scope here (own TODO.md item) — <c>MultiHartPipeline</c> only
+///         doesn't exist and is out of scope here — <c>MultiHartPipeline</c> only
 ///         ever drives harts that were already live when it was constructed. The achievable
 ///         independent cross-check instead is functional: <c>PthreadProbeTests</c> already proves the
 ///         same ELF terminates cleanly on the functional <see cref="MultiHartKernel" />, through a
@@ -43,9 +43,8 @@ namespace Tests.RiscV64.Analysis;
 ///     </para>
 /// </summary>
 public class MultiHartLoopPointExperimentRealElfTests {
-    private static string PthreadProbeElf => Path.Combine(AppContext.BaseDirectory, "pthread_probe.elf");
-    private const int HartCount = 3;
     private const int WordSize = 8;
+    private static string PthreadProbeElf => Path.Combine(AppContext.BaseDirectory, "pthread_probe.elf");
 
     private static (Rv64ElfWorkload Workload, ulong MmapBase, ulong MmapLimit) MakeWorkload() {
         var workload = new Rv64ElfWorkload(PthreadProbeElf, 16 * 1024 * 1024);
@@ -55,21 +54,26 @@ public class MultiHartLoopPointExperimentRealElfTests {
     }
 
     private static (FlatMemory Mem, MultiHartKernel Kernel, IReadOnlyList<IMechanism> Mechanisms) Boot(
-        Rv64ElfWorkload workload, ulong mmapBase, ulong mmapLimit
+        Rv64ElfWorkload workload,
+        ulong mmapBase,
+        ulong mmapLimit
     ) {
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, WordSize, ["pthread_probe.elf",], [],
+            mem, stackTop, MultiHartLoopPointExperimentRealElfTests.WordSize, ["pthread_probe.elf",], [],
             InitialStackBuilder.BuildStandardAuxv(
                 workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
             )
         );
 
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, new StringWriter(), WordSize, mmapBase, mmapLimit);
-        Rv64Mechanism[] mechanisms = [
+        var handler = new LinuxSyscallEmulator(
+            workload.InitialBreak, new StringWriter(), MultiHartLoopPointExperimentRealElfTests.WordSize, mmapBase,
+            mmapLimit
+        );
+        IMechanism[] mechanisms = [
             new Rv64Mechanism(syscallHandler: handler, hartId: 0),
             new Rv64Mechanism(syscallHandler: handler, hartId: 1),
             new Rv64Mechanism(syscallHandler: handler, hartId: 2),
@@ -82,25 +86,37 @@ public class MultiHartLoopPointExperimentRealElfTests {
         return (mem, kernel, mechanisms);
     }
 
-    private static (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) FreshMechanisms(
-        Rv64ElfWorkload workload, ulong mmapBase, ulong mmapLimit
-    ) {
-        var freshHandler = new LinuxSyscallEmulator(workload.InitialBreak, TextWriter.Null, WordSize, mmapBase, mmapLimit);
+    private static (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler)
+        FreshMechanisms(
+            Rv64ElfWorkload workload,
+            ulong mmapBase,
+            ulong mmapLimit
+        ) {
+        var freshHandler = new LinuxSyscallEmulator(
+            workload.InitialBreak, TextWriter.Null, MultiHartLoopPointExperimentRealElfTests.WordSize, mmapBase,
+            mmapLimit
+        );
         Rv64Mechanism[] freshMechanisms = [
-            new Rv64Mechanism(syscallHandler: freshHandler, hartId: 0),
-            new Rv64Mechanism(syscallHandler: freshHandler, hartId: 1),
-            new Rv64Mechanism(syscallHandler: freshHandler, hartId: 2),
+            new(syscallHandler: freshHandler, hartId: 0),
+            new(syscallHandler: freshHandler, hartId: 1),
+            new(syscallHandler: freshHandler, hartId: 2),
         ];
         return (freshMechanisms, freshHandler);
     }
 
-    private static ISteppableTrain DetailedTrainFactory(IMechanism mech, IMemory runMem, ulong restartPc, InstructionCounter counter) =>
+    private static ISteppableTrain DetailedTrainFactory(
+        IMechanism mech,
+        IMemory runMem,
+        ulong restartPc,
+        InstructionCounter counter
+    ) =>
         new FiveStageTrain(mech, runMem, restartPc, commitObserver: counter);
 
     [Fact]
     public void PreSpawnRegion_OnlyMeasuresTheOneLiveHart_NotThePhantomDormantOnes() {
         (Rv64ElfWorkload workload, ulong mmapBase, ulong mmapLimit) = MakeWorkload();
-        (FlatMemory mem, MultiHartKernel kernel, IReadOnlyList<IMechanism> mechanisms) = Boot(workload, mmapBase, mmapLimit);
+        (FlatMemory mem, MultiHartKernel kernel, IReadOnlyList<IMechanism> mechanisms)
+            = Boot(workload, mmapBase, mmapLimit);
 
         IReadOnlyList<(ulong Start, ulong End)> excludedRanges = SyncLibrarySymbols.ExcludedRanges(workload);
         ulong rangeEnd = workload.BaseAddress + (ulong)workload.CodeSize + 0x10000;
@@ -109,8 +125,8 @@ public class MultiHartLoopPointExperimentRealElfTests {
         // into region 0 alone — the pre-run checkpoint, captured before either pthread_create spawns
         // hart 1/2, so both are still dormant (PC 0, untouched IArchState) at this exact boundary.
         LoopPointCheckpointSet captured = MultiHartLoopPointExperiment.CaptureLoopPointCheckpoints(
-            kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, targetGlobalInstructions: 10_000_000,
-            excludedRanges, profileMaxTicks: 2_000_000
+            kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, 10_000_000,
+            excludedRanges, 2_000_000
         );
 
         Assert.False(kernel.IsDormant(1));
@@ -120,7 +136,7 @@ public class MultiHartLoopPointExperimentRealElfTests {
         Assert.Equal([true, false, false,], liveHarts);
 
         LoopPointResult result = MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
-            captured, () => FreshMechanisms(workload, mmapBase, mmapLimit), DetailedTrainFactory, warmupInstructions: 50
+            captured, () => FreshMechanisms(workload, mmapBase, mmapLimit), DetailedTrainFactory, 50
         );
 
         // The discriminating assertion: exactly one hart gets measured. Before RepresentativeLiveHarts
@@ -134,7 +150,8 @@ public class MultiHartLoopPointExperimentRealElfTests {
     [Fact]
     public void SteadyStateRegion_MeasuresAllThreeLiveHarts_IncludingOneBlockedOnFutex() {
         (Rv64ElfWorkload workload, ulong mmapBase, ulong mmapLimit) = MakeWorkload();
-        (FlatMemory mem, MultiHartKernel kernel, IReadOnlyList<IMechanism> mechanisms) = Boot(workload, mmapBase, mmapLimit);
+        (FlatMemory mem, MultiHartKernel kernel, IReadOnlyList<IMechanism> mechanisms)
+            = Boot(workload, mmapBase, mmapLimit);
 
         IReadOnlyList<(ulong Start, ulong End)> excludedRanges = SyncLibrarySymbols.ExcludedRanges(workload);
         ulong rangeEnd = workload.BaseAddress + (ulong)workload.CodeSize + 0x10000;
@@ -142,14 +159,14 @@ public class MultiHartLoopPointExperimentRealElfTests {
         // Small enough that at least one representative region lands in the 3-hart steady state
         // (both workers spawned, main hasn't joined yet) rather than degenerating to 1 hart.
         LoopPointCheckpointSet captured = MultiHartLoopPointExperiment.CaptureLoopPointCheckpoints(
-            kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, targetGlobalInstructions: 60,
-            excludedRanges, profileMaxTicks: 2_000_000
+            kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, 60,
+            excludedRanges, 2_000_000
         );
 
         Assert.Contains(captured.RepresentativeLiveHarts.Values, live => live.All(l => l));
 
         LoopPointResult result = MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
-            captured, () => FreshMechanisms(workload, mmapBase, mmapLimit), DetailedTrainFactory, warmupInstructions: 10
+            captured, () => FreshMechanisms(workload, mmapBase, mmapLimit), DetailedTrainFactory, 10
         );
 
         // Every region's HartResults length must equal that region's own live-hart count exactly —

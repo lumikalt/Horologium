@@ -159,6 +159,18 @@ public interface ITooth {
     bool HasRuntimeSizedVectorDestination => false;
 
     /// <summary>
+    ///     True for instructions whose execution may read or write guest memory at an
+    ///     address/width not statically known from the opcode — e.g. RISC-V ECALL, whose
+    ///     syscall handler can fill an arbitrary caller-supplied buffer (fstat, clock_gettime,
+    ///     getrandom, read). The OoO pipeline treats these like a vector store for load-issue
+    ///     ordering: a younger load may not issue while one is still in the ROB, since there is
+    ///     no statically-known address to check for overlap the normal way. False for all other
+    ///     System-class instructions (CSR reads/writes, SRET/MRET/WFI), whose effects are
+    ///     confined to architectural registers, and for every non-System instruction.
+    /// </summary>
+    bool MayAccessArbitraryMemory => false;
+
+    /// <summary>
     ///     The number of consecutive physical registers, starting at <paramref name="baseRegister" />,
     ///     this instruction's runtime-sized operand actually spans — only meaningful when
     ///     <see cref="HasRuntimeSizedVectorDestination" /> is true, and only ever queried for an
@@ -181,18 +193,6 @@ public interface ITooth {
     ///     the AES/SM4 ".vs" fixed-vs2 exception and every non-runtime-sized instruction.
     /// </summary>
     int MaxRuntimeVectorRegisterSpan(int baseRegister) => 1;
-
-    /// <summary>
-    ///     True for instructions whose execution may read or write guest memory at an
-    ///     address/width not statically known from the opcode — e.g. RISC-V ECALL, whose
-    ///     syscall handler can fill an arbitrary caller-supplied buffer (fstat, clock_gettime,
-    ///     getrandom, read). The OoO pipeline treats these like a vector store for load-issue
-    ///     ordering: a younger load may not issue while one is still in the ROB, since there is
-    ///     no statically-known address to check for overlap the normal way. False for all other
-    ///     System-class instructions (CSR reads/writes, SRET/MRET/WFI), whose effects are
-    ///     confined to architectural registers, and for every non-System instruction.
-    /// </summary>
-    bool MayAccessArbitraryMemory => false;
 }
 
 /// <summary>

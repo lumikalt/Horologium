@@ -228,17 +228,6 @@ public class FiveStagePipelineTests {
         Assert.Equal(1L, snap.Counters["stalls"]);
     }
 
-    // ── Ecall implicit-register hazard ──────────────────────────────────────────
-
-    private sealed class RecordingSyscallHandler : ISyscallHandler {
-        public ulong? LastSyscallNum { get; private set; }
-
-        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) {
-            LastSyscallNum = syscallNum;
-            return new ExecuteResult { RequestHalt = true, };
-        }
-    }
-
     [Fact]
     public void Pipeline_EcallImmediatelyAfterArgWrite_SeesWrittenValue_NotStaleState() {
         // ecall reads a7 (and a0-a5) straight from architectural state — not through any
@@ -249,7 +238,7 @@ public class FiveStagePipelineTests {
         var handler = new RecordingSyscallHandler();
         var mem = new FlatMemory(4096);
         var mech = new Rv32Mechanism(syscallHandler: handler);
-        var train = new FiveStageTrain(mech, mem, 0);
+        var train = new FiveStageTrain(mech, mem);
         Load(
             mem,
             0x0DC00893, // addi a7, x0, 220  (SYS_clone — arbitrary distinguishing sentinel)
@@ -787,8 +776,7 @@ public class FiveStagePipelineTests {
 
         train.Run();
 
-        for (var g = 0; g < 4; g++)
-            Assert.Equal(AesEmReference(states[g], keys[g]), rv32.VectorRegisters.Read(8 + g));
+        for (var g = 0; g < 4; g++) Assert.Equal(AesEmReference(states[g], keys[g]), rv32.VectorRegisters.Read(8 + g));
     }
 
     [Fact]
@@ -862,7 +850,7 @@ public class FiveStagePipelineTests {
             rv32.VectorRegisters.Write(16 + g, state);
         }
 
-        rv32.VectorRegisters.Write(11, staleKey); // v11 starts wrong; vmv1r.v must overwrite it in time
+        rv32.VectorRegisters.Write(11, staleKey);  // v11 starts wrong; vmv1r.v must overwrite it in time
         rv32.VectorRegisters.Write(5, correctKey); // the real group-3 key, moved into v11
         rv32.VectorRegisters.Write(19, state);
 
@@ -934,5 +922,16 @@ public class FiveStagePipelineTests {
         var result = new byte[16];
         for (var i = 0; i < 16; i++) result[i] = (byte)(mix[i] ^ key[i]);
         return result;
+    }
+
+    // ── Ecall implicit-register hazard ──────────────────────────────────────────
+
+    private sealed class RecordingSyscallHandler : ISyscallHandler {
+        public ulong? LastSyscallNum { get; private set; }
+
+        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) {
+            LastSyscallNum = syscallNum;
+            return new ExecuteResult { RequestHalt = true, };
+        }
     }
 }

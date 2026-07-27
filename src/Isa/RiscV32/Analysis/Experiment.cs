@@ -769,13 +769,13 @@ public static class Experiment {
         IMemory runMemory = workload.WrapMemory(memory);
 
         MemoryConfig dCfg = WithMmio(config.ToDMemoryConfig(), workload);
-        MemoryLayers iLayers = MemoryLayers.Build(runMemory, config.ToIMemoryConfig());
-        MemoryLayers dLayers = MemoryLayers.Build(runMemory, dCfg);
+        var iLayers = MemoryLayers.Build(runMemory, config.ToIMemoryConfig());
+        var dLayers = MemoryLayers.Build(runMemory, dCfg);
         IBranchPredictor? predictor = config.Predictor?.Build(mechanism, workload);
 
         SmartsDetailedTrainFactory factory = config.Pipeline switch {
             "five_stage" => SmartsDriver.FiveStage(config.ForwardingEnabled, config.StoreBufferCapacity),
-            "ooo" => SmartsDriver.Ooo(config.IssueWidth, config.RobCapacity, config.IqCapacity),
+            "ooo"        => SmartsDriver.Ooo(config.IssueWidth, config.RobCapacity, config.IqCapacity),
             _ => throw new NotSupportedException(
                 $"SMARTS supports the five_stage/ooo pipelines only, not '{config.Pipeline}'."
             ),
@@ -783,9 +783,8 @@ public static class Experiment {
 
         Action<IArchState>? seedInitialState = null;
         if (argv is not null) {
-            if (workload is not IElfWorkload elfWorkload) {
+            if (workload is not IElfWorkload elfWorkload)
                 throw new NotSupportedException("SMARTS argv/Linux-ABI entry requires an IElfWorkload.");
-            }
 
             ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
             ulong sp = InitialStackBuilder.BuildInitialStack(

@@ -8,6 +8,8 @@ using RiscV32.Analysis;
 using RiscV32.Memory;
 using RiscV32.MultiCore;
 
+// ReSharper disable InconsistentNaming
+
 #endregion
 
 namespace Tests.RiscV32.Analysis;
@@ -32,7 +34,7 @@ namespace Tests.RiscV32.Analysis;
 ///     </para>
 /// </summary>
 public class MultiHartLoopPointExperimentTests {
-    private const uint AddiX1Plus1 = 0x00108093; // addi x1, x1, 1
+    private const uint AddiX1Plus1 = 0x00108093;  // addi x1, x1, 1
     private const uint AddiX2Minus1 = 0xFFF10113; // addi x2, x2, -1
     private const uint AddiX4Minus1 = 0xFFF20213; // addi x4, x4, -1
     private const uint Ebreak = 0x0010_0073;
@@ -61,9 +63,11 @@ public class MultiHartLoopPointExperimentTests {
         mem.Load(
             baseAddr,
             ToBytes(
-                AddiX1Plus1, AddiX1Plus1, AddiX2Minus1, Bne(2, 0, -12), // 0x00 loopA (-> 0x00)
-                AddiX1Plus1, AddiX4Minus1, Bne(4, 0, -8), // 0x10 loopB (-> 0x10)
-                Ebreak // 0x1C
+                MultiHartLoopPointExperimentTests.AddiX1Plus1, MultiHartLoopPointExperimentTests.AddiX1Plus1,
+                MultiHartLoopPointExperimentTests.AddiX2Minus1, Bne(2, 0, -12), // 0x00 loopA (-> 0x00)
+                MultiHartLoopPointExperimentTests.AddiX1Plus1, MultiHartLoopPointExperimentTests.AddiX4Minus1,
+                Bne(4, 0, -8),                           // 0x10 loopB (-> 0x10)
+                MultiHartLoopPointExperimentTests.Ebreak // 0x1C
             )
         );
     }
@@ -142,7 +146,12 @@ public class MultiHartLoopPointExperimentTests {
         // draft before this fix).
         var detailedTrainCalls = 0;
 
-        ISteppableTrain DetailedTrainFactory(IMechanism mech, IMemory runMem, ulong restartPc, InstructionCounter counter) {
+        ISteppableTrain DetailedTrainFactory(
+            IMechanism mech,
+            IMemory runMem,
+            ulong restartPc,
+            InstructionCounter counter
+        ) {
             (ulong RangeStart, ulong RangeEnd) expectedRange = detailedTrainCalls % 2 == 0
                 ? (hart0Addr, hart0Addr + 0x20)
                 : (hart1Addr, hart1Addr + 0x20);
@@ -152,7 +161,7 @@ public class MultiHartLoopPointExperimentTests {
         }
 
         LoopPointResult result = MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
-            captured, MechanismsFactory, DetailedTrainFactory, warmupInstructions: 4
+            captured, MechanismsFactory, DetailedTrainFactory, 4
         );
 
         Assert.Equal(captured.SimPoints.Points.Count * 2, detailedTrainCalls);
@@ -192,12 +201,15 @@ public class MultiHartLoopPointExperimentTests {
             new Dictionary<int, bool[]> { [0] = [true,], }
         );
 
-        (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) Factory() => ([new Rv32Mechanism(),], null);
+        (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) Factory() =>
+            ([new Rv32Mechanism(),], null);
+
         ISteppableTrain TrainFactory(IMechanism m, IMemory runMem, ulong pc, InstructionCounter c) =>
             new FiveStageTrain(m, runMem, pc, commitObserver: c);
 
-        Assert.Throws<InvalidOperationException>(
-            () => MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(captured, Factory, TrainFactory, warmupInstructions: 0)
+        Assert.Throws<InvalidOperationException>(() => MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
+                                                     captured, Factory, TrainFactory, 0
+                                                 )
         );
     }
 }

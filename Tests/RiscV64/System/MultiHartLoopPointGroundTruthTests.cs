@@ -30,7 +30,8 @@ namespace Tests.RiscV64.System;
 ///         straight from architectural state with no decoded operand for <c>HazardUnit</c> to stall or
 ///         forward on, so a still-in-flight register write immediately before an <c>ecall</c> (zero
 ///         instruction gap) was invisible to it — see
-///         <see cref="Tests.RiscV32.Pipelines.FiveStagePipelineTests.Pipeline_EcallImmediatelyAfterArgWrite_SeesWrittenValue_NotStaleState" />
+///         <see
+///             cref="Tests.RiscV32.Pipelines.FiveStagePipelineTests.Pipeline_EcallImmediatelyAfterArgWrite_SeesWrittenValue_NotStaleState" />
 ///         for the isolated repro and fix. Before that fix, a cold run of this exact binary never
 ///         reached its first real <c>clone()</c> call at all: musl's own startup sequence tripped the
 ///         same hazard on some other syscall first, silently took the ENOSYS path, and left hart 0
@@ -47,8 +48,8 @@ namespace Tests.RiscV64.System;
 ///     </para>
 /// </summary>
 public class MultiHartLoopPointGroundTruthTests {
-    private static string PthreadProbeElf => Path.Combine(AppContext.BaseDirectory, "pthread_probe.elf");
     private const int WordSize = 8;
+    private static string PthreadProbeElf => Path.Combine(AppContext.BaseDirectory, "pthread_probe.elf");
 
     private static (Rv64ElfWorkload Workload, ulong MmapBase, ulong MmapLimit) MakeWorkload() {
         var workload = new Rv64ElfWorkload(PthreadProbeElf, 16 * 1024 * 1024);
@@ -61,27 +62,35 @@ public class MultiHartLoopPointGroundTruthTests {
     // the other two spawned dynamically by real clone() calls during the run — the same mechanism
     // MultiHartPipelineCloneTests proves against a hand-assembled program, exercised here end-to-end
     // against a real compiled binary's actual startup sequence.
-    private static long RunColdGroundTruth(Rv64ElfWorkload workload, ulong mmapBase, ulong mmapLimit, out string output) {
+    private static long RunColdGroundTruth(
+        Rv64ElfWorkload workload,
+        ulong mmapBase,
+        ulong mmapLimit,
+        out string output
+    ) {
         var mem = new FlatMemory(workload.MemorySize, workload.BaseAddress);
         workload.Load(mem);
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, WordSize, ["pthread_probe.elf",], [],
+            mem, stackTop, MultiHartLoopPointGroundTruthTests.WordSize, ["pthread_probe.elf",], [],
             InitialStackBuilder.BuildStandardAuxv(
                 workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
             )
         );
 
         var sw = new StringWriter();
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, sw, WordSize, mmapBase, mmapLimit);
+        var handler = new LinuxSyscallEmulator(
+            workload.InitialBreak, sw, MultiHartLoopPointGroundTruthTests.WordSize, mmapBase, mmapLimit
+        );
         var mech0 = new Rv64Mechanism(syscallHandler: handler, hartId: 0);
         var train0 = new FiveStageTrain(mech0, mem, workload.EntryPoint);
         train0.ArchState.IntegerRegisters.Write(2, sp);
 
         var nextHartId = 1;
+
         ISteppableTrain SpawnTrainFactory(IArchState initialState) {
             var mech = new Rv64Mechanism(syscallHandler: handler, hartId: nextHartId++);
-            return new FiveStageTrain(mech, mem, entryPoint: initialState.Pc);
+            return new FiveStageTrain(mech, mem, initialState.Pc);
         }
 
         var pipeline = new MultiHartPipeline(SpawnTrainFactory, train0);
@@ -100,14 +109,16 @@ public class MultiHartLoopPointGroundTruthTests {
         workload.Load(mem);
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, WordSize, ["pthread_probe.elf",], [],
+            mem, stackTop, MultiHartLoopPointGroundTruthTests.WordSize, ["pthread_probe.elf",], [],
             InitialStackBuilder.BuildStandardAuxv(
                 workload.PhdrAddress, workload.PhEntrySize, workload.PhNum, workload.EntryPoint
             )
         );
 
-        var handler = new LinuxSyscallEmulator(workload.InitialBreak, new StringWriter(), WordSize, mmapBase, mmapLimit);
-        Rv64Mechanism[] mechanisms = [
+        var handler = new LinuxSyscallEmulator(
+            workload.InitialBreak, new StringWriter(), MultiHartLoopPointGroundTruthTests.WordSize, mmapBase, mmapLimit
+        );
+        IMechanism[] mechanisms = [
             new Rv64Mechanism(syscallHandler: handler, hartId: 0),
             new Rv64Mechanism(syscallHandler: handler, hartId: 1),
             new Rv64Mechanism(syscallHandler: handler, hartId: 2),
@@ -123,25 +134,32 @@ public class MultiHartLoopPointGroundTruthTests {
         // Small enough that representative regions span the 3-hart steady state, not just the
         // pre-spawn single-hart prefix — mirrors MultiHartLoopPointExperimentRealElfTests' own choice.
         LoopPointCheckpointSet captured = MultiHartLoopPointExperiment.CaptureLoopPointCheckpoints(
-            kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, targetGlobalInstructions: 60,
-            excludedRanges, profileMaxTicks: 2_000_000
+            kernel, mechanisms, mem, workload.BaseAddress, rangeEnd, 60,
+            excludedRanges, 2_000_000
         );
 
         (IReadOnlyList<IMechanism> Mechanisms, ICheckpointableSyscallHandler? SyscallHandler) FreshMechanisms() {
-            var freshHandler = new LinuxSyscallEmulator(workload.InitialBreak, TextWriter.Null, WordSize, mmapBase, mmapLimit);
+            var freshHandler = new LinuxSyscallEmulator(
+                workload.InitialBreak, TextWriter.Null, MultiHartLoopPointGroundTruthTests.WordSize, mmapBase, mmapLimit
+            );
             Rv64Mechanism[] freshMechanisms = [
-                new Rv64Mechanism(syscallHandler: freshHandler, hartId: 0),
-                new Rv64Mechanism(syscallHandler: freshHandler, hartId: 1),
-                new Rv64Mechanism(syscallHandler: freshHandler, hartId: 2),
+                new(syscallHandler: freshHandler, hartId: 0),
+                new(syscallHandler: freshHandler, hartId: 1),
+                new(syscallHandler: freshHandler, hartId: 2),
             ];
             return (freshMechanisms, freshHandler);
         }
 
-        ISteppableTrain DetailedTrainFactory(IMechanism m, IMemory runMem, ulong restartPc, InstructionCounter counter) =>
+        ISteppableTrain DetailedTrainFactory(
+            IMechanism m,
+            IMemory runMem,
+            ulong restartPc,
+            InstructionCounter counter
+        ) =>
             new FiveStageTrain(m, runMem, restartPc, commitObserver: counter);
 
         return MultiHartLoopPointExperiment.MeasureLoopPointCheckpoints(
-            captured, FreshMechanisms, DetailedTrainFactory, warmupInstructions: 10
+            captured, FreshMechanisms, DetailedTrainFactory, 10
         );
     }
 

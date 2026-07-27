@@ -71,7 +71,7 @@ namespace RiscV32.Syscalls;
 ///         rather than a wait queue — see <see cref="Futex" />'s doc comment for why this is
 ///         sufficient for real pthread mutex/cond/barrier code despite tracking no waiter identity.
 ///         <c>gettid</c>/<c>set_tid_address</c> return a real per-hart value derived from
-///         <paramref name="hartId" /> (<c>hartId + 1</c>, never 0, since some futex-based lock
+///         <c>hartId</c> (<c>hartId + 1</c>, never 0, since some futex-based lock
 ///         implementations reserve 0 as a sentinel). This is computed independently from
 ///         <c>clone()</c>'s returned tid (<see cref="Clone" /> below, derived from the
 ///         <c>MultiHartKernel</c> slot index) — the two agree only if the caller constructs each
@@ -120,18 +120,18 @@ public sealed class LinuxSyscallEmulator(
     private const int SIfregMode = 0x81A4;
     private const int SIfchrMode = 0x2190;
 
+    // CLONE_CHILD_CLEARTID's ctid address per hart, recorded at clone() time. Serialized by
+    // WriteState/ReadState (see there) — a checkpoint taken mid-run of a multi-threaded workload
+    // must round-trip this, or a restored hart's later exit clears nothing (or the wrong address),
+    // reproducing the __thread_list_lock hang class this table exists to prevent in the first place.
+    private readonly Dictionary<int, ulong> _childCleartid = new();
+
     // Path + access mode per open fd, alongside _files — needed by WriteState/ReadState to
     // reopen a file at checkpoint-restore time (a FileStream alone doesn't retain its own
     // open path/mode).
     private readonly Dictionary<int, (string Path, FileAccess Access)> _fileMeta = new();
 
     private readonly Dictionary<int, FileStream> _files = new();
-
-    // CLONE_CHILD_CLEARTID's ctid address per hart, recorded at clone() time. Serialized by
-    // WriteState/ReadState (see there) — a checkpoint taken mid-run of a multi-threaded workload
-    // must round-trip this, or a restored hart's later exit clears nothing (or the wrong address),
-    // reproducing the __thread_list_lock hang class this table exists to prevent in the first place.
-    private readonly Dictionary<int, ulong> _childCleartid = new();
     private ulong _brk = initialBreak;
     private ulong _fakeNanos;
     private ulong _mmapNext = mmapBase;
@@ -242,24 +242,26 @@ public sealed class LinuxSyscallEmulator(
         // thread's tid) for every thread in a process, not a per-thread value.
         long tid = hartId + 1;
 
-        if (num is 93 or 94) {
-            // CLONE_CHILD_CLEARTID: real musl passes &__thread_list_lock (not &self->tid) as ctid,
-            // relying on the kernel to clear-and-wake it on this thread's exit as a backstop —
-            // musl's own __pthread_exit clears/wakes its own tid word itself in userspace (see
-            // Futex's doc comment), but does NOT reliably call __tl_unlock along every exit path,
-            // so without this the thread-list lock stays held forever once any non-last thread
-            // exits. Confirmed necessary and sufficient by running a real compiled pthread_create/
-            // pthread_join binary through MultiHartKernel: without this, a second hart hung polling
-            // __thread_list_lock after the thread that had acquired it exited; with only this (no
-            // other change) the same binary runs to completion.
-            if (_childCleartid.Remove(hartId, out ulong ctidAddr)) memory.Write(ctidAddr, 0, 4);
-            return num == 93
-                ? new ExecuteResult { RequestHalt = true, }                         // SYS_exit — this hart only
-                : new ExecuteResult { RequestHalt = true, RequestHaltAll = true, }; // SYS_exit_group — whole process
+        switch (num) {
+            case 93 or 94: {
+                // CLONE_CHILD_CLEARTID: real musl passes &__thread_list_lock (not &self->tid) as ctid,
+                // relying on the kernel to clear-and-wake it on this thread's exit as a backstop —
+                // musl's own __pthread_exit clears/wakes its own tid word itself in userspace (see
+                // Futex's doc comment), but does NOT reliably call __tl_unlock along every exit path,
+                // so without this the thread-list lock stays held forever once any non-last thread
+                // exits. Confirmed necessary and sufficient by running a real compiled pthread_create/
+                // pthread_join binary through MultiHartKernel: without this, a second hart hung polling
+                // __thread_list_lock after the thread that had acquired it exited; with only this (no
+                // other change) the same binary runs to completion.
+                if (_childCleartid.Remove(hartId, out ulong ctidAddr)) memory.Write(ctidAddr, 0, 4);
+                return num == 93
+                    ? new ExecuteResult { RequestHalt = true, } // SYS_exit — this hart only
+                    : new ExecuteResult
+                        { RequestHalt = true, RequestHaltAll = true, }; // SYS_exit_group — whole process
+            }
+            case 220: return Clone(a0, a1, a2, a3, a4, state, pc, memory); // SYS_clone
+            case 98:  return Futex(a0, a1, a2, memory);                    // SYS_futex
         }
-
-        if (num == 220) return Clone(a0, a1, a2, a3, a4, state, pc, memory); // SYS_clone
-        if (num == 98) return Futex(a0, a1, a2, memory);                     // SYS_futex
 
         long result = num switch {
             64   => Write(a0, a1, a2, memory),    // SYS_write
@@ -291,6 +293,12 @@ public sealed class LinuxSyscallEmulator(
         return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, ret), };
     }
 
+    public void Dispose() {
+        foreach (FileStream fs in _files.Values) fs.Dispose();
+        _files.Clear();
+        _fileMeta.Clear();
+    }
+
     // RISC-V's raw sys_clone(flags, newsp, ptid, tls, ctid) — a0..a4 — confirmed against the
     // actual compiled musl 1.2.5 __clone (riscv64-unknown-linux-musl-gcc): a2=ptid, a3=tls,
     // a4=ctid (not the generic-Linux-ABI ptid/ctid/tls order some other architectures use).
@@ -302,13 +310,22 @@ public sealed class LinuxSyscallEmulator(
     // CLONE_CHILD_CLEARTID's ctid (the address the kernel clears-and-wakes on this new hart's own
     // exit — see Handle()'s SYS_exit/SYS_exit_group case) is recorded here, keyed by the new hart's
     // id, and consulted there.
-    private ExecuteResult Clone(ulong flags, ulong newSp, ulong ptid, ulong tls, ulong ctid, IArchState state, ulong pc, IMemory memory) {
+    private ExecuteResult Clone(
+        ulong flags,
+        ulong newSp,
+        ulong ptid,
+        ulong tls,
+        ulong ctid,
+        IArchState state,
+        ulong pc,
+        IMemory memory
+    ) {
         const ulong cloneSetTls = 0x0008_0000;
         const ulong cloneParentSetTid = 0x0010_0000;
         const ulong cloneChildCleartid = 0x0020_0000;
 
         if (Spawner is null) {
-            var noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
+            const ulong noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
             return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, noSys), };
         }
 
@@ -348,31 +365,24 @@ public sealed class LinuxSyscallEmulator(
     // "really" caused a given wake. The low 7 bits of futexOp are the command; FUTEX_PRIVATE_FLAG
     // (0x80) and FUTEX_CLOCK_REALTIME (0x100) are silently ignored (no shared-vs-private distinction
     // or absolute-timeout support is implemented — waits never time out).
-    private ExecuteResult Futex(ulong uaddr, ulong futexOp, ulong val, IMemory memory) {
+    private static ExecuteResult Futex(ulong uaddr, ulong futexOp, ulong val, IMemory memory) {
         const ulong futexWait = 0;
         const ulong futexWake = 1;
 
         switch (futexOp & 0x7f) {
             case futexWait:
                 if (memory.Read(uaddr, 4) != val) {
-                    var eagain = unchecked((ulong)LinuxSyscallEmulator.EAgain);
+                    const ulong eagain = unchecked((ulong)LinuxSyscallEmulator.EAgain);
                     return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, eagain), };
                 }
 
                 return new ExecuteResult { RequestBlock = true, };
-            case futexWake:
-                return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, 0), };
+            case futexWake: return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, 0), };
             default: {
-                var noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
+                const ulong noSys = unchecked((ulong)LinuxSyscallEmulator.ENoSys);
                 return new ExecuteResult { SideEffect = s => s.IntegerRegisters.Write(10, noSys), };
             }
         }
-    }
-
-    public void Dispose() {
-        foreach (FileStream fs in _files.Values) fs.Dispose();
-        _files.Clear();
-        _fileMeta.Clear();
     }
 
     private void SkipStdinTo(ulong consumed) {

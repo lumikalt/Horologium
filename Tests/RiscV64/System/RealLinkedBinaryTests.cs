@@ -29,6 +29,8 @@ namespace Tests.RiscV64.System;
 public class RealLinkedBinaryTests {
     private static string Hello64MuslElf => Path.Combine(AppContext.BaseDirectory, "hello64_musl.elf");
 
+    private static string TlsProbeElf => Path.Combine(AppContext.BaseDirectory, "tls_probe.elf");
+
     [Fact]
     public void HelloMusl_RealPrintfAndArgv_ProducesExpectedOutput() {
         var workload = new Rv64ElfWorkload(Hello64MuslElf, 8 * 1024 * 1024);
@@ -55,14 +57,13 @@ public class RealLinkedBinaryTests {
         Assert.Equal("hello from a real linked binary, argv[0]=hello64_musl.elf\n", sw.ToString());
     }
 
-    private static string TlsProbeElf => Path.Combine(AppContext.BaseDirectory, "tls_probe.elf");
-
     /// <summary>
     ///     A real <c>__thread</c> variable, not just a hand-assembled probe: musl's own
     ///     <c>_start</c>/<c>__init_tls</c> walks the program header table (found via the AT_PHDR/
     ///     AT_PHENT/AT_PHNUM auxv entries) to locate PT_TLS and set the thread pointer (<c>tp</c>,
-    ///     x4) with a plain register move — no syscall. <see cref="WithPlaceholderZeroPhdrAuxv_CrashesInsteadOfWorking" />
-    ///     is the discriminating control: the exact same binary, with only the auxv's AT_PHDR/
+    ///     x4) with a plain register move — no syscall.
+    ///     <see cref="TlsProbe_WithPlaceholderZeroPhdrAuxv_CrashesInsteadOfWorking" />
+    ///     is the discriminating control: the same binary, with only the auxv's AT_PHDR/
     ///     AT_PHENT/AT_PHNUM zeroed out instead of real, faults instead of running to completion —
     ///     proving this fixture actually exercises the fix, not just something that happens to work
     ///     either way.
@@ -92,7 +93,7 @@ public class RealLinkedBinaryTests {
         Assert.True(train.IsIdle);
         // tls_var is initialized to 42 in the TLS init image; tp and &tls_var coinciding is this
         // binary's actual (single-__thread-variable) layout, not an assumption this test bakes in.
-        string output = sw.ToString();
+        var output = sw.ToString();
         Assert.Contains("tls_var=42", output);
         Assert.DoesNotContain("tls_var=0 ", output);
     }
@@ -106,7 +107,8 @@ public class RealLinkedBinaryTests {
 
         ulong stackTop = workload.BaseAddress + (ulong)workload.MemorySize;
         ulong sp = InitialStackBuilder.BuildInitialStack(
-            mem, stackTop, 8, ["tls_probe.elf",], [], InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
+            mem, stackTop, 8, ["tls_probe.elf",], [],
+            InitialStackBuilder.BuildStandardAuxv(0, 0, 0, workload.EntryPoint)
         );
 
         var handler = new LinuxSyscallEmulator(workload.InitialBreak, TextWriter.Null, 8);

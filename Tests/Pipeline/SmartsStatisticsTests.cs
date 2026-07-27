@@ -13,9 +13,7 @@ namespace Tests.Pipeline;
 /// </summary>
 public class SmartsStatisticsTests {
     [Fact]
-    public void Mean_IsArithmeticMean() {
-        Assert.Equal(2.5, SmartsStatistics.Mean([1, 2, 3, 4,]), 10);
-    }
+    public void Mean_IsArithmeticMean() { Assert.Equal(2.5, SmartsStatistics.Mean([1, 2, 3, 4,]), 10); }
 
     [Fact]
     public void CoefficientOfVariation_MatchesHandComputedValue() {
@@ -37,38 +35,38 @@ public class SmartsStatisticsTests {
     [Fact]
     public void ConfidenceInterval_MatchesPaperFormula() {
         // ε = z·V/√n (paper Section 2).
-        double epsilon = SmartsStatistics.ConfidenceInterval(cv: 0.5, n: 100, z: SmartsStatistics.Z95);
+        double epsilon = SmartsStatistics.ConfidenceInterval(0.5, 100, SmartsStatistics.Z95);
         Assert.Equal(1.97 * 0.5 / 10.0, epsilon, 10);
     }
 
     [Fact]
     public void ConfidenceInterval_ZeroSamples_IsInfinite() {
-        Assert.Equal(double.PositiveInfinity, SmartsStatistics.ConfidenceInterval(cv: 0.5, n: 0, z: SmartsStatistics.Z997));
+        Assert.Equal(double.PositiveInfinity, SmartsStatistics.ConfidenceInterval(0.5, 0, SmartsStatistics.Z997));
     }
 
     [Fact]
     public void RequiredSampleSize_MatchesPaperFormula() {
         // n ≥ (z·V/ε)² (paper Section 2), rounded up.
-        int n = SmartsStatistics.RequiredSampleSize(cv: 0.5, z: SmartsStatistics.Z95, epsilon: 0.03);
+        int n = SmartsStatistics.RequiredSampleSize(0.5, SmartsStatistics.Z95, 0.03);
         double exact = Math.Pow(1.97 * 0.5 / 0.03, 2);
         Assert.Equal((int)Math.Ceiling(exact), n);
     }
 
     [Fact]
     public void RequiredSampleSize_TighterConfidence_NeedsMoreSamples() {
-        int loose = SmartsStatistics.RequiredSampleSize(cv: 0.5, z: SmartsStatistics.Z95, epsilon: 0.05);
-        int tight = SmartsStatistics.RequiredSampleSize(cv: 0.5, z: SmartsStatistics.Z95, epsilon: 0.01);
+        int loose = SmartsStatistics.RequiredSampleSize(0.5, SmartsStatistics.Z95, 0.05);
+        int tight = SmartsStatistics.RequiredSampleSize(0.5, SmartsStatistics.Z95, 0.01);
         Assert.True(tight > loose);
     }
 
     [Fact]
     public void SmartsResult_DerivedPropertiesMatchStatisticsHelpers() {
         SmartsUnitResult[] units = [
-            new SmartsUnitResult(0, 1000, 1000),
-            new SmartsUnitResult(1, 1000, 1200),
-            new SmartsUnitResult(2, 1000, 1100),
+            new(0, 1000, 1000),
+            new(1, 1000, 1200),
+            new(2, 1000, 1100),
         ];
-        var result = new SmartsResult(units, Halted: false, FinalPosition: 3000);
+        var result = new SmartsResult(units, false, 3000);
 
         double[] cpis = [1.0, 1.2, 1.1,];
         Assert.Equal(SmartsStatistics.Mean(cpis), result.MeanCpi, 10);

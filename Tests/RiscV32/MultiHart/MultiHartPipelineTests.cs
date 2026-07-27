@@ -458,7 +458,7 @@ public class MultiHartPipelineTests {
         // one hart complete two cycles before another completes its first — both harts must retire
         // exactly the same instruction count after N ticks of two structurally identical programs.
         const uint addiX1 = 0x00108093; // addi x1, x1, 1
-        uint jalSelfMinus4 = MultiHartPipelineTests.Jal(0, -4);
+        uint jalSelfMinus4 = Jal(0, -4);
 
         var flat = new FlatMemory(0x200);
         flat.Load(0x00, ToBytes(addiX1, jalSelfMinus4));
@@ -481,9 +481,9 @@ public class MultiHartPipelineTests {
     private static uint Jal(int rd, int immOffset) {
         var imm = (uint)immOffset;
         uint bit20 = (imm >> 20) & 1;
-        uint bits10_1 = (imm >> 1) & 0x3FF;
+        uint bits10To1 = (imm >> 1) & 0x3FF;
         uint bit11 = (imm >> 11) & 1;
-        uint bits19_12 = (imm >> 12) & 0xFF;
-        return (bit20 << 31) | (bits10_1 << 21) | (bit11 << 20) | (bits19_12 << 12) | ((uint)rd << 7) | 0b1101111u;
+        uint bits19To12 = (imm >> 12) & 0xFF;
+        return (bit20 << 31) | (bits10To1 << 21) | (bit11 << 20) | (bits19To12 << 12) | ((uint)rd << 7) | 0b1101111u;
     }
 }

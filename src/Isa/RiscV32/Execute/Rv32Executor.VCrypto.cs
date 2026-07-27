@@ -11,6 +11,17 @@ using RiscV32.State;
 namespace RiscV32.Execute;
 
 public partial class Rv32Executor {
+    // SM4 system constant table CK (spec §3.25 Table 1 / Appendix C), indexed 0-31.
+    private static readonly uint[] Sm4Ck = [
+        0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269,
+        0x70777E85, 0x8C939AA1, 0xA8AFB6BD, 0xC4CBD2D9,
+        0xE0E7EEF5, 0xFC030A11, 0x181F262D, 0x343B4249,
+        0x50575E65, 0x6C737A81, 0x888F969D, 0xA4ABB2B9,
+        0xC0C7CED5, 0xDCE3EAF1, 0xF8FF060D, 0x141B2229,
+        0x30373E45, 0x4C535A61, 0x686F767D, 0x848B9299,
+        0xA0A7AEB5, 0xBCC3CAD1, 0xD8DFE6ED, 0xF4FB0209,
+        0x10171E25, 0x2C333A41, 0x484F565D, 0x646B7279,
+    ];
     // ── Vector Crypto: element-group infrastructure (RISC-V Cryptography Extensions Volume II,
     // §1.4/§1.5) ─────────────────────────────────────────────────────────────────────────────
     //
@@ -246,7 +257,7 @@ public partial class Rv32Executor {
             // stored as the round constant's *low* byte — shift it into the high byte and rotate
             // left (rather than right) to match ElementGroupGetWord's natural-big-endian words.
             uint w0 = AesSubwordFwd(BitOperations.RotateLeft(ElementGroupGetWord(currentRoundKey, 3), 8))
-                    ^ (AesRcon[rconIndex] << 24) ^ ElementGroupGetWord(currentRoundKey, 0);
+                    ^ (Rv32Executor.AesRcon[rconIndex] << 24) ^ ElementGroupGetWord(currentRoundKey, 0);
             uint w1 = w0 ^ ElementGroupGetWord(currentRoundKey, 1);
             uint w2 = w1 ^ ElementGroupGetWord(currentRoundKey, 2);
             uint w3 = w2 ^ ElementGroupGetWord(currentRoundKey, 3);
@@ -291,8 +302,8 @@ public partial class Rv32Executor {
             uint w3Current = ElementGroupGetWord(currentRoundKey, 3);
             uint w0 = (rnd & 1) == 1
                 ? AesSubwordFwd(w3Current) ^ ElementGroupGetWord(previousRoundKey, 0)
-                : AesSubwordFwd(BitOperations.RotateLeft(w3Current, 8)) ^ (AesRcon[(rnd >> 1) - 1] << 24)
-                ^ ElementGroupGetWord(previousRoundKey, 0);
+                : AesSubwordFwd(BitOperations.RotateLeft(w3Current, 8)) ^ (Rv32Executor.AesRcon[(rnd >> 1) - 1] << 24)
+                                                                        ^ ElementGroupGetWord(previousRoundKey, 0);
             uint w1 = w0 ^ ElementGroupGetWord(previousRoundKey, 1);
             uint w2 = w1 ^ ElementGroupGetWord(previousRoundKey, 2);
             uint w3 = w2 ^ ElementGroupGetWord(previousRoundKey, 3);
@@ -404,23 +415,11 @@ public partial class Rv32Executor {
     // SM4 linear transform L (spec Appendix C sm4_round), used by vsm4r's round function.
     private static uint Sm4RoundWord(uint x, uint s) =>
         x ^ s ^ BitOperations.RotateLeft(s, 2) ^ BitOperations.RotateLeft(s, 10)
-          ^ BitOperations.RotateLeft(s, 18) ^ BitOperations.RotateLeft(s, 24);
+      ^ BitOperations.RotateLeft(s, 18) ^ BitOperations.RotateLeft(s, 24);
 
     // SM4 linear transform L' (spec Appendix C round_key), used by vsm4k's key expansion.
     private static uint Sm4KeyScheduleWord(uint x, uint s) =>
         x ^ s ^ BitOperations.RotateLeft(s, 13) ^ BitOperations.RotateLeft(s, 23);
-
-    // SM4 system constant table CK (spec §3.25 Table 1 / Appendix C), indexed 0-31.
-    private static readonly uint[] Sm4Ck = [
-        0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269,
-        0x70777E85, 0x8C939AA1, 0xA8AFB6BD, 0xC4CBD2D9,
-        0xE0E7EEF5, 0xFC030A11, 0x181F262D, 0x343B4249,
-        0x50575E65, 0x6C737A81, 0x888F969D, 0xA4ABB2B9,
-        0xC0C7CED5, 0xDCE3EAF1, 0xF8FF060D, 0x141B2229,
-        0x30373E45, 0x4C535A61, 0x686F767D, 0x848B9299,
-        0xA0A7AEB5, 0xBCC3CAD1, 0xD8DFE6ED, 0xF4FB0209,
-        0x10171E25, 0x2C333A41, 0x484F565D, 0x646B7279,
-    ];
 
     private static ExecuteResult ExecuteSm4R(IArchState state, ulong pc, int vd, int vs2, bool scalar) {
         const int egw = 128;
@@ -499,10 +498,10 @@ public partial class Rv32Executor {
             uint rk2 = ElementGroupGetWord(currentKeys, 2);
             uint rk3 = ElementGroupGetWord(currentKeys, 3);
 
-            uint rk4 = Sm4KeyScheduleWord(rk0, Sm4SubwordFull(rk1 ^ rk2 ^ rk3 ^ Sm4Ck[4 * rnd]));
-            uint rk5 = Sm4KeyScheduleWord(rk1, Sm4SubwordFull(rk2 ^ rk3 ^ rk4 ^ Sm4Ck[4 * rnd + 1]));
-            uint rk6 = Sm4KeyScheduleWord(rk2, Sm4SubwordFull(rk3 ^ rk4 ^ rk5 ^ Sm4Ck[4 * rnd + 2]));
-            uint rk7 = Sm4KeyScheduleWord(rk3, Sm4SubwordFull(rk4 ^ rk5 ^ rk6 ^ Sm4Ck[4 * rnd + 3]));
+            uint rk4 = Sm4KeyScheduleWord(rk0, Sm4SubwordFull(rk1 ^ rk2 ^ rk3 ^ Rv32Executor.Sm4Ck[4 * rnd]));
+            uint rk5 = Sm4KeyScheduleWord(rk1, Sm4SubwordFull(rk2 ^ rk3 ^ rk4 ^ Rv32Executor.Sm4Ck[4 * rnd + 1]));
+            uint rk6 = Sm4KeyScheduleWord(rk2, Sm4SubwordFull(rk3 ^ rk4 ^ rk5 ^ Rv32Executor.Sm4Ck[4 * rnd + 2]));
+            uint rk7 = Sm4KeyScheduleWord(rk3, Sm4SubwordFull(rk4 ^ rk5 ^ rk6 ^ Rv32Executor.Sm4Ck[4 * rnd + 3]));
 
             var next = new byte[16];
             ElementGroupSetWord(next, 0, rk4);
@@ -599,7 +598,16 @@ public partial class Rv32Executor {
     // One round of SHA-2 compression (FIPS 180-4 §6.2.2/§6.4.2), parameterized by SEW so the same
     // code serves SHA-256 (32-bit words) and SHA-512 (64-bit words).
     private static (ulong A, ulong B, ulong C, ulong D, ulong E, ulong F, ulong G, ulong H) Sha2Round(
-        ulong a, ulong b, ulong c, ulong d, ulong e, ulong f, ulong g, ulong h, ulong w, int sewBits
+        ulong a,
+        ulong b,
+        ulong c,
+        ulong d,
+        ulong e,
+        ulong f,
+        ulong g,
+        ulong h,
+        ulong w,
+        int sewBits
     ) {
         ulong mask = Sha2Mask(sewBits);
         ulong t1 = (h + Sha2Sum1(e, sewBits) + Sha2Ch(e, f, g, sewBits) + w) & mask;
@@ -612,7 +620,12 @@ public partial class Rv32Executor {
     // overwritten with the *new* {a,b,e,f} — vs2's register is left untouched, which is what makes
     // ping-ponging the two registers across successive calls correct (see ZvkTests' RunSha2).
     private static ExecuteResult ExecuteSha2Compress(
-        IArchState state, ulong pc, Sha2CompressKind kind, int vd, int vs1, int vs2
+        IArchState state,
+        ulong pc,
+        Sha2CompressKind kind,
+        int vd,
+        int vs1,
+        int vs2
     ) {
         ExecuteResult? trap = CheckSha2Constraints(state, pc, out int sewBits, out int egw);
         if (trap != null) return trap;
@@ -647,7 +660,7 @@ public partial class Rv32Executor {
             ulong w1 = Sha2GetWord(msgPlusC, kind == Sha2CompressKind.Low ? 1 : 3, sewBits);
 
             (a, b, c, d, e, f, g, h) = Sha2Round(a, b, c, d, e, f, g, h, w0, sewBits);
-            (a, b, c, d, e, f, g, h) = Sha2Round(a, b, c, d, e, f, g, h, w1, sewBits);
+            (a, b, _, _, e, f, _, _) = Sha2Round(a, b, c, d, e, f, g, h, w1, sewBits);
 
             var next = new byte[egw / 8];
             Sha2SetWord(next, 3, sewBits, a);
@@ -924,7 +937,7 @@ public partial class Rv32Executor {
                 zHi ^= hHi;
             }
 
-            bool carry = (hHi >> 63 & 1) != 0;
+            bool carry = ((hHi >> 63) & 1) != 0;
             hHi = (hHi << 1) | (hLo >> 63);
             hLo <<= 1;
             if (carry) hLo ^= 0x87;

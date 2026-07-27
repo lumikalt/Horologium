@@ -73,6 +73,7 @@ public sealed class MultiHartPipeline : IHartSpawner {
     ///     fixed hart count and <see cref="SpawnHart" /> throws, matching every existing caller's
     ///     behavior before dynamic activation existed.
     /// </param>
+    /// <param name="trains">The initial, active harts' trains.</param>
     public MultiHartPipeline(Func<IArchState, ISteppableTrain>? spawnTrainFactory, params ISteppableTrain[] trains) {
         ArgumentNullException.ThrowIfNull(trains);
         if (trains.Length == 0) throw new ArgumentException("At least one train required.", nameof(trains));
@@ -85,19 +86,17 @@ public sealed class MultiHartPipeline : IHartSpawner {
 
     /// <inheritdoc />
     public int SpawnHart(IArchState initialState) {
-        if (_spawnTrainFactory is null) {
+        if (_spawnTrainFactory is null)
             throw new InvalidOperationException(
                 "MultiHartPipeline.SpawnHart: no spawnTrainFactory was supplied at construction — this " +
                 "pipeline has a fixed hart count."
             );
-        }
 
-        if (_runConcurrentInFlight) {
+        if (_runConcurrentInFlight)
             throw new InvalidOperationException(
                 "MultiHartPipeline.SpawnHart: dynamic hart activation is not supported during RunConcurrent " +
                 "— appending to the shared hart list would race with other harts' concurrent StepCycle calls."
             );
-        }
 
         ISteppableTrain train = _spawnTrainFactory(initialState);
         ArchStateTransfer.CopyInto(initialState, train.ArchState!);
@@ -121,8 +120,10 @@ public sealed class MultiHartPipeline : IHartSpawner {
     ///         documents and accepts.
     ///     </para>
     /// </summary>
-    /// <returns>One <see cref="RevolutionResult" /> per hart, in hart-index order as of when this
-    /// call returns — including any hart spawned during the run.</returns>
+    /// <returns>
+    ///     One <see cref="RevolutionResult" /> per hart, in hart-index order as of when this
+    ///     call returns — including any hart spawned during the run.
+    /// </returns>
     public RevolutionResult[] Run(long maxTicks = long.MaxValue) {
         foreach (ISteppableTrain t in _trains) t.BeginStepping();
         for (var i = 0; i < _halted.Count; i++) _halted[i] = false;
@@ -209,9 +210,7 @@ public sealed class MultiHartPipeline : IHartSpawner {
                 if (!anyActive) break;
             }
         }
-        finally {
-            _runConcurrentInFlight = false;
-        }
+        finally { _runConcurrentInFlight = false; }
 
         var results = new RevolutionResult[_trains.Count];
         for (var i = 0; i < _trains.Count; i++) results[i] = _trains[i].FinishStepping();
