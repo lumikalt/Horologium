@@ -20,22 +20,16 @@ namespace Tests.Pipeline;
 ///     fetch-address state, seeded once at construction, so there is no slot to reuse.
 ///     <para>
 ///         Same register-argument encoding as <c>CloneTests</c> (<c>MultiHartKernel</c>'s own clone()
-///         test) — empirically confirmed against real compiled musl <c>__clone</c> there — but with two
-///         NOPs inserted before each <c>ecall</c> (both the clone() itself and the child's gettid()),
-///         unlike that test's back-to-back <c>addi a7, N; ecall</c>. <c>FiveStageTrain</c>'s ecall
-///         dispatch reads the syscall number straight from architectural state
-///         (<c>Rv32Executor</c>'s <c>state.IntegerRegisters.Read(17)</c>) rather than through the
-///         pipeline's normal decoded-operand hazard/forwarding path — ecall has no decoded source
-///         register for a7 to trigger a stall on — so an immediately-preceding write to a7 hasn't
-///         retired yet when a back-to-back ecall reaches EX, reading a stale value instead. Confirmed
-///         with an isolated repro (plain <c>FiveStageTrain</c>, <c>addi a7,220; ecall</c> with nothing
-///         between them reads syscall number 0, not 220; two intervening NOPs fix it) — a real,
-///         pre-existing gap, tracked in <c>TODO.md</c> rather than fixed here (orthogonal to hart
-///         activation, and the right fix touches core executor/hazard code with a blast radius across
-///         every train, not something to take on mid-feature). The padding here works around it in this
-///         test the same way real compiled syscall sequences usually do incidentally (a0-a5 argument
-///         setup between the last register write and ecall provides the same slack) — it isolates the
-///         actual variable this test cares about (the driver) from that separate, already-tracked gap.
+///         test) — empirically confirmed against real compiled musl <c>__clone</c> there — and, since
+///         the <c>FiveStageTrain</c> ecall-drain fix (see <c>FiveStagePipelineTests</c>'
+///         <c>Pipeline_EcallImmediatelyAfterArgWrite_SeesWrittenValue_NotStaleState</c>), the same
+///         back-to-back <c>addi a7, N; ecall</c> that test uses rather than NOP-padded:
+///         <c>FiveStageTrain</c> used to read ecall's syscall number straight from architectural state
+///         with no decoded operand for a7 to stall or forward on, so an immediately-preceding write to
+///         a7 hadn't retired yet by the time a back-to-back ecall reached EX. <c>HazardUnit</c> now
+///         holds ecall in ID until EX and MEM are both empty, so this back-to-back sequencing (both
+///         the clone() ecall and the child's gettid() ecall) is a second live exercise of that fix
+///         rather than a gap this test has to dodge.
 ///     </para>
 /// </summary>
 public class MultiHartPipelineCloneTests {
@@ -47,7 +41,6 @@ public class MultiHartPipelineCloneTests {
     private const ulong ChildGettidAddr = 0x114;
     private const uint Ecall = 0x0000_0073;
     private const uint Ebreak = 0x0010_0073;
-    private const uint Nop = 0x0000_0013; // addi x0, x0, 0
 
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
@@ -97,24 +90,20 @@ public class MultiHartPipelineCloneTests {
             Lui(13, 0x123),                                   // 0x0C: a3 = tls
             Addi(14, 0, 0),                                   // 0x10: a4 = ctid (unused)
             Addi(17, 0, 220),                                 // 0x14: a7 = SYS_clone
-            Nop,                                              // 0x18
-            Nop,                                              // 0x1C
-            Ecall,                                            // 0x20
-            Bne(10, 0, 0x34),                                 // 0x24: parent (a0!=0) skips ahead to 0x58
-            Addi(5, 4, 0),                                    // 0x28: child: t0 = tp
-            Sw(5, 0, (int)ChildTpAddr),                       // 0x2C
-            Addi(6, 2, 0),                                    // 0x30: child: t1 = sp
-            Sw(6, 0, (int)ChildSpAddr),                       // 0x34
-            Addi(7, 0, 777),                                  // 0x38: child: marker
-            Sw(7, 0, (int)ChildMarkerAddr),                   // 0x3C
-            Addi(17, 0, 178),                                 // 0x40: child: a7 = SYS_gettid
-            Nop,                                              // 0x44
-            Nop,                                              // 0x48
-            Ecall,                                            // 0x4C
-            Sw(10, 0, (int)ChildGettidAddr),                  // 0x50: child: store gettid()'s return
-            Ebreak,                                           // 0x54: child halts
-            Sw(10, 0, (int)ParentResultAddr),                 // 0x58: parent: store clone()'s return
-            Ebreak                                            // 0x5C: parent halts
+            Ecall,                                            // 0x18
+            Bne(10, 0, 0x2C),                                 // 0x1C: parent (a0!=0) skips ahead to 0x48
+            Addi(5, 4, 0),                                    // 0x20: child: t0 = tp
+            Sw(5, 0, (int)ChildTpAddr),                       // 0x24
+            Addi(6, 2, 0),                                    // 0x28: child: t1 = sp
+            Sw(6, 0, (int)ChildSpAddr),                       // 0x2C
+            Addi(7, 0, 777),                                  // 0x30: child: marker
+            Sw(7, 0, (int)ChildMarkerAddr),                   // 0x34
+            Addi(17, 0, 178),                                 // 0x38: child: a7 = SYS_gettid
+            Ecall,                                            // 0x3C
+            Sw(10, 0, (int)ChildGettidAddr),                  // 0x40: child: store gettid()'s return
+            Ebreak,                                           // 0x44: child halts
+            Sw(10, 0, (int)ParentResultAddr),                 // 0x48: parent: store clone()'s return
+            Ebreak                                            // 0x4C: parent halts
         );
         return mem;
     }

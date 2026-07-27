@@ -228,6 +228,37 @@ public class FiveStagePipelineTests {
         Assert.Equal(1L, snap.Counters["stalls"]);
     }
 
+    // ── Ecall implicit-register hazard ──────────────────────────────────────────
+
+    private sealed class RecordingSyscallHandler : ISyscallHandler {
+        public ulong? LastSyscallNum { get; private set; }
+
+        public ExecuteResult Handle(ulong syscallNum, IArchState state, IMemory memory, ulong pc, int hartId) {
+            LastSyscallNum = syscallNum;
+            return new ExecuteResult { RequestHalt = true, };
+        }
+    }
+
+    [Fact]
+    public void Pipeline_EcallImmediatelyAfterArgWrite_SeesWrittenValue_NotStaleState() {
+        // ecall reads a7 (and a0-a5) straight from architectural state — not through any
+        // decoded SourceRegisters — so neither the load-use stall nor forwarding (hardwired
+        // to 3 operand slots) has any decoded operand to key off. Zero-instruction gap: the
+        // preceding addi's write to a7 hasn't reached WB by the time ecall would (without the
+        // drain fix) read state in EX. Without the fix this reads a7=0, not 220.
+        var handler = new RecordingSyscallHandler();
+        var mem = new FlatMemory(4096);
+        var mech = new Rv32Mechanism(syscallHandler: handler);
+        var train = new FiveStageTrain(mech, mem, 0);
+        Load(
+            mem,
+            0x0DC00893, // addi a7, x0, 220  (SYS_clone — arbitrary distinguishing sentinel)
+            0x00000073  // ecall             (zero-instruction gap)
+        );
+        train.Run();
+        Assert.Equal(220UL, handler.LastSyscallNum);
+    }
+
     // ── Branch correctness ────────────────────────────────────────────────────
 
     [Fact]

@@ -1218,24 +1218,43 @@ the `RunConcurrent` guard specifically: a `clone()` call from inside `RunConcurr
 worker thread) — asserted as that exact shape, and confirmed to fail (no exception at all) with the guard
 reverted.
 
-**A real, unrelated bug surfaced while writing this feature's own test, filed in `TODO.md` rather than
-fixed here**: `FiveStageTrain`'s `ecall` dispatch reads the syscall number straight from architectural
-state, bypassing the pipeline's hazard/forwarding path — a write to that register by the *immediately
-preceding* instruction (zero-instruction gap) hasn't retired yet when `ecall` reaches EX, so it reads the
-stale value. Confirmed via an isolated repro (plain `FiveStageTrain`, `addi a7,220; ecall` back-to-back
-reads syscall number 0; two NOPs between them fix it) and confirmed, by checking rather than assuming, that
-no existing passing test's value-checked assertions have ever depended on this working — `MultiHartPipelineCloneTests.cs`
-itself works around it with NOP padding, same as real compiled code incidentally usually does via argument
-setup between the syscall number and the call.
+**A real, unrelated bug surfaced while writing this feature's own test, fixed in a follow-up session**:
+`FiveStageTrain`'s `ecall` dispatch used to read the syscall number straight from architectural state,
+bypassing the pipeline's hazard/forwarding path — a write to that register by the *immediately preceding*
+instruction (zero-instruction gap) hadn't retired yet when `ecall` reached EX, so it read the stale value.
+The fix is a register-agnostic full-pipeline drain rather than an extension of the forwarding network (see
+"FiveStageTrain ecall hazard fix" below); `MultiHartPipelineCloneTests.cs` now uses the same back-to-back
+`addi a7,N; ecall` sequencing as `CloneTests.cs` instead of NOP-padding around the old gap.
 
-**This turned out to block a real use case, not just synthetic tests**: attempting the natural next step —
-a tick-level ground-truth test comparing a cold `pthread_probe.elf` run (via `MultiHartPipeline`'s new
-dynamic activation) against `MultiHartLoopPointExperiment`'s estimate, mirroring `RealLinkedLoopPointTests`'
-single-hart version — hit this exact bug on real, unpaddable compiled musl code: startup silently takes the
-ENOSYS path on some other syscall before ever reaching `clone()`, leaving the run permanently stuck on a
-`futex` wait no other hart ever gets created to clear. That ground-truth test was designed and works in
-principle but is not committed, shelved pending this fix (see `TODO.md`'s escalation note for exactly what
-to resurrect).
+**This turned out to block a real use case, not just synthetic tests**: a tick-level ground-truth test
+comparing a cold `pthread_probe.elf` run (via `MultiHartPipeline`'s dynamic activation) against
+`MultiHartLoopPointExperiment`'s estimate, mirroring `RealLinkedLoopPointTests`'s single-hart version, hit
+this exact bug on real, unpaddable compiled musl code: startup silently took the ENOSYS path on some other
+syscall before ever reaching `clone()`, leaving the run permanently stuck on a `futex` wait no other hart
+ever got created to clear. Now fixed and passing (`Tests/RiscV64/System/MultiHartLoopPointGroundTruthTests.cs`)
+— see below.
+
+#### FiveStageTrain ecall hazard fix (src/Core/Pipeline/HazardUnit.cs, FiveStageTrain.cs)
+
+`ecall` implicitly reads up to 7 registers (`a0`-`a5`, `a7`) straight from architectural state rather than
+through any decoded `SourceRegisters` — so neither the load-use stall nor forwarding had anything to key
+off. Extending the fix to "decode those 7 registers as `SourceRegisters`" only works if forwarding is
+disabled: `FiveStageTrain` forwards by default, and `HazardUnit.Forward`/`ForwardingOverlay` are hardwired
+to exactly 3 operand slots, so at most 3 of `ecall`'s 7 implicit reads could ever be protected regardless of
+list order (concrete counter-example: `li a7,N; ecall`, where `li`/`addi` is not a load, so no load-use
+stall fires either). The actual fix is register-agnostic and mirrors the immunity `OooTrain`/`CprTrain`/
+`DaeTrain`/`SuperscalarTrain`/`SmtTrain` already had by construction (serialize until fully retired, not
+forward): `HazardUnit`/`FiveStageTrain` now hold `ecall` in ID until both EX and MEM are empty, guaranteeing
+every older instruction has reached WB. Scoped narrowly via `ITooth.MayAccessArbitraryMemory` (already true
+only for `ecall`, not other `ToothClass.System` ops like CSR reads/writes, which already work correctly via
+ordinary 1-register forwarding) so the drain doesn't perturb their existing cycle counts. Proven with a
+permanent regression (`FiveStagePipelineTests.Pipeline_EcallImmediatelyAfterArgWrite_SeesWrittenValue_NotStaleState`
+— confirmed to read the stale value with the drain reverted, pass restored) and end-to-end via the
+previously-shelved `MultiHartLoopPointGroundTruthTests`: a cold `pthread_probe.elf` run through
+`MultiHartPipeline`'s dynamic activation now completes (both `pthread_create` calls spawn, both threads
+print, `pthread_join` unblocks), and its ground-truth tick count agrees with `MultiHartLoopPointExperiment`'s
+estimate within ~6% (well inside the test's 30% tolerance, generous because this fixture is only a few
+thousand instructions — far short of the paper's sampling scale).
 
 **OoO timing note:** `OooeTrain`'s physical register file starts zeroed; `ArchState.IntegerRegisters.Write()` updates
 the architectural register file but not the PRF, so register values pre-set before `Run()` are invisible to the
@@ -1886,14 +1905,14 @@ fixture's dormant-hart PC 0x0 before the length assertion is ever reached, so re
 doesn't isolate the other). A separate synthetic hand-built-checkpoint test isolates the PC guard alone,
 confirmed to fail with just that guard reverted.
 
-**Known, stated limitation.** This does not include a tick-level comparison against a full cold multi-hart
-run through the detailed pipeline from t=0 — that would need `MultiHartPipeline` to support dynamic hart
-activation (a live detailed-pipeline run gaining a hart via a real `clone()` call), which doesn't exist
-(own `TODO.md` item) and is out of scope here. The achievable independent cross-check instead is
-functional: `PthreadProbeTests` already proves the same ELF runs to completion on the functional
-`MultiHartKernel` (through a different code path — no checkpoint restore — than the one this bug lived in),
-not that the detailed measurement's own numbers agree with any independent reference; no such reference
-exists here.
+**Update: the tick-level ground truth this section originally lacked now exists.** It needed
+`MultiHartPipeline` dynamic hart activation (a live detailed-pipeline run gaining a hart via a real
+`clone()` call) plus a fix to a real `FiveStageTrain` `ecall` hazard that blocked a cold `pthread_probe.elf`
+run from ever reaching its first `clone()` call — both landed in a follow-up session (see "FiveStageTrain
+ecall hazard fix" above). `Tests/RiscV64/System/MultiHartLoopPointGroundTruthTests.cs` now runs
+`pthread_probe.elf` cold from t=0 through `MultiHartPipeline` and compares its ground-truth tick count
+against `MultiHartLoopPointExperiment`'s profile/cluster/checkpoint/measure/extrapolate estimate for the
+same binary — agreement within ~6% relative error, well inside the test's 30% tolerance.
 
 The PC guard also only catches an out-of-range PC — it doesn't catch a live hart genuinely deadlocked
 against another live hart within the measured window, which still runs through `MultiHartWarmupMeasureDriver`'s

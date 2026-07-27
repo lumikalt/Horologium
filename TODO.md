@@ -546,48 +546,18 @@ just infrastructure this design doesn't require.
   here**: `FiveStageTrain`'s `ecall` dispatch reads the syscall number straight from architectural state,
   bypassing the pipeline's hazard/forwarding path entirely — a still-in-flight write to the register it
   reads is invisible to it.
-- [ ] `FiveStageTrain`'s `ecall` dispatch reads the syscall number (and, by the same mechanism, its other
-  arguments) straight from architectural state (`Rv32Executor`'s `state.IntegerRegisters.Read(17)`) rather
-  than through the pipeline's normal decoded-operand hazard/forwarding path — `ecall` has no decoded source
-  register for `a7` (or `a0`-`a5`) to trigger a `HazardUnit` stall on, so a write to one of those registers
-  by the *immediately preceding* instruction (zero-instruction gap) hasn't retired yet when `ecall` reaches
-  EX, and it reads the stale, pre-write value instead. Minimal repro: plain `FiveStageTrain`, `addi
-  a7,x0,220; ecall` with nothing between them dispatches syscall number 0, not 220; two intervening NOPs
-  (or any instructions incidentally filling that slot, which is why real compiled code — musl argument
-  setup between the number and the call — mostly doesn't trip this) fix it.
-  **Severity, checked empirically rather than assumed**: never exercised by an existing passing,
-  value-checked test. `RealLinkedLoopPointTests`/`RealLinkedSimPointTests` (real compiled `simpoint_kernel.elf`)
-  independently prove ecalls occur only outside the measured compute-loop window, and the only assertion on
-  a `FiveStageTrain`-measured region there is a generic liveness check (`retired > 0`), never anything tied
-  to a syscall's own correctness. Every existing `FiveStageTrain`/`CprTrain`/`DaeTrain`/`SuperscalarTrain`/
-  `SmtTrain` test with an `ecall` either has no preceding argument-setting instruction at all, or (this
-  item's own `MultiHartPipelineCloneTests.cs`) deliberately pads with NOPs to dodge exactly this gap.
-  `SimPointCheckpointTests`' `BrkProgram` has the identical zero-gap pattern with a value-checked assertion,
-  but runs only on `SingleCycleTrain` (which reads `state` post-retire, unaffected). `OooTrain` has the same
-  zero-gap pattern in `InitialStackTests` with real value-checked assertions and passes — its System-class
-  instructions only issue at the ROB head, so every older instruction (including the register write) has
-  already retired by the time `ecall` reads state, immune by architecture rather than by luck. Open design
-  question for whoever picks this up: should `ecall`'s implicit register reads go through the same
-  hazard/forwarding path a decoded source operand would, or should `ecall` itself be treated as
-  head-of-pipeline/serialized (mirroring `OooTrain`'s immunity) so it only ever reads fully-retired state?
-  The two answers imply different fixes; reading stale state is wrong under both.
-  **Escalation, found while attempting the multi-hart LoopPoint ground-truth test this bug's own discovery
-  motivated (see the `MultiHartPipeline` item above)**: this is not only a synthetic-test-only gap. Booting
-  `pthread_probe.elf` cold on a real `FiveStageTrain` via `MultiHartPipeline`'s new dynamic activation never
-  reaches its `clone()` call at all (syscall 220 never dispatches) — musl's own real startup sequence hits
-  the same zero-gap hazard on some other syscall first (confirmed via the same `Handle()`-argument-printing
-  diagnostic used for the original repro: a couple of real startup syscalls read `num=0`, silently taking
-  the ENOSYS path), leaving hart 0 permanently spinning on a `futex` wait no other hart will ever clear
-  (single-hart, no `clone()` ever having happened) rather than reaching `pthread_create`. This directly
-  blocks a real use case — a tick-level ground-truth comparison for multi-hart `--looppoint` measurement —
-  not just a hand-assembled test that can pad around it; the ground-truth test itself had to be shelved
-  (not committed) pending this fix. Deliberately still not fixed in that same sitting — the fix is
-  substantial, cross-train, core executor/hazard-logic surgery, not a mid-session addendum — but this
-  raises the item's priority: whoever picks up the fix should also restore and complete the ground-truth
-  test that's blocked on it (was `Tests/RiscV64/System/MultiHartLoopPointGroundTruthTests.cs`, deleted
-  rather than left half-working; the design — cold `MultiHartPipeline` run vs. `MultiHartLoopPointExperiment`'s
-  estimate, mirroring `RealLinkedLoopPointTests`'s single-hart version — is sound and worth resurrecting
-  once `ecall` can reliably reach a real binary's `clone()` call).
+- [x] `FiveStageTrain`'s `ecall` dispatch read its implicit `a0`-`a5`/`a7` syscall arguments straight from
+  architectural state with no decoded `SourceRegisters` for `HazardUnit` to stall or forward on, so a
+  zero-instruction-gap write immediately before `ecall` was invisible to it. Fixed with a register-agnostic
+  full-pipeline drain rather than extending the forwarding network (which is hardwired to 3 operand slots,
+  too few for `ecall`'s 7 implicit reads): `HazardUnit`/`FiveStageTrain` now hold `ecall` in ID until EX and
+  MEM are both empty, keyed narrowly off `ITooth.MayAccessArbitraryMemory` (already true only for `ecall`,
+  not CSR ops) so it doesn't perturb other System-class instructions' existing forwarding-based timing —
+  mirrors the serialize-until-retired immunity `OooTrain`/`CprTrain`/`DaeTrain`/`SuperscalarTrain`/`SmtTrain`
+  already had by construction. Unblocked a cold `pthread_probe.elf` run through `MultiHartPipeline`'s dynamic
+  hart activation from reaching its real `clone()` call at all; the multi-hart LoopPoint ground-truth test
+  (`Tests/RiscV64/System/MultiHartLoopPointGroundTruthTests.cs`) is restored and passing (~6% relative error
+  between a cold ground-truth run and `MultiHartLoopPointExperiment`'s estimate).
 - [x] `SingleCycleTrain` had the same silent-wrong-commit gap `RequestBlock` closed in the six detailed
   trains above: it shares `SmtTrain`/`MultiHartKernel`'s "one instruction fully completes per call" model
   (no pipeline latches), so this is the simplest translation of all seven — `ExecuteOneCycle` charges the

@@ -416,6 +416,18 @@ internal sealed class PipelineCore : Gear {
             stall = FflagsHazard(incoming, idExLast.Instruction)
                  || FflagsHazard(incoming, exMemLast.Instruction);
 
+        // Arbitrary-state-read hazard (e.g. ecall's implicit a0-a5/a7 syscall
+        // arguments): the executor reads these straight from architectural state,
+        // not through decoded SourceRegisters, so neither the load-use stall nor
+        // forwarding (hardwired to 3 operand slots) can protect it — and it reads
+        // up to 7 registers. Register-agnostic fix: hold it in ID until EX and MEM
+        // are both empty, guaranteeing every older instruction has reached WB.
+        // Mirrors the serialize-until-retired immunity every other train already
+        // has for this instruction by construction (OoO/Cpr head-of-queue issue,
+        // Dae full-drain barrier, Superscalar/Smt inherently sequential execute).
+        if (!stall && incoming is { MayAccessArbitraryMemory: true, })
+            stall = idExLast.IsValid || exMemLast.IsValid;
+
         // Reconcile any branch leaving EX with the prediction made at fetch.
         // The predictor is trained on every resolved branch; a flush (and a
         // misprediction penalty) is only paid when the speculated next PC was
