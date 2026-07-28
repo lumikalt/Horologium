@@ -663,9 +663,32 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   address operands carry a taint root that hasn't reached the visibility point is held at Issue — the classic
   `y = mem[mem[x]]` pointer-chase gadget is delayed until the branch that precedes it resolves, even when
   correctly predicted, which is the real, measurable IPC cost the paper's DelayExecute+STT-ExpOnly configuration
-  reports. Held cycles are counted by the `stt_load_issue_stalls` dial. The Futuristic visibility-point model,
-  full implicit-channel (prediction/resolution-based) protection, and InvisiSpec's own cache-invisible
-  speculative-load mechanism are deliberately out of scope for this slice (see TODO.md).
+  reports. Held cycles are counted by the `stt_load_issue_stalls` dial. The Futuristic visibility-point model and
+  full implicit-channel (prediction/resolution-based) protection are deliberately out of scope for this slice
+  (see TODO.md).
+  **InvisiSpec** (enable with `enableInvisiSpec: true`; Yan, Choi, Skarlatos, Morrison, Fletcher &amp; Torrellas,
+  MICRO 2018, + 2019 Corrigendum) reuses the same shared `SpectreVisibilityTracker` for the cache-hierarchy
+  counterpart: every scalar load speculatively peeks its data at Execute (`IMemory.PeekRead`, a non-mutating
+  read — no hit/miss/LRU/fill side effects — overridden by `SetAssociativeCache`, default no-op elsewhere) rather
+  than doing a real access. The load's real access (an *exposure* if no older load/fence was in the ROB at its
+  own Execute time, else a *validation*, per the paper's TSO rule) is deferred to the load's own visibility point
+  and gates retirement only (`RobEntry.PendingUslAccess`) — the peeked value still reaches dependents immediately
+  via the ordinary CDB broadcast, which is the 2019 Corrigendum's critical fix (the original paper's text
+  suggested delaying value visibility too, which the corrigendum retracts). `StepUslResolution` runs each cycle
+  between `StepComplete` and `StepCommit`, firing the deferred access once `SpectreVisibilityTracker.IsSafe`
+  reports the USL's own visibility point has cleared; a squash or flush this same cycle discards any still-pending
+  USL instead of letting it fire. Counted by the `invisispec_exposures`/`invisispec_validations` dials. A
+  wrong-path (squashed) load never installs anything in the real cache under InvisiSpec, unlike this simulator's
+  undefended baseline — proven directly by a test comparing the same program on/off, not merely asserted.
+  **Known limitations of this slice**: the deferred real access is charged through the cache's lump-sum stall
+  accumulator (the same path store-commit misses use) rather than a per-load in-flight countdown, so multiple
+  USLs resolving in the same cycle have their miss latencies charged additively instead of MLP-overlapped like an
+  ordinary baseline load — this overstates the measured IPC cost relative to the paper's real dual-access
+  overhead (see TODO.md follow-up); `BdiCache` has no `PeekRead` override, so combining InvisiSpec with BΔI
+  L2 compression would mutate compressed-cache state on a peek; `SetAssociativeCache.PeekRead` skips
+  `EnsureSectorResident`, so a peek on a sectored cache could read a non-resident sector's stale bytes (untriggered
+  by today's non-sectored test configs). No coherence/multi-hart squash plumbing (`OooTrain` has no
+  coherence-invalidation-triggered load-squash hook today).
 
 - **`CprTrain`** — ROB-free out-of-order pipeline implementing **Checkpoint Processing and Recovery** (Akkary,
   Rajwar & Srinivasan, MICRO 2003) with optional **Continual Flow Pipelines** (Srinivasan, Rajwar, Akkary, Gandhi &

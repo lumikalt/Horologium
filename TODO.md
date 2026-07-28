@@ -77,12 +77,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
 - [ ] STT/InvisiSpec: Futuristic-model visibility point (ROB head / "preceded only by non-squashable instructions")
   as a selectable alternative to the Spectre model — needs tracking unresolved loads and traps as additional
   squash sources, not just branches.
-- [ ] InvisiSpec: invisible speculative loads via a non-mutating cache peek (new `IMemory.PeekRead`, default = same
-  as `Read`, overridden by `SetAssociativeCache`/`BdiCache`) plus a real expose/validate transaction at the
-  visibility point — cache-hierarchy-only counterpart to STT, single-core IPC cost (dual-access + validation
-  stall + lost wrong-path cache reuse), no coherence/multi-hart squash plumbing (out of scope; `OooTrain` has
-  no coherence-invalidation-triggered load-squash hook today). — Yan et al., MICRO 2018 (+ 2019 Corrigendum:
-  propagate a USL's data to dependents immediately on SB fill, not deferred to the visibility point)
+- [x] InvisiSpec: invisible speculative loads via a non-mutating cache peek (`IMemory.PeekRead`, default = same
+  as `Read`, overridden by `SetAssociativeCache`) plus a real expose/validate transaction deferred to the shared
+  Spectre-model visibility point, gating retirement only (`RobEntry.PendingUslAccess`) — a USL's data still
+  reaches dependents immediately via the ordinary CDB broadcast, per the 2019 Corrigendum. Measured via
+  `invisispec_exposures`/`invisispec_validations` dials; no coherence/multi-hart squash plumbing (out of scope;
+  `OooTrain` has no coherence-invalidation-triggered load-squash hook today). — Yan et al., MICRO 2018 (+ 2019
+  Corrigendum)
+- [ ] InvisiSpec follow-up: `StepUslResolution`'s deferred real access is charged through the cache's lump-sum
+  stall accumulator (the same path store-commit misses use), not a per-load in-flight countdown — so multiple
+  USLs resolving in the same cycle have their miss latencies charged additively instead of MLP-overlapped like
+  ordinary baseline loads. This overstates InvisiSpec's measured IPC cost vs. the paper's real dual-access
+  overhead; route the deferred access through `StepExecute`'s in-flight countdown instead for a calibrated
+  number.
+- [ ] InvisiSpec follow-up: `BdiCache` has no `PeekRead` override, so it falls through to `IMemory`'s default
+  (`=> Read(...)`), which mutates BΔI's compressed-cache segment/eviction state on a USL peek — defeats the
+  non-mutation guarantee if InvisiSpec is ever combined with `L2Compression: CompressionKind.Bdi` on the same
+  level.
+- [ ] InvisiSpec follow-up: `SetAssociativeCache.PeekRead` skips `EnsureSectorResident`, so on a sectored cache a
+  peek can read a non-resident sector's stale bytes. Untriggered by today's tests (non-sectored configs only).
 
 ## Benchmarks
 

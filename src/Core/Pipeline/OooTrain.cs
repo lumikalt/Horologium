@@ -57,7 +57,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false,
         IMemory? fdipBackingMemory = null,
-        bool enableSttExpOnly = false
+        bool enableSttExpOnly = false,
+        bool enableInvisiSpec = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -94,7 +95,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 valuePredictor,
                 enableEoleLateExec,
                 enableEoleEarlyExec,
-                enableSttExpOnly: enableSttExpOnly
+                enableSttExpOnly: enableSttExpOnly,
+                enableInvisiSpec: enableInvisiSpec
             )
         );
         _train.Build();
@@ -127,7 +129,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false,
         IMemory? fdipBackingMemory = null,
-        bool enableSttExpOnly = false
+        bool enableSttExpOnly = false,
+        bool enableInvisiSpec = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -154,7 +157,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 valuePredictor: valuePredictor,
                 enableEoleLateExec: enableEoleLateExec,
                 enableEoleEarlyExec: enableEoleEarlyExec,
-                enableSttExpOnly: enableSttExpOnly
+                enableSttExpOnly: enableSttExpOnly,
+                enableInvisiSpec: enableInvisiSpec
             )
         );
         _train.Build();
@@ -255,6 +259,20 @@ internal sealed partial class OoOPipelineCore : Gear {
     private readonly bool _enableSttExpOnly;
     private readonly SpectreVisibilityTracker? _vpTracker;
     private Counter? _sttLoadIssueStallsCounter;
+
+    // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): an unsafe speculative load (USL)
+    // peeks its data at Execute via IMemory.PeekRead (no cache-state mutation) and is queued here;
+    // its deferred real access (expose or validate) fires once the Spectre-model visibility point
+    // (shared _vpTracker) clears it, in StepUslResolution. The register value reaches dependents
+    // immediately via the ordinary Complete/CDB broadcast — only retirement waits on this queue
+    // (RobEntry.PendingUslAccess), per the corrigendum's fix (never delay data propagation to the
+    // visibility point; the paper's own simulator bug that did so inflated overhead substantially).
+    private readonly bool _enableInvisiSpec;
+    private readonly List<PendingUsl> _pendingUsls = [];
+    private Counter? _invisispecExposuresCounter;
+    private Counter? _invisispecValidationsCounter;
+
+    private readonly record struct PendingUsl(int RobIdx, ulong InstrId, ulong Address, int Bytes, bool NeedsValidation);
 
     // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
     // a self-contained shadow execution lane entered when dispatch is stalled behind a full
@@ -539,7 +557,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false,
-        bool enableSttExpOnly = false
+        bool enableSttExpOnly = false,
+        bool enableInvisiSpec = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -586,7 +605,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         _runaheadPipelineDepth = Math.Max(1, runaheadPipelineDepth);
         _vrStrideTable = _enableVectorRunahead ? new VrStrideEntry[256] : [];
         _enableSttExpOnly = enableSttExpOnly;
-        _vpTracker = enableSttExpOnly ? new SpectreVisibilityTracker() : null;
+        _enableInvisiSpec = enableInvisiSpec;
+        _vpTracker = enableSttExpOnly || enableInvisiSpec ? new SpectreVisibilityTracker() : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -678,6 +698,15 @@ internal sealed partial class OoOPipelineCore : Gear {
                 "stt_load_issue_stalls",
                 "Cycles a load was held at Issue by STT-ExpOnly pending its address operands' visibility point"
             );
+
+        if (_enableInvisiSpec) {
+            _invisispecExposuresCounter = Dials.AddCounter(
+                "invisispec_exposures", "USLs resolved via a cheap exposure (no older load/fence at execute time)"
+            );
+            _invisispecValidationsCounter = Dials.AddCounter(
+                "invisispec_validations", "USLs resolved via validation (an older load/fence was in the ROB)"
+            );
+        }
 
         if (_enableEoleLateExec)
             _eoleLateExecCounter = Dials.AddCounter(
@@ -890,6 +919,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         // Complete: broadcast last tick's execution results onto CDB.
         StepComplete();
 
+        // InvisiSpec: resolve any USL whose visibility point cleared this cycle (fire its
+        // deferred real cache access) before Commit checks RobEntry.PendingUslAccess below.
+        if (_enableInvisiSpec) StepUslResolution();
+
         // Commit: retire completed ROB heads in program order.
         StepCommit();
 
@@ -977,11 +1010,22 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.RequestBlock = r.RequestBlock;
             rob.SideEffect = r.SideEffect;
 
-            if (_enableSttExpOnly && r.ResolvedNextPc.HasValue) _vpTracker!.OnBranchResolved(r.InstrId);
-
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
-            if (rob.ResolvedNextPc is { HasValue: true, Value: var resolved, } && resolved != rob.PredictedNextPc
-             && (!haveMispredict || r.InstrId < oldestMispredId)) {
+            bool thisMispredicted = rob.ResolvedNextPc is { HasValue: true, Value: var resolvedPc, }
+                                  && resolvedPc != rob.PredictedNextPc;
+
+            // Only remove a branch from the shared visibility tracker once it is confirmed
+            // correctly predicted. A mispredicted branch must stay "unresolved" until the squash
+            // that discards its younger instructions actually takes effect (StepPartialSquash/
+            // StepFlush explicitly resolve/clear it there) — otherwise, when this branch happens
+            // to already be the ROB head (so no execute-time partial squash is armed here; the
+            // mispredict is instead only detected later, at commit), there is a one-cycle window
+            // where StepUslResolution/STT's IsSafe checks would wrongly treat younger USLs/loads
+            // as already safe before the squash is even flagged.
+            if (_vpTracker is not null && rob.ResolvedNextPc.HasValue && !thisMispredicted)
+                _vpTracker.OnBranchResolved(r.InstrId);
+
+            if (thisMispredicted && (!haveMispredict || r.InstrId < oldestMispredId)) {
                 haveMispredict = true;
                 oldestMispredId = r.InstrId;
             }
@@ -1070,6 +1114,36 @@ internal sealed partial class OoOPipelineCore : Gear {
     }
 
     /// <summary>
+    ///     InvisiSpec (Yan et al., MICRO 2018): fires the deferred real cache access for any queued
+    ///     USL whose visibility point has cleared, clearing <see cref="RobEntry.PendingUslAccess" />
+    ///     so Commit can retire it. Entries doomed by a squash detected earlier this same cycle are
+    ///     left queued rather than resolved — firing a real access for a load about to be discarded
+    ///     would pollute the cache with wrong-path data, defeating the entire mechanism; squash
+    ///     cleanup (StepFlush/StepPartialSquash) removes them from the queue once it actually runs.
+    ///     Single-core scope: the real access always simply completes (exposure or validation cost
+    ///     the same — a full non-speculative memory access, matching the paper's own description of
+    ///     validation as "more like exposure but with a comparison"); no compare-and-squash-on-mismatch
+    ///     is implemented, since a same-core mismatch would already have been caught by the existing
+    ///     memory-order-violation path (LqEntry.Violated) — a genuine cross-core coherence mismatch,
+    ///     which validation exists to catch, cannot arise without multi-hart coherence-squash plumbing
+    ///     this slice deliberately does not build (see TODO.md).
+    /// </summary>
+    private void StepUslResolution() {
+        for (int i = _pendingUsls.Count - 1; i >= 0; i--) {
+            PendingUsl p = _pendingUsls[i];
+            if (_flushPending || (_squashPending && p.InstrId > _squashInstrId)) continue;
+            if (!_vpTracker!.IsSafe(p.InstrId)) continue;
+
+            _ = DLayers.Accessor.Read(p.Address, p.Bytes);
+            if (p.NeedsValidation) _invisispecValidationsCounter?.Increment();
+            else _invisispecExposuresCounter?.Increment();
+
+            _rob.At(p.RobIdx).PendingUslAccess = false;
+            _pendingUsls.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
     ///     Retires <paramref name="head" /> from the ROB, scaling the retired-instruction
     ///     counter and <see cref="IArchState.OnRetire" /> (instret) by
     ///     <see cref="ITooth.ArchInstructionCount" /> — 1 for an ordinary instruction, 2 for a
@@ -1093,7 +1167,8 @@ internal sealed partial class OoOPipelineCore : Gear {
     private void StepCommit() {
         var committed = 0;
         var dcachePortUsed = false;
-        while (_rob is { IsEmpty: false, Head.IsComplete: true, } && committed < _issueWidth) {
+        while (_rob is { IsEmpty: false, Head: { IsComplete: true, PendingUslAccess: false, }, }
+             && committed < _issueWidth) {
             RobEntry head = _rob.Head;
 
             switch (head) {
@@ -1883,6 +1958,22 @@ internal sealed partial class OoOPipelineCore : Gear {
     }
 
     /// <summary>
+    ///     InvisiSpec TSO validate-vs-expose rule (Yan et al., MICRO 2018, Table 1): true if an
+    ///     older load or store→load fence was in the ROB at the moment <paramref name="loadRobIndex" />
+    ///     executed. Checked once, at Execute time, since it is a property of program order at that
+    ///     instant — unlike <see cref="HasPrecedingStoreLoadFence" />'s live Issue-time gate, this is
+    ///     recorded and never re-queried.
+    /// </summary>
+    private bool HasPrecedingLoadOrFence(int loadRobIndex) {
+        foreach ((int idx, RobEntry entry) in _rob.InOrder()) {
+            if (idx == loadRobIndex) return false;
+            if (entry.IsLoad || entry.Instruction?.IsStoreLoadFence == true) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     ///     True if any SQ entry older than <paramref name="loadSeqNo" /> has not yet
     ///     resolved its effective address. Used to implement conservative load ordering
     ///     (FuLatencyConfig.ConservativeLoads), mirroring Olympia's
@@ -2102,14 +2193,17 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.IcacheMiss = ri.IcacheMiss;
             rob.FusedSecondInstrId = ri.FusedSecondInstrId;
 
+            // Shared visibility-point infrastructure (STT-ExpOnly and InvisiSpec both need to know
+            // when the oldest older branch resolves): register every branch/conditional branch
+            // entering the ROB, regardless of which of the two defenses is actually enabled.
+            if (_vpTracker is not null && instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch)
+                _vpTracker.OnDispatchBranch(ri.InstrId);
+
             // STT-ExpOnly (Yu et al., MICRO 2019, §4.1): Youngest Root of Taint, computed once
             // here from source operands' PRF-resident Yrot (sources are always older, already
             // dispatched instructions, so their Yrot is already final). A Load/Atomic additionally
             // roots taint at its own destination — its fetched data isn't visible yet either.
             if (_enableSttExpOnly) {
-                if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch)
-                    _vpTracker!.OnDispatchBranch(ri.InstrId);
-
                 ulong? srcYrot = null;
                 if (ri.P1 >= 0 && _prf.Yrot(ri.P1) is { } y1) srcYrot = y1;
                 if (ri.P2 >= 0 && _prf.Yrot(ri.P2) is { } y2)
@@ -3189,6 +3283,7 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         _rob.Flush();
         _vpTracker?.Clear();
+        _pendingUsls.Clear();
         foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
         _sq.Flush();
@@ -3295,6 +3390,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         // ── Discard the younger structures (B and everything older survive) ─────────────
         _rob.TruncateYoungerThan(bId);
         _vpTracker?.TruncateYoungerThan(bId);
+        _pendingUsls.RemoveAll(p => p.InstrId > bId);
         foreach (IssueQueue iq in _iqs) iq.SquashYoungerThan(bId);
         _lq.TruncateYoungerThan(bId);
         _sq.TruncateYoungerThan(bId);
@@ -3322,6 +3418,13 @@ internal sealed partial class OoOPipelineCore : Gear {
         // resolved target. Training (_predictor.Update) and the committed RAS/GHR shadows still
         // advance normally at B's commit.
         b.PredictedNextPc = b.ResolvedNextPc.Value;
+
+        // B itself was deliberately left "unresolved" in the shared visibility tracker (see
+        // StepComplete) since it mispredicted; now that its own squash has actually taken effect
+        // (TruncateYoungerThan above discards everything younger but keeps B, since its InstrId
+        // equals, not exceeds, the truncation threshold), resolve it for real so younger
+        // surviving/future instructions can become safe.
+        _vpTracker?.OnBranchResolved(bId);
 
         // Critical-path prediction ED edge (Table 2): the very next dispatched instruction's
         // D-source is B's E-node.
@@ -3394,6 +3497,14 @@ internal sealed partial class OoOPipelineCore : Gear {
         // LQ/SQ entry at all previously corrupted `_lq`/`_sq` indexing outright (IndexOutOfRange —
         // found running a real musl binary's startup ECALLs through OoOe for the first time).
         bool isSystem = issued.Instr.Class == ToothClass.System;
+
+        // InvisiSpec (Yan et al., MICRO 2018): every scalar load speculatively peeks its data
+        // (no cache-state mutation) rather than doing a real access here — the real access is
+        // deferred to this load's own visibility point (see StepUslResolution). Atomics are
+        // exempt: they already issue only at the ROB head (see the Dispatch-stage issue gate),
+        // so by the time one executes it is definitionally non-speculative already.
+        bool isUsl = _enableInvisiSpec && issued.Instr.Class == ToothClass.Load;
+        _capMem.PeekMode = isUsl;
 
         // For UVE ops: inject stream element values into u-register lanes before the executor runs,
         // and sync exhaustion state for branch ops. Vector-mode streams deliver up to VL lanes.
@@ -3523,6 +3634,19 @@ internal sealed partial class OoOPipelineCore : Gear {
                 regValue = (fwd, true);
                 loadForwarded = true;
             }
+        }
+
+        // InvisiSpec: queue this USL's deferred real access. TSO rule (Table 1): validate if an
+        // older load or store→load fence was in the ROB at this exact moment (this instant, not
+        // "ever" — the check must run here, at Execute, not later); otherwise a cheap exposure
+        // suffices. The register value above is already final for CDB broadcast regardless —
+        // only retirement (RobEntry.PendingUslAccess, checked in StepCommit) waits on the queue.
+        if (isUsl && _capMem.HasRead) {
+            bool needsValidation = HasPrecedingLoadOrFence(issued.RobIdx);
+            _pendingUsls.Add(
+                new PendingUsl(issued.RobIdx, issued.InstrId, _capMem.ReadAddress, _capMem.ReadBytes, needsValidation)
+            );
+            _rob.At(issued.RobIdx).PendingUslAccess = true;
         }
 
         // Notify value-aware predictor of the register value this instruction produced.
@@ -3882,11 +4006,20 @@ internal sealed partial class OoOPipelineCore : Gear {
         public ulong ReadAddress { get; private set; }
         public int ReadBytes { get; private set; }
 
+        /// <summary>
+        ///     InvisiSpec (Yan et al., MICRO 2018): when set, <see cref="Read" /> routes through
+        ///     <see cref="IMemory.PeekRead" /> instead of <see cref="IMemory.Read" /> — a speculative
+        ///     load's Execute-time access must not mutate cache state until its own visibility point.
+        ///     Set by <c>ExecuteOne</c> just before invoking the executor; always overwritten per
+        ///     instruction, so its value never leaks across cycles.
+        /// </summary>
+        public bool PeekMode { get; set; }
+
         public ulong Read(ulong address, int bytes) {
             HasRead = true;
             ReadAddress = address;
             ReadBytes = bytes;
-            return backing.Read(address, bytes);
+            return PeekMode ? backing.PeekRead(address, bytes) : backing.Read(address, bytes);
         }
 
         public void Load(ulong address, ReadOnlySpan<byte> data) => backing.Load(address, data);
@@ -3906,6 +4039,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         public void Reset() {
             HasWrite = false;
             HasRead = false;
+            PeekMode = false;
         }
     }
 

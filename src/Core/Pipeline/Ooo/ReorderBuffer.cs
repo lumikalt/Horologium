@@ -234,6 +234,17 @@ public sealed class RobEntry {
     /// </summary>
     public ulong? SourceYrot { get; set; }
 
+    // ── InvisiSpec (Yan et al., MICRO 2018) ──────────────────────────────────
+
+    /// <summary>
+    ///     True from the moment an unsafe speculative load (USL) peeks its data at Execute until its
+    ///     deferred real cache access (expose or validate) completes at its visibility point. Gates
+    ///     retirement in addition to <see cref="IsComplete" /> — the register value is already visible
+    ///     to dependents via the ordinary Complete/CDB broadcast (the 2019 corrigendum's fix: never
+    ///     delay data propagation to the visibility point), only commitment waits.
+    /// </summary>
+    public bool PendingUslAccess { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -279,6 +290,7 @@ public sealed class RobEntry {
         P1 = -1;
         P2 = -1;
         SourceYrot = null;
+        PendingUslAccess = false;
     }
 }
 

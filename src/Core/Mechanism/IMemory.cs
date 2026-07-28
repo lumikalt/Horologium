@@ -11,6 +11,16 @@ public interface IMemory {
     /// <summary>Reads <paramref name="bytes" /> bytes from <paramref name="address" />.</summary>
     ulong Read(ulong address, int bytes);
 
+    /// <summary>
+    ///     Reads <paramref name="bytes" /> bytes from <paramref name="address" /> without changing
+    ///     any cache state — no hit/miss counters, no replacement-policy update, no line fill or
+    ///     eviction, no MSHR allocation (InvisiSpec's speculative-buffer peek, Yan et al., MICRO
+    ///     2018). Default forwards to <see cref="Read" />, correct for any implementation with no
+    ///     cache state to protect (backing DRAM, capturing/wrapper memories); cache implementations
+    ///     override it to do a true non-mutating peek.
+    /// </summary>
+    ulong PeekRead(ulong address, int bytes) => Read(address, bytes);
+
     /// <summary>Writes <paramref name="value" /> (<paramref name="bytes" /> wide) to <paramref name="address" />.</summary>
     void Write(ulong address, ulong value, int bytes);
 

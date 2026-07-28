@@ -482,6 +482,20 @@ public sealed class SetAssociativeCache : IMemory {
         return ReadBytes(_blocks[set][evict], offset, bytes);
     }
 
+    /// <summary>
+    ///     Non-mutating read (InvisiSpec speculative-buffer peek): a hit reads the resident line
+    ///     as-is with no counter/LRU/MSHR side effects; a miss recursively peeks the backing level
+    ///     so nothing up to DRAM is disturbed — no <see cref="FillBlock" />, no eviction, no stall
+    ///     charge. Deliberately skips the victim-buffer swap path too (that also mutates state).
+    /// </summary>
+    public ulong PeekRead(ulong address, int bytes) {
+        var offset = (int)(address & (ulong)_offsetMask);
+        if (offset + bytes > BlockBytes) return _backing.PeekRead(address, bytes);
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        return way >= 0 ? ReadBytes(_blocks[set][way], offset, bytes) : _backing.PeekRead(address, bytes);
+    }
+
     public void Write(ulong address, ulong value, int bytes) {
         if (WritePolicy == WritePolicyKind.WriteThrough) _backing.Write(address, value, bytes);
 

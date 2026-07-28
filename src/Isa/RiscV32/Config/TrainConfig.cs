@@ -99,6 +99,9 @@ public sealed record TrainConfig(
     // STT-ExpOnly (Yu et al., MICRO 2019): delays a load's issue until its address operands'
     // taint clears the Spectre-model visibility point. OooTrain only.
     bool EnableSttExpOnly = false,
+    // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): every load speculatively peeks its
+    // data and defers its real cache access to its own visibility point. OooTrain only.
+    bool EnableInvisiSpec = false,
 
     // ── DaeTrain parameters ───────────────────────────────────────────────────
     int DaeLaneQueueDepth = 8, // per-lane instruction queue depth (Access / Execute lanes)
@@ -221,7 +224,8 @@ public sealed record TrainConfig(
                 FdipFtqCapacity: FdipFtqCapacity,
                 Rdip: Rdip,
                 EnableStoreSets: EnableStoreSets,
-                EnableSttExpOnly: EnableSttExpOnly
+                EnableSttExpOnly: EnableSttExpOnly,
+                EnableInvisiSpec: EnableInvisiSpec
             ),
             "cpr" => new CprSpec(
                 IssueWidth, IqCapacity, ExtraPhysRegs,

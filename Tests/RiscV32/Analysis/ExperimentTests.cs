@@ -170,6 +170,40 @@ public class ExperimentTests {
     }
 
     [Fact]
+    public void TrainConfig_EnableInvisiSpec_ReachesOooTrainInvisiSpecMachinery() {
+        // Regression guard for TrainConfig.EnableInvisiSpec -> OutOfOrderSpec.EnableInvisiSpec ->
+        // OooTrain(enableInvisiSpec:) wiring, mirroring TrainConfig_EnableSttExpOnly_... above —
+        // no OooTrain-direct test (InvisiSpecTests) goes through this config/spec path.
+        var cfg = new TrainConfig(Pipeline: "ooo", EnableInvisiSpec: true);
+        var mech = new Rv32Mechanism();
+        var mem = new FlatMemory(0x10000);
+        uint[] program = [0x00100073]; // ebreak
+        var bytes = new byte[program.Length * 4];
+        for (var i = 0; i < program.Length; i++) {
+            bytes[i * 4 + 0] = (byte)program[i];
+            bytes[i * 4 + 1] = (byte)(program[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(program[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(program[i] >> 24);
+        }
+
+        var workload = new ByteArrayWorkload(bytes, entryPoint: 0);
+        workload.Load(mem);
+
+        PipelineSpec spec = cfg.ToPipelineSpec(mech, workload);
+        Assert.IsType<OutOfOrderSpec>(spec);
+        ISteppableTrain train = spec.Build(mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig());
+        var ooo = Assert.IsType<OooTrain>(train);
+
+        RevolutionResult result = ooo.Run();
+        DialBoardSnapshot? snap = result.Find("ooo.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(
+            snap.Counters.ContainsKey("invisispec_exposures") && snap.Counters.ContainsKey("invisispec_validations"),
+            "the invisispec_* counters are only registered when enableInvisiSpec reaches OooTrain"
+        );
+    }
+
+    [Fact]
     public void CompressedL2_MissStallsAreActuallyDrainedIntoCycleAccounting() {
         // MemoryLayers.ConsumeAllStalls() is what every pipeline train calls each cycle to charge
         // miss latency — it originally summed only the typed Cache/L2Cache/L3Cache

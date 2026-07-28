@@ -230,7 +230,10 @@ public sealed record OutOfOrderSpec(
     bool EnableStoreSets = false,
     // STT-ExpOnly (Yu et al., MICRO 2019): delays a load's issue until its address operands'
     // taint (Youngest Root of Taint) clears the Spectre-model visibility point.
-    bool EnableSttExpOnly = false
+    bool EnableSttExpOnly = false,
+    // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): every load speculatively peeks its
+    // data (no cache-state mutation) and defers its real access to its own visibility point.
+    bool EnableInvisiSpec = false
 ) : PipelineSpec {
     public override ISteppableTrain Build(
         IMechanism mechanism,
@@ -255,7 +258,8 @@ public sealed record OutOfOrderSpec(
         Rdip,
         EnableStoreSets,
         fdipBackingMemory: fdipBackingMemory,
-        enableSttExpOnly: EnableSttExpOnly
+        enableSttExpOnly: EnableSttExpOnly,
+        enableInvisiSpec: EnableInvisiSpec
     );
 
     public override ISteppableTrain Build(
@@ -279,7 +283,8 @@ public sealed record OutOfOrderSpec(
         Rdip,
         EnableStoreSets,
         fdipBackingMemory: fdipBackingMemory,
-        enableSttExpOnly: EnableSttExpOnly
+        enableSttExpOnly: EnableSttExpOnly,
+        enableInvisiSpec: EnableInvisiSpec
     );
 }
 
