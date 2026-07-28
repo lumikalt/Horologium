@@ -96,6 +96,9 @@ public sealed record TrainConfig(
     string? CacheReplacementPolicy
         = null, // null/"lru" | "mru" | "clock" | "srrip" | "brrip" | "drrip" | "ship" | "ship_pc" | "random" | "fifo" | "plru" | "hawkeye"
     bool EnableStoreSets = false, // Chrysos & Emer ISCA 1998 store-set memory dependence predictor
+    // STT-ExpOnly (Yu et al., MICRO 2019): delays a load's issue until its address operands'
+    // taint clears the Spectre-model visibility point. OooTrain only.
+    bool EnableSttExpOnly = false,
 
     // ── DaeTrain parameters ───────────────────────────────────────────────────
     int DaeLaneQueueDepth = 8, // per-lane instruction queue depth (Access / Execute lanes)
@@ -217,7 +220,8 @@ public sealed record TrainConfig(
                 CommitObserver: commitObserver,
                 FdipFtqCapacity: FdipFtqCapacity,
                 Rdip: Rdip,
-                EnableStoreSets: EnableStoreSets
+                EnableStoreSets: EnableStoreSets,
+                EnableSttExpOnly: EnableSttExpOnly
             ),
             "cpr" => new CprSpec(
                 IssueWidth, IqCapacity, ExtraPhysRegs,

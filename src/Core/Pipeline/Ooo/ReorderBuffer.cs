@@ -222,6 +222,18 @@ public sealed class RobEntry {
     /// <summary>Physical source register 2, stashed only for <see cref="IsLateExecEligible" /> entries.</summary>
     public int P2 { get; set; } = -1;
 
+    // ── STT taint tracking (Yu et al., MICRO 2019) ─────────────────────────────
+
+    /// <summary>
+    ///     Youngest Root of Taint (§4.1): the largest InstrId among this instruction's source
+    ///     operands' producing loads that have not yet reached their visibility point, or null if
+    ///     none of its sources are tainted. Computed once at Dispatch from the PRF's per-register
+    ///     Yrot (see <see cref="PhysicalRegisterFile.Yrot" />); a Load instruction with a non-null
+    ///     <c>SourceYrot</c> may not issue until <see cref="SpectreVisibilityTracker.IsSafe" />
+    ///     confirms it (STT-ExpOnly: only loads are treated as transmitters).
+    /// </summary>
+    public ulong? SourceYrot { get; set; }
+
     internal void Clear() {
         Valid = false;
         Pc = 0;
@@ -266,6 +278,7 @@ public sealed class RobEntry {
         IsLateExecEligible = false;
         P1 = -1;
         P2 = -1;
+        SourceYrot = null;
     }
 }
 

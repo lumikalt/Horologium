@@ -29,4 +29,6 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Wunderlich et al., ISCA 2003 | SMARTS: Accelerating Microarchitecture Simulation via Rigorous Statistical Sampling | R. E. Wunderlich, T. F. Wenisch, B. Falsafi, J. C. Hoe | ISCA 2003 | `~/dl/wunderlich_isca03_smarts.pdf` |
 | Sabu et al., HPCA 2022 | LoopPoint: Checkpoint-driven Sampled Simulation for Multi-threaded Applications | S. Sabu, H. Patil, W. Heirman, T. E. Carlson | HPCA 2022 | `~/dl/looppoint_hpca2022.pdf` |
 | Solomon et al., ISLPED 2001 | Micro-Operation Cache: A Power Aware Frontend for Variable Instruction Length ISA | B. Solomon, A. Mendelson, D. Orenstien, Y. Almog, R. Ronen | ISLPED 2001 (extended in IEEE TVLSI 11(5), 2003) | `~/dl/solomon_uop-cache.pdf` |
+| Yan et al., MICRO 2018 | InvisiSpec: Making Speculative Execution Invisible in the Cache Hierarchy | M. Yan, J. Choi, D. Skarlatos, A. Morrison, C. W. Fletcher, J. Torrellas | MICRO-51, 2018 (+ 2019 Corrigendum) | `~/dl/yan_invisispec.pdf`, `~/dl/yan_invisispec-correction.pdf` |
+| Yu et al., MICRO 2019 | Speculative Taint Tracking (STT): A Comprehensive Protection for Speculatively Accessed Data | J. Yu, M. Yan, A. Khyzha, A. Morrison, J. Torrellas, C. W. Fletcher | MICRO-52, 2019 | `~/dl/yu_stt.pdf` |
 

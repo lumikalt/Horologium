@@ -42,6 +42,7 @@ public sealed class PhysicalRegisterFile {
     private readonly bool[] _unmapped;
     private readonly int[] _useCount;
     private readonly ulong[] _values;
+    private readonly ulong?[] _yrot;
 
     public PhysicalRegisterFile(int count) {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
@@ -54,6 +55,7 @@ public sealed class PhysicalRegisterFile {
         _nav = new bool[count];
         _allocated = new bool[count];
         _allocGen = new int[count];
+        _yrot = new ulong?[count];
         Array.Fill(_ready, true); // all arch regs start with a valid zero value
     }
 
@@ -86,6 +88,7 @@ public sealed class PhysicalRegisterFile {
         _abandoned[phys] = false;
         _allocated[phys] = true;
         _allocGen[phys]++;
+        _yrot[phys] = null;
     }
 
     /// <summary>
@@ -226,6 +229,29 @@ public sealed class PhysicalRegisterFile {
         Array.Clear(_abandoned);
         Array.Clear(_nav);
         Array.Clear(_allocated);
+        Array.Clear(_yrot);
+    }
+
+    // ── STT taint tracking (Yu et al., MICRO 2019, §4.1) ─────────────────────────
+
+    /// <summary>
+    ///     Youngest Root of Taint: the largest InstrId among the (possibly chained) loads whose
+    ///     not-yet-visible data this register's value depends on, or null if untainted. Set once at
+    ///     Dispatch (see <see cref="SetYrot" />) and read by any later instruction that renames this
+    ///     register as a source — safe to read directly with no staleness guard because a physical
+    ///     register only returns to the free list once superseded by a <em>later</em> renaming of the
+    ///     same architectural register, which cannot commit until every older reader (including any
+    ///     consumer that read this Yrot at its own Dispatch) has already retired.
+    /// </summary>
+    public ulong? Yrot(int phys) {
+        Validate(phys);
+        return _yrot[phys];
+    }
+
+    /// <summary>Sets this register's taint root. Called once at Dispatch, for every destination.</summary>
+    public void SetYrot(int phys, ulong? yrot) {
+        Validate(phys);
+        _yrot[phys] = yrot;
     }
 
     private void Validate(int phys) {

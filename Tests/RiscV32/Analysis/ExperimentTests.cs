@@ -10,6 +10,9 @@ using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV64;
+using OooTrain = global::Pipeline.OooTrain;
+using PipelineSpec = global::Pipeline.Spec.PipelineSpec;
+using OutOfOrderSpec = global::Pipeline.Spec.OutOfOrderSpec;
 
 #endregion
 
@@ -129,6 +132,41 @@ public class ExperimentTests {
         var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
         Assert.Null(dLayers.L2Cache); // compressed level is not a SetAssociativeCache
         Assert.NotNull(dLayers.L2Bdi);
+    }
+
+    [Fact]
+    public void TrainConfig_EnableSttExpOnly_ReachesOooTrainSttMachinery() {
+        // Regression guard for TrainConfig.EnableSttExpOnly -> OutOfOrderSpec.EnableSttExpOnly ->
+        // OooTrain(enableSttExpOnly:) wiring: a dropped parameter anywhere along that chain would
+        // silently build a plain OooTrain with the defense never active, and no OooTrain-direct
+        // test (SttExpOnlyTests) goes through this config/spec path, so none of them would catch it.
+        var cfg = new TrainConfig(Pipeline: "ooo", EnableSttExpOnly: true);
+        var mech = new Rv32Mechanism();
+        var mem = new FlatMemory(0x10000);
+        uint[] program = [0x00100073]; // ebreak
+        var bytes = new byte[program.Length * 4];
+        for (var i = 0; i < program.Length; i++) {
+            bytes[i * 4 + 0] = (byte)program[i];
+            bytes[i * 4 + 1] = (byte)(program[i] >> 8);
+            bytes[i * 4 + 2] = (byte)(program[i] >> 16);
+            bytes[i * 4 + 3] = (byte)(program[i] >> 24);
+        }
+
+        var workload = new ByteArrayWorkload(bytes, entryPoint: 0);
+        workload.Load(mem);
+
+        PipelineSpec spec = cfg.ToPipelineSpec(mech, workload);
+        Assert.IsType<OutOfOrderSpec>(spec);
+        ISteppableTrain train = spec.Build(mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig());
+        var ooo = Assert.IsType<OooTrain>(train);
+
+        RevolutionResult result = ooo.Run();
+        DialBoardSnapshot? snap = result.Find("ooo.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(
+            snap.Counters.ContainsKey("stt_load_issue_stalls"),
+            "the stt_load_issue_stalls counter is only registered when enableSttExpOnly reaches OooTrain"
+        );
     }
 
     [Fact]

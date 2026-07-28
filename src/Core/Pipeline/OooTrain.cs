@@ -56,7 +56,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false,
-        IMemory? fdipBackingMemory = null
+        IMemory? fdipBackingMemory = null,
+        bool enableSttExpOnly = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -92,7 +93,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 runaheadPipelineDepth,
                 valuePredictor,
                 enableEoleLateExec,
-                enableEoleEarlyExec
+                enableEoleEarlyExec,
+                enableSttExpOnly: enableSttExpOnly
             )
         );
         _train.Build();
@@ -124,7 +126,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false,
-        IMemory? fdipBackingMemory = null
+        IMemory? fdipBackingMemory = null,
+        bool enableSttExpOnly = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -150,7 +153,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableStoreSets,
                 valuePredictor: valuePredictor,
                 enableEoleLateExec: enableEoleLateExec,
-                enableEoleEarlyExec: enableEoleEarlyExec
+                enableEoleEarlyExec: enableEoleEarlyExec,
+                enableSttExpOnly: enableSttExpOnly
             )
         );
         _train.Build();
@@ -243,6 +247,14 @@ internal sealed partial class OoOPipelineCore : Gear {
     private readonly HashSet<int> _eeWrittenThisTick = [];
     private readonly bool _enableEoleEarlyExec;
     private readonly bool _enableEoleLateExec;
+
+    // STT-ExpOnly (Yu et al., MICRO 2019): loads are treated as the only "transmitter" class
+    // (explicit-channel-only, per the paper's own DelayExecute+STT-ExpOnly evaluated variant).
+    // A load whose address depends on not-yet-visible data (RobEntry.SourceYrot) is held at
+    // Issue until the Spectre-model visibility point clears it — see TryIssueSlot.
+    private readonly bool _enableSttExpOnly;
+    private readonly SpectreVisibilityTracker? _vpTracker;
+    private Counter? _sttLoadIssueStallsCounter;
 
     // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
     // a self-contained shadow execution lane entered when dispatch is stalled behind a full
@@ -526,7 +538,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         int runaheadPipelineDepth = 1,
         IValuePredictor? valuePredictor = null,
         bool enableEoleLateExec = false,
-        bool enableEoleEarlyExec = false
+        bool enableEoleEarlyExec = false,
+        bool enableSttExpOnly = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -572,6 +585,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         _runaheadUnrollLength = runaheadUnrollLength;
         _runaheadPipelineDepth = Math.Max(1, runaheadPipelineDepth);
         _vrStrideTable = _enableVectorRunahead ? new VrStrideEntry[256] : [];
+        _enableSttExpOnly = enableSttExpOnly;
+        _vpTracker = enableSttExpOnly ? new SpectreVisibilityTracker() : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -657,6 +672,12 @@ internal sealed partial class OoOPipelineCore : Gear {
                 "vp_mispredicts", "Value predictions that mispredicted and were squashed at commit"
             );
         }
+
+        if (_enableSttExpOnly)
+            _sttLoadIssueStallsCounter = Dials.AddCounter(
+                "stt_load_issue_stalls",
+                "Cycles a load was held at Issue by STT-ExpOnly pending its address operands' visibility point"
+            );
 
         if (_enableEoleLateExec)
             _eoleLateExecCounter = Dials.AddCounter(
@@ -955,6 +976,8 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.RequestHalt = r.RequestHalt;
             rob.RequestBlock = r.RequestBlock;
             rob.SideEffect = r.SideEffect;
+
+            if (_enableSttExpOnly && r.ResolvedNextPc.HasValue) _vpTracker!.OnBranchResolved(r.InstrId);
 
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
             if (rob.ResolvedNextPc is { HasValue: true, Value: var resolved, } && resolved != rob.PredictedNextPc
@@ -1642,6 +1665,15 @@ internal sealed partial class OoOPipelineCore : Gear {
             // loads until every pre-fence store's write-bus penalty has expired.
             case ToothClass.Load when HasPrecedingStoreLoadFence(rs.RobIndex):
                 return false;
+            // STT-ExpOnly (Yu et al., MICRO 2019): a load is a transmitter — its address may not
+            // be used to access memory (and thus reveal, via cache-state/timing, whatever secret
+            // it's derived from) while it still carries a taint root that hasn't reached its
+            // visibility point. Atomics are exempt: they already issue only at the ROB head (see
+            // below), by which point every older branch has necessarily resolved.
+            case ToothClass.Load when _enableSttExpOnly
+                                   && _rob.At(rs.RobIndex).SourceYrot is { } yrot && !_vpTracker!.IsSafe(yrot):
+                _sttLoadIssueStallsCounter?.Increment();
+                return false;
             // Conservative load ordering (FuLatencyConfig.ConservativeLoads): a load
             // may not issue while any older SQ entry still has an unresolved address.
             // Models Olympia's allow_speculative_load_exec = false.
@@ -2069,6 +2101,31 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.CpiStolenAtDispatch = _cpiStolenCycles;
             rob.IcacheMiss = ri.IcacheMiss;
             rob.FusedSecondInstrId = ri.FusedSecondInstrId;
+
+            // STT-ExpOnly (Yu et al., MICRO 2019, §4.1): Youngest Root of Taint, computed once
+            // here from source operands' PRF-resident Yrot (sources are always older, already
+            // dispatched instructions, so their Yrot is already final). A Load/Atomic additionally
+            // roots taint at its own destination — its fetched data isn't visible yet either.
+            if (_enableSttExpOnly) {
+                if (instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch)
+                    _vpTracker!.OnDispatchBranch(ri.InstrId);
+
+                ulong? srcYrot = null;
+                if (ri.P1 >= 0 && _prf.Yrot(ri.P1) is { } y1) srcYrot = y1;
+                if (ri.P2 >= 0 && _prf.Yrot(ri.P2) is { } y2)
+                    srcYrot = srcYrot is { } sy1 ? Math.Max(sy1, y2) : y2;
+                if (ri.P3 >= 0 && _prf.Yrot(ri.P3) is { } y3)
+                    srcYrot = srcYrot is { } sy2 ? Math.Max(sy2, y3) : y3;
+                rob.SourceYrot = srcYrot;
+
+                if (rob.PhysDestination >= 0) {
+                    ulong? destYrot = rob.IsLoad
+                        ? srcYrot is { } sy3 ? Math.Max(sy3, ri.InstrId) : ri.InstrId
+                        : srcYrot;
+                    _prf.SetYrot(rob.PhysDestination, destYrot);
+                }
+            }
+
             PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 
             // Critical-path prediction D-source (Table 2): ED (post-misprediction redirect)
@@ -3131,6 +3188,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         }
 
         _rob.Flush();
+        _vpTracker?.Clear();
         foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
         _sq.Flush();
@@ -3236,6 +3294,7 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         // ── Discard the younger structures (B and everything older survive) ─────────────
         _rob.TruncateYoungerThan(bId);
+        _vpTracker?.TruncateYoungerThan(bId);
         foreach (IssueQueue iq in _iqs) iq.SquashYoungerThan(bId);
         _lq.TruncateYoungerThan(bId);
         _sq.TruncateYoungerThan(bId);

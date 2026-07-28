@@ -650,6 +650,22 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   OoO pipeline: `ToothClass.Uve` ops are head-serialized (like `Vector`); the pipeline injects load-stream elements into
   `IUveScalars` before calling the executor; Issue stalls when a required load stream has no buffered element;
   `ExecuteResult.StreamConfig` carries `ss.ld.w` descriptors for `StreamingEngine.Configure`.
+  **STT-ExpOnly** (enable with `enableSttExpOnly: true`) is the first slice of transient-execution defense
+  modeling: **Speculative Taint Tracking**'s explicit-channel-only variant (Yu, Yan, Khyzha, Morrison, Torrellas
+  &amp; Fletcher, "Speculative Taint Tracking (STT)", MICRO 2019) — only loads are treated as transmitters, no
+  implicit-branch/prediction-based protection. A shared Spectre-model visibility-point tracker
+  (`Pipeline.Ooo.SpectreVisibilityTracker`, Yan, Choi, Skarlatos, Morrison, Fletcher &amp; Torrellas,
+  "InvisiSpec", MICRO 2018, Table 1) maintains the InstrId of the oldest unresolved in-flight branch as a FIFO
+  of dispatched branches, drained as `StepComplete` resolves each one — an instruction is "safe" once no older
+  branch is still unresolved. At Dispatch, each destination register's Youngest Root of Taint (`RobEntry.SourceYrot`
+  / `PhysicalRegisterFile.Yrot`/`SetYrot`) is computed from its source operands' existing Yrot, with a Load/Atomic
+  additionally rooting taint at its own destination (its fetched data isn't visible yet either). A load whose
+  address operands carry a taint root that hasn't reached the visibility point is held at Issue — the classic
+  `y = mem[mem[x]]` pointer-chase gadget is delayed until the branch that precedes it resolves, even when
+  correctly predicted, which is the real, measurable IPC cost the paper's DelayExecute+STT-ExpOnly configuration
+  reports. Held cycles are counted by the `stt_load_issue_stalls` dial. The Futuristic visibility-point model,
+  full implicit-channel (prediction/resolution-based) protection, and InvisiSpec's own cache-invisible
+  speculative-load mechanism are deliberately out of scope for this slice (see TODO.md).
 
 - **`CprTrain`** — ROB-free out-of-order pipeline implementing **Checkpoint Processing and Recovery** (Akkary,
   Rajwar & Srinivasan, MICRO 2003) with optional **Continual Flow Pipelines** (Srinivasan, Rajwar, Akkary, Gandhi &

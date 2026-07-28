@@ -227,7 +227,10 @@ public sealed record OutOfOrderSpec(
     ICommitObserver? CommitObserver = null,
     int FdipFtqCapacity = 0,
     bool Rdip = false,
-    bool EnableStoreSets = false
+    bool EnableStoreSets = false,
+    // STT-ExpOnly (Yu et al., MICRO 2019): delays a load's issue until its address operands'
+    // taint (Youngest Root of Taint) clears the Spectre-model visibility point.
+    bool EnableSttExpOnly = false
 ) : PipelineSpec {
     public override ISteppableTrain Build(
         IMechanism mechanism,
@@ -251,7 +254,8 @@ public sealed record OutOfOrderSpec(
         FdipFtqCapacity,
         Rdip,
         EnableStoreSets,
-        fdipBackingMemory: fdipBackingMemory
+        fdipBackingMemory: fdipBackingMemory,
+        enableSttExpOnly: EnableSttExpOnly
     );
 
     public override ISteppableTrain Build(
@@ -274,7 +278,8 @@ public sealed record OutOfOrderSpec(
         FdipFtqCapacity,
         Rdip,
         EnableStoreSets,
-        fdipBackingMemory: fdipBackingMemory
+        fdipBackingMemory: fdipBackingMemory,
+        enableSttExpOnly: EnableSttExpOnly
     );
 }
 

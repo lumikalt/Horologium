@@ -67,8 +67,22 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Security
 
-- [ ] Transient-execution defense modeling: invisible speculative loads (InvisiSpec) and speculative taint tracking
-  (STT); measure the IPC cost of each defense on the OoO train. — Yan et al., MICRO 2018; Yu et al., MICRO 2019
+- [x] Transient-execution defense modeling, first slice: STT-ExpOnly (explicit-channel-only — loads are the only
+  transmitter class, no implicit-branch/prediction-based protection) on `OooTrain`, gated by a shared
+  Spectre-model visibility-point tracker (all older branches resolved). A load whose address traces a taint
+  root to another not-yet-visible load is held at Issue; measured via the `stt_load_issue_stalls` dial and a
+  direct on/off cycle-count comparison. — Yu et al., MICRO 2019
+- [ ] STT: implicit-channel protection (prediction-based and resolution-based leaks via branches/store-forwarding/
+  value prediction, "implicit branches") — the full DelayExecute+STT variant, not just ExpOnly.
+- [ ] STT/InvisiSpec: Futuristic-model visibility point (ROB head / "preceded only by non-squashable instructions")
+  as a selectable alternative to the Spectre model — needs tracking unresolved loads and traps as additional
+  squash sources, not just branches.
+- [ ] InvisiSpec: invisible speculative loads via a non-mutating cache peek (new `IMemory.PeekRead`, default = same
+  as `Read`, overridden by `SetAssociativeCache`/`BdiCache`) plus a real expose/validate transaction at the
+  visibility point — cache-hierarchy-only counterpart to STT, single-core IPC cost (dual-access + validation
+  stall + lost wrong-path cache reuse), no coherence/multi-hart squash plumbing (out of scope; `OooTrain` has
+  no coherence-invalidation-triggered load-squash hook today). — Yan et al., MICRO 2018 (+ 2019 Corrigendum:
+  propagate a USL's data to dependents immediately on SB fill, not deferred to the visibility point)
 
 ## Benchmarks
 
