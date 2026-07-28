@@ -1246,6 +1246,46 @@ Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pyth
 `MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher:
 "next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"/"stems"/"mlop"` in `TrainConfig` JSON.
 
+### Cache compression (src/Core/Orrery/Cache)
+
+`BdiCompressor` implements Base-Delta-Immediate (BΔI) compression (Pekhimenko, Seshadri, Mutlu, Kozuch, Gibbons &amp;
+Mowry, PACT 2012): a pure, stateless algorithm that views a cache line as `n = C/k` signed elements of size `k ∈ {8, 4,
+2}` bytes and finds the smallest of several encodings — all-zero (1 byte), a single repeated 8-byte value (8 bytes), or
+a base+delta encoding for a (k, Δ) pair with Δ < k, falling back to storing the line uncompressed. BΔI's refinement
+over plain Base+Delta is a second, *implicit zero* base: each element is first tested against zero (does the raw value
+fit in Δ signed bytes?); only elements that fail get tested against a second, real base — the first element that
+failed the zero-base test. The line compresses at a given (k, Δ) iff every element passes one test or the other. When
+every element in a line resolves to the *same* base (all-zero or all-real — both of the paper's own worked examples,
+Figures 3 and 4, happen to be uniform-base lines) the encoding matches the paper's Table 2 byte counts exactly; a
+genuinely mixed-base line adds `⌈n/8⌉` mask bytes (one bit per element, needed for `Decompress` to reconstruct it) that
+Table 2's simplified formula doesn't itemize. `Decompress` infers mask presence from the compressed length alone
+(exactly one of two possible values for a given encoding and line size), rather than a separate stored flag.
+
+`BdiCache` is a standalone `IMemory` cache built on `BdiCompressor` — deliberately *not* an option on
+`SetAssociativeCache`, since BΔI's variable per-line footprint breaks the single-victim-per-miss invariant every one
+of that class's orthogonal features (inclusion cascade, Jouppi victim buffer, write-back buffer, sectoring, Exclusive
+hand-off, MSHR bookkeeping) assumes; `MoesifCache` already establishes the precedent of a separate, focused class for
+a fundamentally different residency model rather than folding it into the class every other feature depends on. Each
+resident line keeps its full uncompressed bytes (a real byte-accurate functional simulator has no reason to actually
+shrink a `byte[]` to match a compressed size) alongside a *simulated footprint*, in `segmentBytes`-sized segments
+(default 8, matching the paper), computed by `BdiCompressor.Compress` on the real fill/write bytes — decompression
+latency itself is not separately modeled, matching the paper's own finding that 1-to-5-cycle decompression latency
+changes performance by under 1%. Two independent capacity constraints per set, both enforced by evicting LRU (or the
+supplied `IReplacementPolicy`'s) victims one at a time until they hold again: (1) at most `2 × physicalWays` tags (
+*doubled tags*, the paper's own design point — a real cap on resident line count, independent of size); (2) the sum of
+resident lines' segment footprints must not exceed `physicalWays × blockBytes / segmentBytes` segments (the real,
+unchanged physical data budget). A single incoming or growing line can require evicting *several* other lines in a row
+purely from segment pressure, not just tag-slot pressure — verified directly (`BdiCacheTests
+.SegmentPressure_ForcesMultipleEvictionsNotJustOne`) with four two-segment compressible lines occupying all four tag
+slots and the full eight-segment budget, where installing one four-segment incompressible line forces exactly two
+evictions, not one. The residency effect this whole feature exists for — more lines resident, in the same physical
+budget, than an equivalent uncompressed cache could hold — is verified end to end
+(`BdiCacheTests.CompressibleWorkingSet_StaysResidentWhereUncompressedCacheThrashes`): a four-line compressible working
+set stays fully resident in a `BdiCache` while an uncompressed `SetAssociativeCache` with the identical physical byte
+budget thrashes on the same access pattern. **Not yet wired into a selectable `TrainConfig`/`MemoryConfig` run path**
+(`MoesifCache`-style direct construction, or a `CompressionKind` option, is a natural next step) — currently reachable
+only from its own unit tests.
+
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 
 `MoesifCache` is an N-way set-associative write-back cache that participates in a MOESIF coherence protocol with
