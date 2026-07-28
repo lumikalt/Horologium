@@ -711,11 +711,17 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   accumulator (the same path store-commit misses use) rather than a per-load in-flight countdown, so multiple
   USLs resolving in the same cycle have their miss latencies charged additively instead of MLP-overlapped like an
   ordinary baseline load — this overstates the measured IPC cost relative to the paper's real dual-access
-  overhead (see TODO.md follow-up); `BdiCache` has no `PeekRead` override, so combining InvisiSpec with BΔI
-  L2 compression would mutate compressed-cache state on a peek; `SetAssociativeCache.PeekRead` skips
-  `EnsureSectorResident`, so a peek on a sectored cache could read a non-resident sector's stale bytes (untriggered
-  by today's non-sectored test configs). No coherence/multi-hart squash plumbing (`OooTrain` has no
+  overhead (see TODO.md follow-up). No coherence/multi-hart squash plumbing (`OooTrain` has no
   coherence-invalidation-triggered load-squash hook today).
+
+  `BdiCache` now has a `PeekRead` override (non-mutating: a hit reads the resident compressed block with no
+  LRU/segment update, a miss recurses to backing rather than decompressing/filling), and
+  `SetAssociativeCache.PeekRead` correctly checks sector residency (`_sectorValid`) before returning resident-line
+  bytes, falling through to backing for an unfetched sector — the sectored-cache gap was a real bug (peeking an
+  unfetched sector previously returned stale/zero bytes instead of the backing value), not merely a documented
+  limitation, fixed and covered by discriminating tests in `BdiCacheTests`/`CacheTests`. Neither path is exercised
+  by a wired config combining InvisiSpec with BΔI or sectored caches today, so this closes latent correctness gaps
+  rather than validating an integrated configuration.
 
 - **`CprTrain`** — ROB-free out-of-order pipeline implementing **Checkpoint Processing and Recovery** (Akkary,
   Rajwar & Srinivasan, MICRO 2003) with optional **Continual Flow Pipelines** (Srinivasan, Rajwar, Akkary, Gandhi &

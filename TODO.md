@@ -115,11 +115,11 @@ off here until a periodic cleanup removes them; the durable record is git histor
   ordinary baseline loads. This overstates InvisiSpec's measured IPC cost vs. the paper's real dual-access
   overhead; route the deferred access through `StepExecute`'s in-flight countdown instead for a calibrated
   number.
-- [ ] InvisiSpec follow-up: `BdiCache` has no `PeekRead` override, so it falls through to `IMemory`'s default
+- [x] InvisiSpec follow-up: `BdiCache` has no `PeekRead` override, so it falls through to `IMemory`'s default
   (`=> Read(...)`), which mutates BΔI's compressed-cache segment/eviction state on a USL peek — defeats the
   non-mutation guarantee if InvisiSpec is ever combined with `L2Compression: CompressionKind.Bdi` on the same
   level.
-- [ ] InvisiSpec follow-up: `SetAssociativeCache.PeekRead` skips `EnsureSectorResident`, so on a sectored cache a
+- [x] InvisiSpec follow-up: `SetAssociativeCache.PeekRead` skips `EnsureSectorResident`, so on a sectored cache a
   peek can read a non-resident sector's stale bytes. Untriggered by today's tests (non-sectored configs only).
 
 ## Benchmarks

@@ -200,4 +200,37 @@ public sealed class BdiCacheTests {
         Assert.True(cache.DirtyEvictions >= 1);
         Assert.Equal(0x11111111UL, backing.Read(0x0, 4));
     }
+
+    // ── PeekRead (InvisiSpec non-mutating speculative-buffer peek) ────────────
+
+    [Fact]
+    public void PeekRead_OnMiss_ReturnsBackingValueWithoutInstallingLine() {
+        var backing = new FlatMemory(4096);
+        backing.Write(0x200, 0x12345678, 4);
+        var cache = new BdiCache(backing, 1024, 4, 32, 10);
+
+        Assert.Equal(0x12345678UL, cache.PeekRead(0x200, 4));
+
+        Assert.Equal(0, cache.Misses);
+        Assert.Equal(0, cache.Hits);
+        Assert.Equal(0, cache.ResidentLineCount); // no line installed by the peek
+        Assert.Equal(0, cache.ConsumePendingStalls()); // no miss stall charged either
+    }
+
+    [Fact]
+    public void PeekRead_OnHit_ReturnsResidentValueWithoutMutatingState() {
+        var backing = new FlatMemory(4096);
+        var cache = new BdiCache(backing, 1024, 4, 32, 10);
+        cache.Write(0x100, 0xDEADBEEF, 4);
+        cache.Read(0x100, 4); // install the line for real (miss + fill)
+        cache.ConsumePendingStalls();
+        long residentBefore = cache.ResidentLineCount;
+        long hitsBefore = cache.Hits;
+
+        Assert.Equal(0xDEADBEEFUL, cache.PeekRead(0x100, 4));
+
+        Assert.Equal(hitsBefore, cache.Hits); // peek must not count as a hit
+        Assert.Equal(residentBefore, cache.ResidentLineCount);
+        Assert.Equal(0, cache.ConsumePendingStalls());
+    }
 }

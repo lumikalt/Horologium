@@ -487,13 +487,22 @@ public sealed class SetAssociativeCache : IMemory {
     ///     as-is with no counter/LRU/MSHR side effects; a miss recursively peeks the backing level
     ///     so nothing up to DRAM is disturbed — no <see cref="FillBlock" />, no eviction, no stall
     ///     charge. Deliberately skips the victim-buffer swap path too (that also mutates state).
+    ///     On a sectored cache, a tag hit only means the *line* is resident — the specific sector
+    ///     covering <paramref name="address" /> may never have been fetched (ordinary
+    ///     <see cref="Read" /> lazily fills it via <see cref="EnsureSectorResident" />, which this
+    ///     peek must not do, since fetching would itself be a mutating, stall-charging access).
+    ///     Falls through to a backing peek for a not-yet-resident sector instead of returning
+    ///     whatever stale/zero-initialized bytes happen to sit in that unfetched sector's slot.
     /// </summary>
     public ulong PeekRead(ulong address, int bytes) {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > BlockBytes) return _backing.PeekRead(address, bytes);
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        return way >= 0 ? ReadBytes(_blocks[set][way], offset, bytes) : _backing.PeekRead(address, bytes);
+        if (way < 0) return _backing.PeekRead(address, bytes);
+        if (_sectorValid != null && !_sectorValid[set][way][SectorIndex(address)])
+            return _backing.PeekRead(address, bytes);
+        return ReadBytes(_blocks[set][way], offset, bytes);
     }
 
     public void Write(ulong address, ulong value, int bytes) {

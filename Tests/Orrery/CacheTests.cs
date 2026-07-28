@@ -1023,6 +1023,33 @@ public class CacheTests {
         Assert.True(cache.IsSectorResident(8));
     }
 
+    /// <summary>
+    ///     InvisiSpec (Yan et al., MICRO 2018) non-mutating peek, on a sectored cache: a tag hit only
+    ///     means the *line* is resident, not this specific sector (see
+    ///     <c>Sectoring_LaterAccessToUntouchedSector_PaysMissLatencyAgain</c> above — the same
+    ///     resident-line-but-cold-sector scenario, but via <c>PeekRead</c> instead of <c>Read</c>).
+    ///     Peeking an unfetched sector must return the real backing value (not stale/zeroed local
+    ///     bytes) and must not fetch it for real — no sector-fill, no stall, no residency change.
+    /// </summary>
+    [Fact]
+    public void PeekRead_SectoredCache_UnfetchedSectorReturnsBackingValueWithoutFetching() {
+        var mem = new FlatMemory(256);
+        mem.Write(0, 0xAA, 1); // sector 0's byte
+        mem.Write(8, 0xBB, 1); // sector 1's byte
+        SetAssociativeCache cache = MakeSectored(mem, 8);
+
+        cache.Read(0, 1); // installs the line, fetches sector 0 only
+        cache.ConsumePendingStalls();
+        Assert.True(cache.IsSectorResident(0));
+        Assert.False(cache.IsSectorResident(8));
+
+        Assert.Equal(0xBBUL, cache.PeekRead(8, 1)); // sector 1: tag hit, but never fetched
+
+        Assert.False(cache.IsSectorResident(8)); // peek must not fetch it for real
+        Assert.Equal(1, cache.SectorFills);       // still just sector 0's fill from the Read above
+        Assert.Equal(0, cache.ConsumePendingStalls());
+    }
+
     [Fact]
     public void Sectoring_DirtyWriteback_OnlyFlushesDirtySectors() {
         var mem = new FlatMemory(256);

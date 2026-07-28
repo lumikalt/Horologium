@@ -189,6 +189,24 @@ public sealed class BdiCache : IMemory {
         return ReadBytes(_blocks[set][way], offset, bytes);
     }
 
+    /// <summary>
+    ///     InvisiSpec (Yan et al., MICRO 2018): non-mutating speculative-buffer peek — a hit reads
+    ///     the resident (compressed) block with no LRU/counter update; a miss recurses to the
+    ///     backing level rather than decompressing/filling a segment, since a fill would mutate this
+    ///     level's segment accounting/eviction state exactly like a real access would. Mirrors
+    ///     <see cref="SetAssociativeCache.PeekRead" />, which this level was missing before now (see
+    ///     TODO.md's InvisiSpec follow-up) — combining InvisiSpec with BΔI L2 compression previously
+    ///     mutated compressed-cache state on a peek, defeating the non-mutation guarantee.
+    /// </summary>
+    public ulong PeekRead(ulong address, int bytes) {
+        var offset = (int)(address & (ulong)_offsetMask);
+        if (offset + bytes > _blockBytes) return _backing.PeekRead(address, bytes);
+
+        Decompose(address, out int set, out ulong tag);
+        int way = FindWay(set, tag);
+        return way >= 0 ? ReadBytes(_blocks[set][way], offset, bytes) : _backing.PeekRead(address, bytes);
+    }
+
     public void Write(ulong address, ulong value, int bytes) {
         if (_writePolicy == WritePolicyKind.WriteThrough) _backing.Write(address, value, bytes);
 
