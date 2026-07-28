@@ -1282,9 +1282,25 @@ evictions, not one. The residency effect this whole feature exists for — more 
 budget, than an equivalent uncompressed cache could hold — is verified end to end
 (`BdiCacheTests.CompressibleWorkingSet_StaysResidentWhereUncompressedCacheThrashes`): a four-line compressible working
 set stays fully resident in a `BdiCache` while an uncompressed `SetAssociativeCache` with the identical physical byte
-budget thrashes on the same access pattern. **Not yet wired into a selectable `TrainConfig`/`MemoryConfig` run path**
-(`MoesifCache`-style direct construction, or a `CompressionKind` option, is a natural next step) — currently reachable
-only from its own unit tests.
+budget thrashes on the same access pattern.
+
+Selectable per level via `MemoryConfig.L2Compression`/`L3Compression` (`CompressionKind.{None,Bdi}`, plus
+`L2SegmentBytes`/`L3SegmentBytes`), or `CacheHardwareConfig.Compression`/`SegmentBytes` on the `L2Cache`/`L3Cache`
+entries of `TrainConfig` JSON — matching the paper's own L1-exclusion (Section 1: L1 hit latency is too critical to
+spend on decompression), only L2/L3 have the option; L1 is always a plain `SetAssociativeCache`. When a level is
+compressed, `MemoryLayers.Build` constructs a `BdiCache` for it instead of a `SetAssociativeCache` — that level's
+`L2Cache`/`L3Cache` property is then null and its stats live on the new `L2Bdi`/`L3Bdi` properties instead. A
+compressed level does not participate in the `AttachInner`-driven inclusion cascade (see `BdiCache`'s own docs) or
+accept a `PolicyFactory`-supplied custom replacement policy (it always uses its own default LRU) — both documented
+scope trims, not oversights. Verified end to end, not just type-checked, in
+`ExperimentTests.FullChain_L1PlusCompressedL2_ReadsAndWritesCorrectly`. `MemoryLayers.ConsumeAllStalls()` — what every
+pipeline train calls each cycle to charge miss latency — now drains `L2Bdi`/`L3Bdi` alongside the typed
+`L2Cache`/`L3Cache`; without that, a compressed level's miss latency never reached cycle accounting at all (verified
+directly in `ExperimentTests.CompressedL2_MissStallsAreActuallyDrainedIntoCycleAccounting`, which fails at 0 instead
+of the expected miss latency if that drain line is removed). Not yet integrated: `OooeTrain`'s microarchitectural
+checkpoint and the `SingleCycleTrain`/`FiveStageTrain`/`CprTrain` PEventLog L2/L3 hit/miss counters don't cover a
+compressed level, and the `CacheLevelSpec`/`CachePathSpec`-driven `MemoryLayers.Build` overload and the Face UI don't
+expose the option yet — tracked in TODO.md.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

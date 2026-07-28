@@ -58,8 +58,12 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Memory System
 
-- [ ] Cache compression: base-delta-immediate (BΔI) compressed caches with variable effective capacity. — Pekhimenko
+- [x] Cache compression: base-delta-immediate (BΔI) compressed caches with variable effective capacity. — Pekhimenko
   et al., PACT 2012
+- [ ] BΔI: extend compression selection to the `CacheLevelSpec`/`CachePathSpec`-driven `MemoryLayers.Build` overload
+  and expose it in the Face cache-config UI — only the flat `MemoryConfig`/`TrainConfig` path supports it today.
+- [ ] BΔI: a compressed level (`BdiCache`) doesn't yet participate in `OooeTrain`'s microarchitectural checkpoint
+  (cold-starts on restore) or the `SingleCycleTrain`/`FiveStageTrain`/`CprTrain` PEventLog L2/L3 hit/miss counters.
 
 ## Security
 

@@ -40,7 +40,12 @@ public sealed record CacheHardwareConfig(
     int SectorBytes = 0,
     int VictimCacheEntries = 0,
     int VictimCacheHitLatency = 1,
-    InclusionPolicyKind InclusionPolicy = InclusionPolicyKind.Nine
+    InclusionPolicyKind InclusionPolicy = InclusionPolicyKind.Nine,
+    // BΔI compression (Pekhimenko et al., PACT 2012): only meaningful on L2Cache/L3Cache — a
+    // BdiCache, not a SetAssociativeCache, backs that level when set. Ignored on ICache/DCache,
+    // matching the paper's own L1-excluded scope (see MemoryConfig.CompressionKind docs).
+    CompressionKind Compression = CompressionKind.None,
+    int SegmentBytes = 8
 );
 
 /// <summary>
@@ -320,6 +325,10 @@ public sealed record TrainConfig(
             // and MemoryLayers.Build hardcodes it to Nine, matching SetAssociativeCache's own
             // "ignored on the innermost level" contract.
             L2InclusionPolicy: l2?.InclusionPolicy ?? InclusionPolicyKind.Nine,
-            L3InclusionPolicy: l3?.InclusionPolicy ?? InclusionPolicyKind.Nine
+            L3InclusionPolicy: l3?.InclusionPolicy ?? InclusionPolicyKind.Nine,
+            L2Compression: l2?.Compression ?? CompressionKind.None,
+            L3Compression: l3?.Compression ?? CompressionKind.None,
+            L2SegmentBytes: l2?.SegmentBytes ?? 8,
+            L3SegmentBytes: l3?.SegmentBytes ?? 8
         );
 }

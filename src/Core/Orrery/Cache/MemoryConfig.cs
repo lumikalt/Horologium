@@ -23,6 +23,18 @@ public enum PrefetcherKind {
     Mlop,
 }
 
+/// <summary>
+///     Cache-line compression for a level, backed by <see cref="BdiCache" /> — see its docs for
+///     why compression is a wholly separate cache class rather than an option on
+///     <see cref="SetAssociativeCache" />. Only offered on L2/L3 (via <see cref="MemoryConfig.L2Compression" />
+///     /<see cref="MemoryConfig.L3Compression" />), matching the paper's own scope: L1 hit latency
+///     is too critical to spend on decompression (Pekhimenko et al., PACT 2012, Section 1).
+/// </summary>
+public enum CompressionKind {
+    None,
+    Bdi,
+}
+
 public enum ReplacementPolicyKind {
     Lru,
     Srrip,
@@ -284,6 +296,10 @@ public sealed record MemoryConfig(
     int L3MshrCount = 0,
     InclusionPolicyKind L2InclusionPolicy = InclusionPolicyKind.Nine,
     InclusionPolicyKind L3InclusionPolicy = InclusionPolicyKind.Nine,
+    CompressionKind L2Compression = CompressionKind.None,
+    CompressionKind L3Compression = CompressionKind.None,
+    int L2SegmentBytes = 8,
+    int L3SegmentBytes = 8,
     int CacheCriticalWordLatency = 0,
     int L2CriticalWordLatency = 0,
     int L3CriticalWordLatency = 0,
@@ -316,6 +332,10 @@ public sealed record MemoryConfig(
 ///     Accessor is always non-null — it is the top of the chain.
 ///     Cache, L2Cache, L3Cache, and Tlb are non-null only when the corresponding layer is enabled.
 ///     Access order from processor: Accessor → [Tlb] → [L1 Cache] → [L2 Cache] → [L3 Cache] → backing.
+///     When a level's <see cref="MemoryConfig.L2Compression" />/<see cref="MemoryConfig.L3Compression" />
+///     is <see cref="CompressionKind.Bdi" />, that level is a <see cref="BdiCache" /> instead of a
+///     <see cref="SetAssociativeCache" /> — its stats live on <see cref="L2Bdi" />/<see cref="L3Bdi" />
+///     and its own <c>L2Cache</c>/<c>L3Cache</c> property is null.
 /// </summary>
 public sealed record MemoryLayers(
     IMemory Accessor,
@@ -325,7 +345,9 @@ public sealed record MemoryLayers(
     Tlb? Tlb,
     IPrefetcher? Prefetcher,
     ulong UncacheableBase,
-    ulong UncacheableSize
+    ulong UncacheableSize,
+    BdiCache? L2Bdi = null,
+    BdiCache? L3Bdi = null
 ) {
     /// <summary>
     ///     Build a layer stack: backing → [L3] → [L2] → [L1] → [TLB].
@@ -334,35 +356,58 @@ public sealed record MemoryLayers(
     public static MemoryLayers Build(IMemory backing, MemoryConfig cfg) {
         IMemory current = backing;
         SetAssociativeCache? l3 = null, l2 = null, l1 = null;
+        BdiCache? l3Bdi = null, l2Bdi = null;
         Tlb? tlb = null;
 
         if (cfg.L3CapacityBytes > 0) {
-            l3 = new SetAssociativeCache(
-                current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
-                0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
-                cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
-                cfg.L3InclusionPolicy, cfg.L3CriticalWordLatency, cfg.L3BankCount, cfg.L3ReadPorts, cfg.L3WritePorts,
-                cfg.L3SectorBytes, cfg.L3VictimCacheEntries, cfg.L3VictimCacheHitLatency,
-                cfg.PolicyFactory?.Invoke(
-                    cfg.L3CapacityBytes / (cfg.L3Ways * cfg.L3BlockBytes), cfg.L3Ways
-                )
-            );
-            current = l3;
+            if (cfg.L3Compression == CompressionKind.Bdi) {
+                l3Bdi = new BdiCache(
+                    current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
+                    cfg.L3SegmentBytes, cfg.L3WritePolicy
+                );
+                current = l3Bdi;
+            }
+            else {
+                l3 = new SetAssociativeCache(
+                    current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
+                    0, cfg.ReplacementPolicy, cfg.L3TagLatency, cfg.L3DataLatency,
+                    cfg.L3WritePolicy, cfg.L3WriteMissPolicy, cfg.L3WbCapacity, cfg.L3MshrCount, cfg.L3AccessMode,
+                    cfg.L3InclusionPolicy, cfg.L3CriticalWordLatency, cfg.L3BankCount, cfg.L3ReadPorts,
+                    cfg.L3WritePorts, cfg.L3SectorBytes, cfg.L3VictimCacheEntries, cfg.L3VictimCacheHitLatency,
+                    cfg.PolicyFactory?.Invoke(
+                        cfg.L3CapacityBytes / (cfg.L3Ways * cfg.L3BlockBytes), cfg.L3Ways
+                    )
+                );
+                current = l3;
+            }
         }
 
         if (cfg.L2CapacityBytes > 0) {
-            l2 = new SetAssociativeCache(
-                current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
-                0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
-                cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
-                cfg.L2InclusionPolicy, cfg.L2CriticalWordLatency, cfg.L2BankCount, cfg.L2ReadPorts, cfg.L2WritePorts,
-                cfg.L2SectorBytes, cfg.L2VictimCacheEntries, cfg.L2VictimCacheHitLatency,
-                cfg.PolicyFactory?.Invoke(
-                    cfg.L2CapacityBytes / (cfg.L2Ways * cfg.L2BlockBytes), cfg.L2Ways
-                )
-            );
-            l3?.AttachInner(l2);
-            current = l2;
+            if (cfg.L2Compression == CompressionKind.Bdi) {
+                l2Bdi = new BdiCache(
+                    current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
+                    cfg.L2SegmentBytes, cfg.L2WritePolicy
+                );
+                // l3?.AttachInner is intentionally skipped here: BdiCache doesn't participate in
+                // the SetAssociativeCache-only inclusion-cascade mechanism (see its docs) — a
+                // compressed L2 is simply not inclusion-tracked by L3, same as if L2 were absent
+                // but with the topology (backing -> L3 -> L2Bdi -> L1) still threaded correctly.
+                current = l2Bdi;
+            }
+            else {
+                l2 = new SetAssociativeCache(
+                    current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
+                    0, cfg.ReplacementPolicy, cfg.L2TagLatency, cfg.L2DataLatency,
+                    cfg.L2WritePolicy, cfg.L2WriteMissPolicy, cfg.L2WbCapacity, cfg.L2MshrCount, cfg.L2AccessMode,
+                    cfg.L2InclusionPolicy, cfg.L2CriticalWordLatency, cfg.L2BankCount, cfg.L2ReadPorts,
+                    cfg.L2WritePorts, cfg.L2SectorBytes, cfg.L2VictimCacheEntries, cfg.L2VictimCacheHitLatency,
+                    cfg.PolicyFactory?.Invoke(
+                        cfg.L2CapacityBytes / (cfg.L2Ways * cfg.L2BlockBytes), cfg.L2Ways
+                    )
+                );
+                l3?.AttachInner(l2);
+                current = l2;
+            }
         }
 
         if (cfg.CacheCapacityBytes > 0) {
@@ -380,7 +425,12 @@ public sealed record MemoryLayers(
                     cfg.CacheCapacityBytes / (cfg.CacheWays * cfg.CacheBlockBytes), cfg.CacheWays
                 )
             );
-            (l2 ?? l3)?.AttachInner(l1);
+            // Cascade Inclusion across a plain (uncompressed) L2 only. Falling through to L3 when
+            // L2 exists but is compressed (l2Bdi set) would wrongly let L3 invalidate L1 directly,
+            // skipping the compressed L2 in the cascade — so only fall through to L3 when L2 is
+            // entirely absent, not merely uncompressed-typed-null.
+            if (l2 is not null) l2.AttachInner(l1);
+            else if (l2Bdi is null) l3?.AttachInner(l1);
             current = l1;
         }
 
@@ -391,7 +441,7 @@ public sealed record MemoryLayers(
 
         // Route a memory-mapped-I/O region straight to the backing, bypassing the
         // cache/TLB chain — only meaningful when something is cached above it.
-        if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3) is not null)
+        if (cfg.UncacheableSize > 0 && (l1 ?? l2 ?? l3 ?? (IMemory?)l2Bdi ?? l3Bdi) is not null)
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
         IPrefetcher? prefetcher = l1 is not null
@@ -403,7 +453,9 @@ public sealed record MemoryLayers(
         // wired only for PPF, not threaded through the cache constructor for every prefetcher/config.
         if (prefetcher is PpfPrefetcher ppf1 && l1 is not null) l1.OnEviction = ppf1.OnLineEvicted;
 
-        return new MemoryLayers(current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize);
+        return new MemoryLayers(
+            current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize, l2Bdi, l3Bdi
+        );
     }
 
     // A caller-supplied prefetcher instance (e.g. RtlFfiPrefetcher) overrides the kind.
@@ -525,6 +577,8 @@ public sealed record MemoryLayers(
         (Cache?.ConsumePendingStalls() ?? 0) +
         (L2Cache?.ConsumePendingStalls() ?? 0) +
         (L3Cache?.ConsumePendingStalls() ?? 0) +
+        (L2Bdi?.ConsumePendingStalls() ?? 0) +
+        (L3Bdi?.ConsumePendingStalls() ?? 0) +
         (Tlb?.ConsumePendingStalls() ?? 0);
 
     /// <summary>Advances write-back buffer drain by one entry across all cache levels.</summary>

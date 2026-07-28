@@ -114,6 +114,60 @@ public class ExperimentTests {
     }
 
     [Fact]
+    public void TrainConfig_L2CompressionBdi_ReachesBdiCacheInstance() {
+        // Regression guard for the CacheHardwareConfig.Compression -> MemoryConfig.L2Compression ->
+        // BdiCache wiring in MemoryLayers.Build: a config-level typo or a dropped field would
+        // silently fall back to a plain SetAssociativeCache, and no BdiCache/BdiCompressor unit
+        // test would ever catch it, since none of them go through this config path.
+        var cfg = new TrainConfig(
+            DCache: new CacheHardwareConfig(4096, 2, 32, 8),
+            L2Cache: new CacheHardwareConfig(65536, 2, 32, 20, Compression: CompressionKind.Bdi)
+        );
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        Assert.Equal(CompressionKind.Bdi, dMem.L2Compression);
+
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
+        Assert.Null(dLayers.L2Cache); // compressed level is not a SetAssociativeCache
+        Assert.NotNull(dLayers.L2Bdi);
+    }
+
+    [Fact]
+    public void CompressedL2_MissStallsAreActuallyDrainedIntoCycleAccounting() {
+        // MemoryLayers.ConsumeAllStalls() is what every pipeline train calls each cycle to charge
+        // miss latency — it originally summed only the typed Cache/L2Cache/L3Cache
+        // (SetAssociativeCache?) properties, which are null whenever that level is compressed
+        // (the value lives on L2Bdi/L3Bdi instead). Before wiring L2Bdi/L3Bdi into that sum, a
+        // compressed level's miss latency was silently dropped from every train's cycle count —
+        // the cache would still work correctly but be timed as if every access were free. No L1
+        // here, so the L2 (compressed) miss latency is the only thing that can produce a stall.
+        var cfg = new TrainConfig(
+            L2Cache: new CacheHardwareConfig(65536, 2, 32, 25, Compression: CompressionKind.Bdi)
+        );
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
+
+        dLayers.Accessor.Read(0x1000, 4); // first touch of this line: a guaranteed L2 miss
+        Assert.Equal(25, dLayers.ConsumeAllStalls());
+    }
+
+    [Fact]
+    public void FullChain_L1PlusCompressedL2_ReadsAndWritesCorrectly() {
+        // Beyond type-checking the wiring: drive an actual multi-level chain (L1 SetAssociativeCache
+        // -> L2 BdiCache -> backing) through real reads/writes and confirm values still round-trip
+        // and an L1 miss genuinely reaches (and fills from) the compressed L2 level.
+        var cfg = new TrainConfig(
+            DCache: new CacheHardwareConfig(1024, 2, 32, 5),
+            L2Cache: new CacheHardwareConfig(65536, 2, 32, 20, Compression: CompressionKind.Bdi)
+        );
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
+
+        dLayers.Accessor.Write(0x1000, 0xCAFEF00D, 4);
+        Assert.Equal(0xCAFEF00DUL, dLayers.Accessor.Read(0x1000, 4));
+        Assert.True(dLayers.L2Bdi!.Hits + dLayers.L2Bdi.Misses > 0); // the compressed L2 was actually exercised
+    }
+
+    [Fact]
     public void TrainConfig_ToMemoryConfig_MapsCorrectly() {
         var cfg = new TrainConfig(
             ICache: new CacheHardwareConfig(4096, 2, 64, 8),
