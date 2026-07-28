@@ -651,7 +651,16 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   oldest), and at the first branch after a recovery (forward-progress rule). A misprediction restores the
   containing checkpoint's RAT snapshot in one shot — no per-instruction walk-back — re-executing the instructions
   between the checkpoint and the branch (COVHD, counted by `covhd_squashed`) with the recorded branch outcome
-  **replayed by distance** so the same branch cannot mispredict twice. Instructions retire in **bulk**: a whole
+  **replayed by distance** so the same branch cannot mispredict twice. **Macro-fusion** (same opt-in
+  `Rv32Mechanism(enableMacroFusion: true)` flag and SLT+branch idiom as `SuperscalarTrain`/`OooeTrain`) fuses at
+  Rename, before checkpoint-entry append, into a single checkpoint-entry + IQ entry — CPR has no ROB, but each
+  renamed instruction still costs one checkpoint-entry slot (bounded by `checkpointMaxInstructions`) and one
+  per-class IQ slot, so the same halving applies. `ITooth.BranchComponent` redirects both the branch predictor's
+  and the JRS confidence estimator's training to the fused pair's real branch PC, since the confidence table is
+  keyed by fetch-time Pc and training the compare's Pc instead would orphan the entry future fetches look up.
+  Checkpoint *count* is unaffected by fusion (one opens per low-confidence branch either way); the benefit instead
+  shows under checkpoint-entry pressure once the checkpoint buffer fills and instructions pile onto the still-open
+  tail checkpoint — fused pairs cost that tail one entry instead of two. Instructions retire in **bulk**: a whole
   checkpoint commits at once when its completion counter fills, bounded only by the one-store-per-cycle D-cache
   write port (a completed prefix ending in a trap/halt commits early — same architectural outcome as the paper's
   recover-and-force-checkpoint dance, slightly less re-execution). **Aggressive register reclamation** (after

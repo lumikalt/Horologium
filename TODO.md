@@ -670,20 +670,43 @@ just infrastructure this design doesn't require.
   shadow) — see `OooMacroFusionTests.ReducesCyclesWhenDenseWorkOutgrowsTheRob` (75→69 cycles on
   that constructed fixture; not a workload-representative number). Opt-in via the same
   `Rv32Mechanism(enableMacroFusion: true)` flag as `SuperscalarTrain`.
-- [ ] TMA slot accounting doesn't yet account for macro-fusion, on either train: `SuperscalarTrain`'s
-  in-order "SlotsIssued ≡ retired" assumption (and the paper cross-check `Retiring == IPC/width`),
-  and `OooTrain`'s slot-vs-instruction bookkeeping generally, no longer hold once fusion is enabled,
-  since a fused pair issues/dispatches as 1 slot but retires as 2 instructions.
-- [ ] `OooTrain` macro-fusion leaves gaps documented but not closed (all opt-in + opt-in, no
-  correctness impact on today's default-off runs): (1) `PEventLog` only ever records the primary
-  (compare) InstrId post-Rename for a fused pair — the branch's own InstrId gets a Fetch event and
-  then nothing, a dangling row in the waterfall visualization (confirmed non-crashing: `PEventLog`
-  has no completeness invariant). (2) The Olympia co-sim `_commitObserver`/`Rdip` hooks report only
-  the compare's `(Pc, RawEncoding)` for a fused commit, standing in for two real instructions — a
-  trace-replay divergence source if fusion and co-sim are ever both enabled together. (3)
+- [x] Macro-fusion (`CprTrain`): same SLT+branch idiom, fused at Rename before checkpoint-entry
+  append — CPR has no ROB, but each renamed instruction still costs one checkpoint-entry slot
+  (bounded by `checkpointMaxInstructions`) and one per-class IQ slot, so the same halving applies.
+  `RetireEntry` scales `_retiredCounter`/`State.OnRetire()` by `ITooth.ArchInstructionCount`;
+  `ITooth.BranchComponent` redirects both the branch predictor's `_predictor.Update` and the JRS
+  confidence estimator's `_confidence.Update` to the real branch's Pc (the confidence table is
+  keyed by fetch-time Pc — training the compare's Pc instead would silently orphan the entry the
+  next fetch of that branch actually looks up). Checkpoint *count* itself is unaffected by fusion
+  (a checkpoint opens per low-confidence branch regardless of whether it's fused), so the fixture
+  that demonstrates the win targets checkpoint-entry pressure instead of ROB pressure: a cold
+  D-cache load blocks the head checkpoint (commits are strict FIFO), a small `checkpointCount`
+  forces every subsequent low-confidence-branch checkpoint-open to be silently skipped (the paper's
+  no-stall rule for a merely-wanted open) once the buffer fills, and instructions pile onto the
+  still-open tail checkpoint until it hits `checkpointMaxInstructions` — a *mandatory* re-open that
+  does stall. Fused pairs cost that tail one entry instead of two — see
+  `CprMacroFusionTests.ReducesCyclesWhenDenseWorkOutgrowsTheCheckpointBuffer` (98→90 cycles on that
+  constructed fixture; not a workload-representative number). `SingleCycleTrain`/`SmtTrain` have no
+  inter-instruction latency at all to remove; `FiveStageTrain` already forwards a compare's result
+  into a same-next-cycle branch with zero stall; `DaeTrain` classifies branches as barriers that
+  never share a dispatch point with the compare — none of the four gain anything from this fusion.
+- [ ] TMA slot accounting doesn't yet account for macro-fusion, on any of the three trains that
+  support it: `SuperscalarTrain`'s in-order "SlotsIssued ≡ retired" assumption (and the paper
+  cross-check `Retiring == IPC/width`), and `OooTrain`/`CprTrain`'s slot-vs-instruction bookkeeping
+  generally, no longer hold once fusion is enabled, since a fused pair issues/dispatches as 1 slot
+  but retires as 2 instructions.
+- [ ] `OooTrain`/`CprTrain` macro-fusion leaves gaps documented but not closed (all opt-in +
+  opt-in, no correctness impact on today's default-off runs): (1) on both trains, `PEventLog` only
+  ever records the primary (compare) InstrId post-Rename for a fused pair — the branch's own
+  InstrId gets a Fetch event and then nothing, a dangling row in the waterfall visualization
+  (confirmed non-crashing: `PEventLog` has no completeness invariant). (2) On `OooTrain` only, the
+  Olympia co-sim `_commitObserver`/`Rdip` hooks report only the compare's `(Pc, RawEncoding)` for a
+  fused commit, standing in for two real instructions — a trace-replay divergence source if fusion
+  and co-sim are ever both enabled together (`CprTrain` has no such hooks). (3) On `OooTrain` only,
   `TrainCriticality`'s critical-path source-InstrId arithmetic (`head.InstrId - 1`,
   `head.InstrId - w`) assumes InstrId contiguity, which a fused pair breaks (the branch's InstrId
-  is skipped) — mis-attributes CP edges if criticality prediction and fusion are both enabled.
+  is skipped) — mis-attributes CP edges if criticality prediction and fusion are both enabled
+  (`CprTrain` has no criticality-prediction integration).
 
 ## Cache Prefetching
 

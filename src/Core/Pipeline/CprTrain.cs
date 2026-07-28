@@ -223,6 +223,7 @@ internal sealed class CprPipelineCore : Gear {
     private readonly int _issueWidth;
     private readonly int _l2SqForwardPenalty;
     private readonly LoadQueue _lq;
+    private readonly IMacroFuser? _macroFuser;
     private readonly int _maxDecodeDepth;
 
     /// <summary>Miss-return countdowns for CFP slice-head loads: (InstrId, remaining cycles).</summary>
@@ -303,6 +304,7 @@ internal sealed class CprPipelineCore : Gear {
     private long _lastDHits, _lastDMisses, _lastDl2Hits, _lastDl2Misses, _lastDl3Hits, _lastDl3Misses;
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private Counter _macroFusionsCounter = null!;
     private Counter _memViolationsCounter = null!;
     private ulong _nextCheckpointSeq = 1;
     private ulong _nextInstrId = 1;
@@ -386,6 +388,7 @@ internal sealed class CprPipelineCore : Gear {
         _decoder = mechanism.Decoder;
         _executor = mechanism.Executor;
         _trapController = mechanism.TrapController;
+        _macroFuser = mechanism.MacroFuser;
         _predictor = predictor;
         _fuConfig = fuConfig;
         ILayers = iLayers;
@@ -453,6 +456,9 @@ internal sealed class CprPipelineCore : Gear {
         );
         _checkpointsCreatedCounter = Dials.AddCounter("checkpoints_created", "Map-table checkpoints opened");
         _checkpointsRetiredCounter = Dials.AddCounter("checkpoints_retired", "Checkpoints bulk-committed");
+        _macroFusionsCounter = Dials.AddCounter(
+            "macro_fusions", "Instruction pairs renamed as a single macro-fused checkpoint/IQ entry"
+        );
         _covhdCounter = Dials.AddCounter(
             "covhd_squashed", "Good instructions squashed for re-execution by checkpoint rollback (COVHD)"
         );
@@ -708,8 +714,13 @@ internal sealed class CprPipelineCore : Gear {
                 ulong fallThrough = entry.Pc + (ulong)(entry.Instruction?.SizeBytes ?? 4);
                 bool taken = resolved != fallThrough;
                 bool correct = resolved == entry.PredictedNextPc;
-                _predictor.Update(entry.Pc, taken, resolved);
-                _confidence.Update(entry.Pc, correct, taken);
+                // A fused entry's own Pc is the compare half's address, not the branch's — both
+                // the predictor and the confidence estimator (keyed by fetch-time Pc, see
+                // StepFetch's _confidence.IsLowConfidence(_fetchPc)) must train against the real
+                // branch instruction or the training key never matches a future fetch lookup.
+                ulong branchPc = entry.Instruction?.BranchComponent.Pc ?? entry.Pc;
+                _predictor.Update(branchPc, taken, resolved);
+                _confidence.Update(branchPc, correct, taken);
                 if (!correct) ScheduleBranchRecovery(entry, resolved);
             }
 
@@ -960,8 +971,9 @@ internal sealed class CprPipelineCore : Gear {
         PEventLog?.Record(e.InstrId, e.Pc, _cyclesCounter.Value, PEventKind.Retire);
         _entryByInstrId.Remove(e.InstrId);
         cp.CommittedCount++;
-        _retiredCounter.Increment();
-        State.OnRetire();
+        int archCount = e.Instruction?.ArchInstructionCount ?? 1;
+        _retiredCounter.IncrementBy(archCount);
+        for (var i = 0; i < archCount; i++) State.OnRetire();
     }
 
     // ── Execute ────────────────────────────────────────────────────────────────
@@ -1717,6 +1729,20 @@ internal sealed class CprPipelineCore : Gear {
             }
 
             ITooth instr = fi.Decoded!;
+            var fused = false;
+            FetchedInstr second = default;
+            if (_macroFuser is not null
+             && TryPeekSecondDecoded(out second)
+             && second.PreTrap is null
+             && second.Decoded is not null
+             && second.Pc == fi.Pc + (ulong)instr.SizeBytes) {
+                ITooth? fusedInstr = _macroFuser.TryFuse(instr, second.Decoded);
+                if (fusedInstr is not null) {
+                    instr = fusedInstr;
+                    fused = true;
+                }
+            }
+
             if (instr.Class is ToothClass.Vector or ToothClass.Uve)
                 throw new NotSupportedException(
                     "CprTrain does not support vector/UVE instructions; use OooTrain for vector workloads."
@@ -1753,7 +1779,7 @@ internal sealed class CprPipelineCore : Gear {
                           || (needsLq && _tailLoadEntries >= _lq.Capacity)
                           || (needsSq && _tailStoreEntries >= _hsq.Capacity)
                           || (isBranch && _forceCheckpointAtNextBranch));
-            bool wantOpen = !tailEmpty && isBranch && fi.WantsCheckpoint;
+            bool wantOpen = !tailEmpty && isBranch && (fused ? second.WantsCheckpoint : fi.WantsCheckpoint);
             // The open must precede the free-register stall below: retiring a fully-committed
             // head (which releases its RAT-snapshot references, the reclaim path that refills
             // the free list) requires a successor checkpoint to exist. Checking registers
@@ -1786,14 +1812,16 @@ internal sealed class CprPipelineCore : Gear {
                 TryReclaim(oldPhys);
             }
 
-            CheckpointEntry entry = AppendEntry(fi.Pc, fi.InstrId, instr, fi.PredictedNextPc);
+            CheckpointEntry entry = AppendEntry(
+                fi.Pc, fi.InstrId, instr, fused ? second.PredictedNextPc : fi.PredictedNextPc
+            );
             entry.ArchDestination = destArch > 0 ? destArch : -1;
             entry.PhysDestination = newPhys;
             entry.PhysDestGen = newPhys >= 0 ? _prf.AllocationGeneration(newPhys) : 0;
             entry.IsStore = instr.Class == ToothClass.Store;
             entry.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             entry.IsHalt = instr.Class == ToothClass.Halt;
-            entry.IcacheMiss = fi.IcacheMiss;
+            entry.IcacheMiss = fi.IcacheMiss || (fused && second.IcacheMiss);
 
             if (_cpList.Tail.Seq != _tailSeqForCounts) {
                 _tailSeqForCounts = _cpList.Tail.Seq;
@@ -1811,11 +1839,28 @@ internal sealed class CprPipelineCore : Gear {
             PEventLog?.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Rename);
             _renameQueue.Enqueue(new CprRenameEntry(entry, instr, p1, p2, p3));
             _decodeQueue.Dequeue();
+            if (fused) {
+                _decodeQueue.Dequeue();
+                _macroFusionsCounter.Increment();
+            }
         }
 
         // Rename exited with work left (no free registers, checkpoint buffer full on a
         // must-open, or a secondary-dest stall) — backend backpressure for TMA/CPI purposes.
         _renameBlockedPrevCycle = _decodeQueue.Count > 0 && _renameQueue.Count < _maxDecodeDepth;
+    }
+
+    private bool TryPeekSecondDecoded(out FetchedInstr second) {
+        if (_decodeQueue.Count < 2) {
+            second = default;
+            return false;
+        }
+
+        Queue<FetchedInstr>.Enumerator e = _decodeQueue.GetEnumerator();
+        e.MoveNext();
+        e.MoveNext();
+        second = e.Current;
+        return true;
     }
 
     /// <summary>
