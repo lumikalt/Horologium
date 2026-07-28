@@ -105,6 +105,10 @@ public sealed record TrainConfig(
     // STT full DelayExecute+STT, explicit-branch slice (Yu et al., MICRO 2019, §6.4.1): defers a
     // mispredicted branch's squash until its own taint clears. OooTrain only.
     bool EnableSttImplicitBranches = false,
+    // STT full DelayExecute+STT, prediction-based implicit-channel slice (Yu et al., MICRO 2019,
+    // §6.4.2): defers a queued SmbPredictor training update until the producing store's own taint
+    // clears. OooTrain only; only meaningful when SMB bypass is separately enabled.
+    bool EnableSttMemDepGating = false,
 
     // ── DaeTrain parameters ───────────────────────────────────────────────────
     int DaeLaneQueueDepth = 8, // per-lane instruction queue depth (Access / Execute lanes)
@@ -229,7 +233,8 @@ public sealed record TrainConfig(
                 EnableStoreSets: EnableStoreSets,
                 EnableSttExpOnly: EnableSttExpOnly,
                 EnableInvisiSpec: EnableInvisiSpec,
-                EnableSttImplicitBranches: EnableSttImplicitBranches
+                EnableSttImplicitBranches: EnableSttImplicitBranches,
+                EnableSttMemDepGating: EnableSttMemDepGating
             ),
             "cpr" => new CprSpec(
                 IssueWidth, IqCapacity, ExtraPhysRegs,

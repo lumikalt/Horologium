@@ -60,7 +60,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         IMemory? fdipBackingMemory = null,
         bool enableSttExpOnly = false,
         bool enableInvisiSpec = false,
-        bool enableSttImplicitBranches = false
+        bool enableSttImplicitBranches = false,
+        bool enableSttMemDepGating = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -99,7 +100,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableEoleEarlyExec,
                 enableSttExpOnly: enableSttExpOnly,
                 enableInvisiSpec: enableInvisiSpec,
-                enableSttImplicitBranches: enableSttImplicitBranches
+                enableSttImplicitBranches: enableSttImplicitBranches,
+                enableSttMemDepGating: enableSttMemDepGating
             )
         );
         _train.Build();
@@ -134,7 +136,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         IMemory? fdipBackingMemory = null,
         bool enableSttExpOnly = false,
         bool enableInvisiSpec = false,
-        bool enableSttImplicitBranches = false
+        bool enableSttImplicitBranches = false,
+        bool enableSttMemDepGating = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -163,7 +166,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableEoleEarlyExec: enableEoleEarlyExec,
                 enableSttExpOnly: enableSttExpOnly,
                 enableInvisiSpec: enableInvisiSpec,
-                enableSttImplicitBranches: enableSttImplicitBranches
+                enableSttImplicitBranches: enableSttImplicitBranches,
+                enableSttMemDepGating: enableSttMemDepGating
             )
         );
         _train.Build();
@@ -293,13 +297,27 @@ internal sealed partial class OoOPipelineCore : Gear {
     // otherwise it is queued here and re-checked every cycle (StepSttMispredictResolution) — the
     // branch keeps executing/resolving normally (paper: "STT lets the instructions execute, and
     // only increases the latency of recovering from a tainted branch misprediction"), only the
-    // *observable squash effect* is delayed. Store-to-load-forwarding/memory-dependence-speculation
-    // predictor training (StoreSetPredictor.OnStoreIssued/Train, SmbPredictor.Train — both fire at
-    // Complete, keyed on potentially-tainted addresses/SSN distances) is a separate, NOT-yet-closed
-    // prediction-based implicit channel — tracked as its own TODO.md follow-up, not solved here.
+    // *observable squash effect* is delayed. StoreSetPredictor's only persistent-state writer,
+    // RecordViolation, already fires exclusively at commit (same as _predictor.Update) — no new gate
+    // needed there. See _enableSttMemDepGating below for the one genuinely open training site.
     private readonly bool _enableSttImplicitBranches;
     private readonly List<ulong> _pendingTaintedMispredicts = [];
     private Counter? _sttMispredictDeferralsCounter;
+
+    // STT full DelayExecute+STT, prediction-based implicit-channel slice (Yu et al., MICRO 2019,
+    // §6.4.2 "Implicit branch with prediction"): "the relevant predictor ... [must] be updated only
+    // by untainted data, i.e., only after the implicit branch predicate becomes untainted" — for
+    // memory-dependence speculation that predicate is a function of the PRODUCING STORE's own
+    // address (whether it aliases the load), not the load's own address/value. SmbPredictor.Train's
+    // cold-start/ongoing-seeding call in StepComplete (an ordinary forwarded load teaching the
+    // predictor a fresh SSN distance) is the one call site not already commit-time-safe: the other
+    // three Train/TrainNoBypass calls all fire inside StepCommit's retire loop, strictly later than
+    // any visibility point, same as _predictor.Update. When the producing store's own SourceYrot
+    // isn't safe yet, the training is queued here and re-checked every cycle
+    // (StepSmbTrainingResolution) rather than applied immediately.
+    private readonly bool _enableSttMemDepGating;
+    private readonly List<(ulong Pc, ulong Distance, ulong StoreYrot)> _pendingSmbTraining = [];
+    private Counter? _sttMemDepTrainingDeferralsCounter;
 
     // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
     // a self-contained shadow execution lane entered when dispatch is stalled behind a full
@@ -586,7 +604,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool enableEoleEarlyExec = false,
         bool enableSttExpOnly = false,
         bool enableInvisiSpec = false,
-        bool enableSttImplicitBranches = false
+        bool enableSttImplicitBranches = false,
+        bool enableSttMemDepGating = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -635,7 +654,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         _enableSttExpOnly = enableSttExpOnly;
         _enableInvisiSpec = enableInvisiSpec;
         _enableSttImplicitBranches = enableSttImplicitBranches;
-        _vpTracker = enableSttExpOnly || enableInvisiSpec || enableSttImplicitBranches
+        _enableSttMemDepGating = enableSttMemDepGating;
+        _vpTracker = enableSttExpOnly || enableInvisiSpec || enableSttImplicitBranches || enableSttMemDepGating
             ? new SpectreVisibilityTracker()
             : null;
 
@@ -743,6 +763,12 @@ internal sealed partial class OoOPipelineCore : Gear {
             _sttMispredictDeferralsCounter = Dials.AddCounter(
                 "stt_mispredict_deferrals",
                 "Cycles a mispredicted branch's squash was held pending its own visibility point (STT explicit-branch protection)"
+            );
+
+        if (_enableSttMemDepGating)
+            _sttMemDepTrainingDeferralsCounter = Dials.AddCounter(
+                "stt_memdep_training_deferrals",
+                "Cycles a queued SmbPredictor training update was held pending the producing store's own visibility point"
             );
 
         if (_enableEoleLateExec)
@@ -960,6 +986,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         // squash StepComplete deferred because its own resolution was still tainted.
         if (_enableSttImplicitBranches) StepSttMispredictResolution();
 
+        // STT full DelayExecute+STT, prediction-based implicit-channel slice: re-check any queued
+        // SmbPredictor training update whose producing store was still tainted.
+        if (_enableSttMemDepGating) StepSmbTrainingResolution();
+
         // InvisiSpec: resolve any USL whose visibility point cleared this cycle (fire its
         // deferred real cache access) before Commit checks RobEntry.PendingUslAccess below.
         if (_enableInvisiSpec) StepUslResolution();
@@ -1118,8 +1148,23 @@ internal sealed partial class OoOPipelineCore : Gear {
                     // in-flight store here teaches SmbPredictor the observed SSN distance so
                     // later dynamic instances of this load's PC can bypass.
                     ulong? producer = FindForwardingProducerSeqNo(lq.SeqNo, lq.Address, lq.Bytes);
-                    if (producer.HasValue && lq.SeqNo > producer.Value)
-                        _smbPredictor.Train(rob.Pc, lq.SeqNo - producer.Value);
+                    if (producer.HasValue && lq.SeqNo > producer.Value) {
+                        ulong distance = lq.SeqNo - producer.Value;
+                        // STT (Yu et al., MICRO 2019, §6.4.2 "Implicit branch with prediction"): "the
+                        // relevant predictor ... [must] be updated only by untainted data, i.e., only
+                        // after the implicit branch predicate becomes untainted" — for memory-dependence
+                        // speculation that predicate is a function of the PRODUCING STORE's address
+                        // (whether it aliases the load), not the load's own address or loaded value. If
+                        // that store's own SourceYrot isn't safe yet, defer training rather than let a
+                        // still-tainted store address influence when/what SmbPredictor learns.
+                        if (_enableSttMemDepGating
+                         && FindSqBySeqNo(producer.Value) is { } producerSq
+                         && _rob.At(producerSq.RobIdx).SourceYrot is { } storeYrot
+                         && !_vpTracker!.IsSafe(storeYrot))
+                            _pendingSmbTraining.Add((rob.Pc, distance, storeYrot));
+                        else
+                            _smbPredictor.Train(rob.Pc, distance);
+                    }
                 }
             }
 
@@ -1206,6 +1251,31 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         _pendingTaintedMispredicts.RemoveAt(bestIdx);
         ArmMispredictSquash(best, FindRobByInstrId(best));
+    }
+
+    /// <summary>
+    ///     STT full DelayExecute+STT, prediction-based implicit-channel slice (Yu et al., MICRO 2019,
+    ///     §6.4.2): re-checks every queued <see cref="SmbPredictor" /> training update whose producing
+    ///     store was still tainted when an ordinary forwarded load tried to teach it a fresh SSN
+    ///     distance. Unlike <see cref="_pendingTaintedMispredicts" />/<see cref="_pendingUsls" />, this
+    ///     list is not tied to a live ROB entry that a later squash could invalidate — it only holds a
+    ///     PC, a distance, and a taint-root value already captured by value — so no squash/flush
+    ///     cleanup is needed: applying a queued training update once it's safe is correct regardless of
+    ///     whether the load that originally observed it later turns out to be wrong-path (this
+    ///     simulator's existing, non-STT training call already had that same property — a squashed
+    ///     load's observed distance still trains the predictor today, matching how real hardware
+    ///     routinely lets wrong-path speculation shape predictor state).
+    /// </summary>
+    private void StepSmbTrainingResolution() {
+        if (_pendingSmbTraining.Count == 0) return;
+        _sttMemDepTrainingDeferralsCounter?.Increment();
+
+        for (int i = _pendingSmbTraining.Count - 1; i >= 0; i--) {
+            (ulong pc, ulong distance, ulong storeYrot) = _pendingSmbTraining[i];
+            if (!_vpTracker!.IsSafe(storeYrot)) continue;
+            _smbPredictor!.Train(pc, distance);
+            _pendingSmbTraining.RemoveAt(i);
+        }
     }
 
     /// <summary>
@@ -2204,6 +2274,18 @@ internal sealed partial class OoOPipelineCore : Gear {
     }
 
     /// <summary>
+    ///     Linear scan for the still-live SQ entry with the given SeqNo — mirrors
+    ///     <see cref="FindRobByInstrId" />'s style/scope (small, bounded ring buffer; called only
+    ///     from the STT memory-dependence predictor-training gate, not a hot path).
+    /// </summary>
+    private SqEntry? FindSqBySeqNo(ulong seqNo) {
+        foreach (SqEntry sq in _sq.InOrder())
+            if (sq.SeqNo == seqNo)
+                return sq;
+        return null;
+    }
+
+    /// <summary>
     ///     True if any SQ entry older than <paramref name="loadSeqNo" /> has a known address
     ///     that overlaps the load. Used at load-execute time to detect violations that
     ///     weren't caught by <see cref="CheckLoadViolations" /> (the store resolved before
@@ -2312,7 +2394,10 @@ internal sealed partial class OoOPipelineCore : Gear {
             // Also computed when only _enableSttImplicitBranches is set (no STT-ExpOnly load-issue
             // gating): a branch's own SourceYrot is needed to decide whether its resolution's
             // observable squash effect must be deferred (see StepComplete/StepSttMispredictResolution).
-            if (_enableSttExpOnly || _enableSttImplicitBranches) {
+            // Also needed for _enableSttMemDepGating: a STORE's own SourceYrot (it never gets a
+            // destination-Yrot update below, having no destination register) is the taint root
+            // checked before letting it influence SmbPredictor training.
+            if (_enableSttExpOnly || _enableSttImplicitBranches || _enableSttMemDepGating) {
                 ulong? srcYrot = null;
                 if (ri.P1 >= 0 && _prf.Yrot(ri.P1) is { } y1) srcYrot = y1;
                 if (ri.P2 >= 0 && _prf.Yrot(ri.P2) is { } y2)

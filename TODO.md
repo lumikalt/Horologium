@@ -80,14 +80,25 @@ off here until a periodic cleanup removes them; the durable record is git histor
   comparison. Predictor training (`_predictor.Update`) and the value/bypass-mispredict squashes already fire
   only at commit — strictly later than any visibility point — so they were already safe by construction and
   untouched by this flag.
-- [ ] STT: prediction-based implicit channel through memory-dependence speculation — `StoreSetPredictor
-  .OnStoreIssued`/`Train` and `SmbPredictor.Train` (§6.4.2's "implicit branch with prediction") fire at Complete
-  keyed on potentially-tainted store/load addresses and SSN distances, with no untaint gate. Not closed by
-  `enableSttImplicitBranches`; the corresponding squashes (bypass-mispredict, memory-order-violation) are
-  already commit-time-safe, only the predictor *training* is open.
-- [ ] STT: full implicit-channel coverage — the store-to-load-forwarding implicit branch itself (§6.4.2/§6.5,
-  beyond just its predictor-training channel above) and value-prediction training/squash gating, to round out
-  the paper's complete DelayExecute+STT variant.
+- [x] STT: prediction-based implicit channel through memory-dependence speculation (Yu et al., MICRO 2019,
+  §6.4.2) on `OooTrain`, gated by `enableSttMemDepGating` — the paper: "the relevant predictor ... [must] be
+  updated only by untainted data, i.e., only after the implicit branch predicate becomes untainted," which for
+  memory-dependence speculation is a function of the *producing store's own address*, not the load's. The one
+  genuinely open call site was `SmbPredictor.Train`'s cold-start/ongoing-seeding call in `StepComplete` (an
+  ordinary forwarded load teaching the predictor a fresh SSN distance); it is now deferred
+  (`_pendingSmbTraining`/`StepSmbTrainingResolution`) until the producing store's own `SourceYrot` is safe.
+  Corrected mischaracterization from the previous entry: `StoreSetPredictor` has no `Train` method at all — its
+  only persistent-state writer, `RecordViolation`, already fires exclusively at commit (already safe by
+  construction, same as the branch predictor); `OnStoreDispatch`/`OnLoadDispatch`/`OnStoreIssued` are ephemeral
+  per-SSID LFST scheduling state, not learned persistence — their channel is store-to-load-forwarding
+  *resolution* timing, tracked below, not predictor training. The other three `SmbPredictor.Train`/
+  `TrainNoBypass` calls all fire inside `StepCommit`, already commit-time-safe.
+- [ ] STT: the store-to-load-forwarding implicit branch's own resolution channel (§6.4.2/§6.5) — a
+  memory-order-violation squash and the `StoreSetPredictor`/`SmbPredictor` LFST stall-release bookkeeping
+  (`OnStoreIssued` et al.) currently fire the instant a store's address resolves, with no taint check; delaying
+  the *observable resolution effect* until the relevant addresses are untainted would close it (same shape as
+  the explicit-branch squash deferral already shipped) — and value-prediction training/squash gating, to round
+  out the paper's complete DelayExecute+STT variant.
 - [ ] STT/InvisiSpec: Futuristic-model visibility point (ROB head / "preceded only by non-squashable instructions")
   as a selectable alternative to the Spectre model — needs tracking unresolved loads and traps as additional
   squash sources, not just branches.

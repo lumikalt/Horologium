@@ -238,7 +238,12 @@ public sealed record OutOfOrderSpec(
     // mispredicted branch's squash is deferred until its own SourceYrot is safe, closing the
     // resolution-based implicit channel through explicit branches. Store-forwarding/value-
     // prediction predictor-training channels are not covered by this flag (see TODO.md).
-    bool EnableSttImplicitBranches = false
+    bool EnableSttImplicitBranches = false,
+    // STT full DelayExecute+STT, prediction-based implicit-channel slice (Yu et al., MICRO 2019,
+    // §6.4.2): defers a queued SmbPredictor training update until the producing store's own taint
+    // clears. Only meaningful when SMB bypass itself is enabled (OooTrain's enableSmbBypass — not
+    // yet reachable through this config path either).
+    bool EnableSttMemDepGating = false
 ) : PipelineSpec {
     public override ISteppableTrain Build(
         IMechanism mechanism,
@@ -265,7 +270,8 @@ public sealed record OutOfOrderSpec(
         fdipBackingMemory: fdipBackingMemory,
         enableSttExpOnly: EnableSttExpOnly,
         enableInvisiSpec: EnableInvisiSpec,
-        enableSttImplicitBranches: EnableSttImplicitBranches
+        enableSttImplicitBranches: EnableSttImplicitBranches,
+        enableSttMemDepGating: EnableSttMemDepGating
     );
 
     public override ISteppableTrain Build(
@@ -291,7 +297,8 @@ public sealed record OutOfOrderSpec(
         fdipBackingMemory: fdipBackingMemory,
         enableSttExpOnly: EnableSttExpOnly,
         enableInvisiSpec: EnableInvisiSpec,
-        enableSttImplicitBranches: EnableSttImplicitBranches
+        enableSttImplicitBranches: EnableSttImplicitBranches,
+        enableSttMemDepGating: EnableSttMemDepGating
     );
 }
 

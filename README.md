@@ -676,11 +676,23 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   value-prediction/SMB-bypass mispredict squashes already fire only at commit — strictly later than any
   visibility point — so they were already safe by construction before this flag existed, and are untouched by
   it. Counted by the `stt_mispredict_deferrals` dial; composes with `enableSttExpOnly` (both flags together are
-  the paper's actual "DelayExecute+STT" main proposal, not either flag alone). **Known gap**: the store-to-load
-  forwarding/memory-dependence-speculation predictor training (`StoreSetPredictor.OnStoreIssued`/`Train`,
-  `SmbPredictor.Train`) still fires at Complete on potentially-tainted addresses/SSN distances with no untaint
-  gate — a prediction-based implicit channel this flag does not close (the corresponding *squashes* are already
-  commit-time-safe; only the training is open). See TODO.md.
+  the paper's actual "DelayExecute+STT" main proposal, not either flag alone).
+  **STT memory-dependence predictor-training gate** (enable with `enableSttMemDepGating: true`) closes the
+  prediction-based implicit channel from §6.4.2 ("Implicit branch with prediction"): the paper requires "the
+  relevant predictor ... [to] be updated only by untainted data, i.e., only after the implicit branch predicate
+  becomes untainted" — for memory-dependence speculation that predicate is a function of the *producing store's
+  own address*, not the load's. `SmbPredictor.Train`'s cold-start/ongoing-seeding call (an ordinary forwarded
+  load teaching the predictor a fresh SSN distance) is the one call site not already commit-time-safe; when the
+  producing store's own `SourceYrot` isn't safe yet, the update is queued (`_pendingSmbTraining`) and re-checked
+  every cycle (`StepSmbTrainingResolution`) rather than applied immediately. `StoreSetPredictor` has no `Train`
+  method at all — its only persistent-state writer, `RecordViolation`, already fires exclusively at commit
+  (already safe by construction); `OnStoreDispatch`/`OnLoadDispatch`/`OnStoreIssued` are ephemeral per-SSID LFST
+  scheduling state, not learned persistence, so they aren't a training channel (their own resolution-timing
+  channel is a separate, still-open TODO item). The other three `SmbPredictor.Train`/`TrainNoBypass` calls all
+  fire inside `StepCommit`, already safe. Counted by the `stt_memdep_training_deferrals` dial. **Known gaps, see
+  TODO.md**: the store-to-load-forwarding implicit branch's own *resolution* channel (a memory-order-violation
+  squash and the LFST stall-release bookkeeping fire the instant a store's address resolves, untaint-gate-free)
+  and value-prediction training/squash gating are still open.
   **InvisiSpec** (enable with `enableInvisiSpec: true`; Yan, Choi, Skarlatos, Morrison, Fletcher &amp; Torrellas,
   MICRO 2018, + 2019 Corrigendum) reuses the same shared `SpectreVisibilityTracker` for the cache-hierarchy
   counterpart: every scalar load speculatively peeks its data at Execute (`IMemory.PeekRead`, a non-mutating
