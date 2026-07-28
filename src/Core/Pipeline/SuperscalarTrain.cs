@@ -50,7 +50,10 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         IBranchPredictor? predictor = null,
         PEventLog? pEventLog = null,
         FuLatencyConfig? fuLatency = null,
-        int frontendDepth = 2
+        int frontendDepth = 2,
+        int uopCacheSets = 0,
+        int uopCacheWays = 6,
+        int uopCacheLineCapacity = 6
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
@@ -62,7 +65,10 @@ public sealed class SuperscalarTrain : ISteppableTrain {
                 predictor ?? new AlwaysNotTakenPredictor(),
                 fuLatency ?? FuLatencyConfig.Default,
                 frontendDepth,
-                pEventLog
+                pEventLog,
+                uopCacheSets,
+                uopCacheWays,
+                uopCacheLineCapacity
             )
         );
         _train.Build();
@@ -77,7 +83,10 @@ public sealed class SuperscalarTrain : ISteppableTrain {
         IBranchPredictor? predictor = null,
         PEventLog? pEventLog = null,
         FuLatencyConfig? fuLatency = null,
-        int frontendDepth = 2
+        int frontendDepth = 2,
+        int uopCacheSets = 0,
+        int uopCacheWays = 6,
+        int uopCacheLineCapacity = 6
     ) {
         var esc = new Escapement();
         _train = new Train("superscalar", esc);
@@ -87,7 +96,10 @@ public sealed class SuperscalarTrain : ISteppableTrain {
                 predictor ?? new AlwaysNotTakenPredictor(),
                 fuLatency ?? FuLatencyConfig.Default,
                 frontendDepth,
-                pEventLog
+                pEventLog,
+                uopCacheSets,
+                uopCacheWays,
+                uopCacheLineCapacity
             )
         );
         _train.Build();
@@ -141,9 +153,23 @@ internal sealed class SuperscalarCore(
     IBranchPredictor predictor,
     FuLatencyConfig fuConfig,
     int frontendDepth,
-    PEventLog? pEventLog = null
+    PEventLog? pEventLog = null,
+    int uopCacheSets = 0,
+    int uopCacheWays = 6,
+    int uopCacheLineCapacity = 6
 ) : Gear(name, parent, esc) {
     private readonly Queue<FetchedEntry> _fetchQueue = new();
+
+    private readonly UopCache? _uopCache =
+        uopCacheSets > 0 ? new UopCache(uopCacheSets, uopCacheWays, uopCacheLineCapacity) : null;
+
+    // In-progress UC line build (paper §2.5.1): accumulates decoded uops for the block
+    // currently being fetched along the correct path, closed (inserted) at a branch or at
+    // capacity, discarded without inserting on a frontend flush (wrong-path instructions
+    // must never be cached).
+    private readonly ITooth?[] _uopBuildLine = new ITooth?[uopCacheLineCapacity];
+    private int _uopBuildCount;
+    private ulong _uopBuildStartPc;
 
     // Fetch-queue capacity: enough to cover the fetch→issue delay plus one full group.
     private readonly int _queueCapacity = (frontendDepth + 1) * issueWidth;
@@ -211,6 +237,8 @@ internal sealed class SuperscalarCore(
     // the frontend-refill slots after a flush, charged while _tdRefillPending.
     private TopDownCounters _td = null!;
     private bool _tdRefillPending;
+    private Counter? _uopCacheHitsCounter, _uopCacheMissesCounter, _uopCacheBuildsCounter;
+    private long _lastUcHits, _lastUcMisses, _lastUcBuilds;
     public MemoryLayers ILayers { get; } = iLayers;
     public MemoryLayers DLayers { get; } = dLayers;
     public PEventLog? PEventLog { get; } = pEventLog;
@@ -230,6 +258,14 @@ internal sealed class SuperscalarCore(
         _macroFusionsCounter = Dials.AddCounter(
             "macro_fusions", "Instruction pairs issued as a single macro-fused issue slot"
         );
+
+        if (_uopCache is not null) {
+            _uopCacheHitsCounter = Dials.AddCounter("uop_cache_hits", "Basic blocks served from the µop cache");
+            _uopCacheMissesCounter = Dials.AddCounter(
+                "uop_cache_misses", "Fetches that missed the µop cache and went through the decoder"
+            );
+            _uopCacheBuildsCounter = Dials.AddCounter("uop_cache_builds", "Basic blocks inserted into the µop cache");
+        }
 
         Dials.AddDial(
             "cpi",
@@ -329,6 +365,15 @@ internal sealed class SuperscalarCore(
             DLayers.TickMshr();
             ILayers.TickPorts();
             DLayers.TickPorts();
+        }
+
+        if (_uopCache is not null) {
+            _uopCacheHitsCounter!.IncrementBy(_uopCache.Hits - _lastUcHits);
+            _uopCacheMissesCounter!.IncrementBy(_uopCache.Misses - _lastUcMisses);
+            _uopCacheBuildsCounter!.IncrementBy(_uopCache.Builds - _lastUcBuilds);
+            _lastUcHits = _uopCache.Hits;
+            _lastUcMisses = _uopCache.Misses;
+            _lastUcBuilds = _uopCache.Builds;
         }
 
         // ArchState.OnCycle advances the cycle CSR — self-timing workloads (rdcycle
@@ -615,6 +660,46 @@ internal sealed class SuperscalarCore(
         while (fetched < issueWidth && _fetchQueue.Count < _queueCapacity) {
             ulong pc = _fetchPc;
 
+            // µop cache: a hit delivers the whole cached basic block in this one iteration,
+            // skipping the I-cache access and decode entirely (see UopCache's doc comment for
+            // why this — not the paper's own parallel-IC-lookup design — is a documented
+            // modeling divergence, not a performance result). Only ever hits at a block's
+            // recorded start PC.
+            if (_uopCache is not null && _uopCache.TryLookup(pc, out IReadOnlyList<ITooth> uops, out bool endsInBranch)) {
+                ulong linePc = pc;
+                var tookBranch = false;
+                for (var i = 0; i < uops.Count && fetched < issueWidth && _fetchQueue.Count < _queueCapacity; i++) {
+                    ITooth cached = uops[i];
+                    ulong hitFallThrough = linePc + (ulong)cached.SizeBytes;
+                    bool isLast = i == uops.Count - 1;
+                    ulong hitPredictedNext = isLast && endsInBranch
+                        ? PredictNext(linePc, cached.RawEncoding, hitFallThrough)
+                        : hitFallThrough;
+
+                    ulong hitInstrId = _nextInstrId++;
+                    if (PEventLog is not null) {
+                        PEventLog.Record(hitInstrId, linePc, now, PEventKind.Fetch);
+                        PEventLog.RecordDisasm(hitInstrId, mechanism.Decoder.Disassemble(linePc, cached.RawEncoding));
+                    }
+
+                    _fetchQueue.Enqueue(
+                        new FetchedEntry(linePc, cached, hitPredictedNext, hitInstrId, now + frontendDepth)
+                    );
+                    _fetchPc = hitPredictedNext;
+                    fetched++;
+
+                    if (hitPredictedNext != hitFallThrough) {
+                        tookBranch = true;
+                        break;
+                    }
+
+                    linePc = hitPredictedNext;
+                }
+
+                if (tookBranch) break;
+                continue;
+            }
+
             ulong physPc = pc;
             if (_fetchTranslator is not null) {
                 (ulong pa, int faultCause) = _fetchTranslator.Translate(pc);
@@ -641,6 +726,8 @@ internal sealed class SuperscalarCore(
                 return;
             }
 
+            AppendToUopBuild(pc, instr);
+
             // I-side miss: the line arrives after the penalty. This instruction's issue
             // readiness and all further fetch wait for it.
             long iStalls = _anyCache ? ILayers.ConsumeAllStalls() : 0;
@@ -653,21 +740,7 @@ internal sealed class SuperscalarCore(
             // their known target and bypass the predictor (mirrors the five-stage fetch
             // stage / gem5); returns are steered by the RAS.
             ulong fallThrough = pc + (ulong)instr.SizeBytes;
-            ulong predictedNext = fallThrough;
-            FetchHint hint = mechanism.Decoder.GetFetchHint(pc, raw);
-            if (hint.IsBranch) {
-                BranchPrediction pred = hint is { IsUnconditional: true, BranchTarget.HasValue: true, }
-                    ? BranchPrediction.Taken(hint.BranchTarget.Value)
-                    : predictor.Predict(pc, hint.BranchTarget);
-                if (hint.IsCall)
-                    _ras.Push(fallThrough);
-                else if (hint.IsReturn && _ras.TryPop(out ulong ret)) pred = BranchPrediction.Taken(ret);
-
-                // A direct branch's taken target comes from the decode hint, not the BTB
-                // (which may be cold or aliased); a cold indirect target (0) falls through.
-                ulong takenTarget = hint.BranchTarget.HasValue ? hint.BranchTarget.Value : pred.PredictedTarget;
-                predictedNext = pred.PredictedTaken && takenTarget != 0 ? takenTarget : fallThrough;
-            }
+            ulong predictedNext = PredictNext(pc, raw, fallThrough);
 
             ulong instrId = _nextInstrId++;
             if (PEventLog is not null) {
@@ -684,7 +757,53 @@ internal sealed class SuperscalarCore(
         }
     }
 
+    /// <summary>
+    ///     Shared branch-prediction/RAS logic for both the decode-miss path (raw bytes just read
+    ///     from the I-cache) and a µop-cache hit's trailing branch (raw bytes come from the
+    ///     cached <see cref="ITooth.RawEncoding" /> instead — the paper's UC and IC share one BPU,
+    ///     predicted fresh on every visit, so a cached predicted target is never reused).
+    /// </summary>
+    private ulong PredictNext(ulong pc, uint raw, ulong fallThrough) {
+        FetchHint hint = mechanism.Decoder.GetFetchHint(pc, raw);
+        if (!hint.IsBranch) return fallThrough;
+
+        BranchPrediction pred = hint is { IsUnconditional: true, BranchTarget.HasValue: true, }
+            ? BranchPrediction.Taken(hint.BranchTarget.Value)
+            : predictor.Predict(pc, hint.BranchTarget);
+        if (hint.IsCall)
+            _ras.Push(fallThrough);
+        else if (hint.IsReturn && _ras.TryPop(out ulong ret)) pred = BranchPrediction.Taken(ret);
+
+        // A direct branch's taken target comes from the decode hint, not the BTB
+        // (which may be cold or aliased); a cold indirect target (0) falls through.
+        ulong takenTarget = hint.BranchTarget.HasValue ? hint.BranchTarget.Value : pred.PredictedTarget;
+        return pred.PredictedTaken && takenTarget != 0 ? takenTarget : fallThrough;
+    }
+
+    /// <summary>Appends a freshly-decoded instruction to the in-progress µop-cache line build.</summary>
+    private void AppendToUopBuild(ulong pc, ITooth instr) {
+        if (_uopCache is null) return;
+        if (_uopBuildCount == 0) _uopBuildStartPc = pc;
+        _uopBuildLine[_uopBuildCount++] = instr;
+
+        bool isBranch = instr.Class is ToothClass.Branch or ToothClass.ConditionalBranch;
+        if (isBranch || _uopBuildCount >= _uopCache.LineCapacity) CloseUopBuild(isBranch);
+    }
+
+    /// <summary>Inserts the in-progress build into the µop cache, if non-empty.</summary>
+    private void CloseUopBuild(bool endsInBranch) {
+        if (_uopBuildCount == 0) return;
+        var uops = new ITooth[_uopBuildCount];
+        for (var i = 0; i < _uopBuildCount; i++) uops[i] = _uopBuildLine[i]!;
+        _uopCache!.Insert(_uopBuildStartPc, uops, endsInBranch);
+        _uopBuildCount = 0;
+    }
+
     private void EnqueueFault(ulong pc, TrapInfo trap, long now) {
+        // The fault ends the block "in the course of instruction fetch" (paper §2.4's third
+        // block-ending rule) — whatever decoded correctly before it is still a valid, cacheable
+        // line; the faulting PC itself is never cached.
+        CloseUopBuild(false);
         ulong instrId = _nextInstrId++;
         PEventLog?.Record(instrId, pc, now, PEventKind.Fetch);
         _fetchQueue.Enqueue(new FetchedEntry(pc, null, pc, instrId, now + frontendDepth, trap));
@@ -701,6 +820,7 @@ internal sealed class SuperscalarCore(
         _fetchPc = target;
         _fetchFaulted = false;
         _fetchStallUntil = 0; // any in-flight I-miss belonged to the wrong path
+        _uopBuildCount = 0; // discard: wrong-path instructions must never be cached
         _flushesCounter.Increment();
         _tdRefillPending = true; // starved slots are recovery, not fetch, until issue resumes
     }

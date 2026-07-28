@@ -1527,7 +1527,15 @@ speculation beyond the fetch queue. Macro-fusion (opt-in via `Rv32Mechanism(enab
 default) recognizes RV32's SLT(U)/SLTI(U) + BEQ/BNE-against-zero idiom — the RISC-V analogue of x86 cmp+jcc,
 since RV32 branches already embed their own comparison — through `IMechanism.MacroFuser`, and issues the pair as
 one issue-slot µop instead of paying the RAW-bypass round-trip between them; `_retiredCounter`/instret still count
-both original instructions, so IPC stays meaningful across a fusion-on/off comparison. Superscalar honors HTIF
+both original instructions, so IPC stays meaningful across a fusion-on/off comparison. A **µop cache**
+(`UopCache`, Solomon et al. ISLPED 2001; opt-in via `uopCacheSets > 0`, off by default) caches decoded basic
+blocks tagged by their start PC — a hit serves the whole cached block straight into the fetch queue, skipping
+the I-cache access and decode entirely, with a live predictor call still run for the block's trailing branch (never
+a cached target). This is a power paper, not a performance one: decode already costs zero modeled cycles here and
+RISC-V's fixed-length ISA never hits the variable-length decode-bandwidth wall the paper solves for x86, so no
+cycle-count benefit is expected — the win is a documented one (a hot loop's body builds once, then gets reused),
+not a timing claim; skipping the I-cache access on a hit (rather than running it in parallel, as the paper does) is
+a noted modeling divergence. Superscalar honors HTIF
 tohost-exit stores (`RequestHalt`), and Superscalar,
 DAE and SMT advance the cycle CSR (`ArchState.OnCycle`) every cycle — previously frozen `rdcycle` readings made
 self-calibrating benchmarks (dhrystone) re-run their measurement loop forever on all three. The Face's pipeline

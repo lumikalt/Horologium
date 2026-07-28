@@ -643,8 +643,23 @@ just infrastructure this design doesn't require.
 
 ## µops
 
-- [ ] µop cache (decoded instruction cache / loop buffer): cache decoded µop bundles so the front-end skips re-decode on
-  repeated loops.
+- [x] µop cache (decoded instruction cache / loop buffer) — Solomon et al., ISLPED 2001. ISA-agnostic
+  `UopCache` (`src/Core/Pipeline/UopCache.cs`): n-way set-associative, tagged by a basic block's
+  start PC (single-entry-point lookup — a PC merely inside an already-cached line's byte range is
+  a miss by design, matching the paper's §2.4), reusing `IReplacementPolicy`/`LruPolicy` for
+  eviction. Wired into `SuperscalarTrain` only (opt-in via `uopCacheSets > 0`; other trains
+  deferred). **This is a power paper, not a performance one**: its own experiments never measure
+  cycles or IPC, and its design keeps the IC lookup running in parallel on a hit ("zero switch
+  penalty") specifically so timing doesn't change. Decode already costs zero modeled cycles in
+  every train here, and RISC-V's fixed-length ISA never hits the variable-length decode-bandwidth
+  wall the paper solves for x86 — so no cycle-count benefit is expected or claimed; tests verify
+  the paper's own metrics (a hot loop's body builds once then gets reused) and correctness
+  (identical `retired` count and arch state with the cache on vs off), not a cycle delta. **Known
+  modeling divergence** (documented in `UopCache`'s doc comment, not presented as a result): a hit
+  here skips the I-cache access entirely rather than running it in parallel as the paper does —
+  simpler to implement, but could show an artificial cycle difference under heavy I$ pressure.
+  Deferred: wiring into the other 6 trains; access counters (paper §4.3, a power-only build filter
+  with even less relevance without a power model here).
 - [x] Macro-fusion (`SuperscalarTrain`): RV32's SLT(U)/SLTI(U) + BEQ/BNE-against-zero idiom
   (the RISC-V analogue of x86 cmp+jcc — RISC-V branches already embed their own comparison, so
   SLT-family is the only "compare" worth fusing with a following branch) collapsed into a single
