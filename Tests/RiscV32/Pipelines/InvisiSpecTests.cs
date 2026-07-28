@@ -233,15 +233,16 @@ public class InvisiSpecTests {
     ///     (3x chained-<c>mul</c>, 9-cycle) branch precedes a cold USL, holding its own real access
     ///     (and therefore its retirement — <c>RobEntry.PendingUslAccess</c>) pending until the branch's
     ///     visibility point clears; the branch targets its own fall-through so it never mispredicts —
-    ///     this isolates the retirement-delay cost from any squash. The USL's speculative peek is free
-    ///     (<c>PeekRead</c> never charges a miss stall) and broadcasts its value immediately, so eight
-    ///     independent filler <c>addi</c>s after it complete and sit ready to retire long before the
-    ///     USL does — but in-order commit cannot pass the still-pending USL at the ROB head, and the
-    ///     trailing <c>ebreak</c> cannot itself retire (the self-loop halt condition) until every older
-    ///     instruction, including the USL, has. Baseline has no such gate: the same load retires as
-    ///     soon as its data is ready, so the filler and <c>ebreak</c> follow immediately behind it.
-    ///     Confirmed to fail (InvisiSpec no longer costs more) if the deferred access is made to fire
-    ///     unconditionally at Execute instead of waiting for <c>_vpTracker.IsSafe</c>.
+    ///     this isolates the retirement-delay cost from any squash. The USL's speculative peek pays the
+    ///     same miss latency an ordinary load would (see <c>PeekRead</c>'s docs) and broadcasts its
+    ///     value once that resolves, so eight independent filler <c>addi</c>s dispatched after it
+    ///     complete and sit ready to retire long before the USL does — but in-order commit cannot pass
+    ///     the still-pending USL at the ROB head, and the trailing <c>ebreak</c> cannot itself retire
+    ///     (the self-loop halt condition) until every older instruction, including the USL, has.
+    ///     Baseline has no such gate: the same load retires as soon as its data is ready, so the filler
+    ///     and <c>ebreak</c> follow immediately behind it. Confirmed to fail (InvisiSpec no longer
+    ///     costs more) if the deferred access is made to fire unconditionally at Execute instead of
+    ///     waiting for <c>_vpTracker.IsSafe</c>.
     /// </summary>
     [Fact]
     public void RealAccessDeferredPastVisibilityPointCostsMoreThanBaseline() {
@@ -280,6 +281,53 @@ public class InvisiSpecTests {
             $"expected InvisiSpec ({Counter(onResult, "cycles")} cycles) to cost more than "
           + $"baseline ({Counter(offResult, "cycles")} cycles) when the deferred access is held past "
           + "a slow branch's visibility point"
+        );
+    }
+
+    /// <summary>
+    ///     Regression test for the (now-fixed) unphysical InvisiSpec-cheaper-than-baseline artifact:
+    ///     a 2-hop dependent pointer chase (<c>lw x2,0(x1); lw x3,0(x2)</c>, no branch, so the shared
+    ///     visibility point is trivially safe throughout) with both hops cold misses on distinct
+    ///     lines. Before <c>PeekRead</c> charged the same miss latency an ordinary access would,
+    ///     the speculative peek was free, so each hop's data became available at hit-latency
+    ///     regardless of residency — on a chain where baseline pays each hop's miss latency serially
+    ///     on the critical path, that made InvisiSpec measure <em>cheaper</em> than an undefended
+    ///     baseline (confirmed by direct measurement before this fix: 28 cycles off vs. 18 on), which
+    ///     is unphysical (a defense must never look free, let alone negative-cost). Asserts InvisiSpec
+    ///     costs at least as much as baseline, not exact equality: with no visibility delay in the way
+    ///     the two should now converge, but the property that actually matters here is "never
+    ///     cheaper." Confirmed to fail (InvisiSpec measures cheaper) if <c>PeekRead</c>'s miss-latency
+    ///     charge is reverted.
+    /// </summary>
+    [Fact]
+    public void DependentLoadChainNeverCostsLessThanBaseline() {
+        uint[] program = [
+            Lw(2, 0, 512), // x2 = mem[512] (cold miss)
+            Lw(3, 2, 0), // x3 = mem[x2] (depends on x2; distinct line, cold miss)
+            Ebreak,
+        ];
+
+        var memOff = new FlatMemory(4096);
+        var memOn = new FlatMemory(4096);
+        var dMemConfig = new MemoryConfig(1024);
+        OooTrain off = Make(memOff, false, dMemConfig);
+        OooTrain on = Make(memOn, true, dMemConfig);
+        LoadWords(memOff, 0, program);
+        LoadWords(memOn, 0, program);
+        LoadWords(memOff, 512, 800); // x2 -> 800
+        LoadWords(memOn, 512, 800);
+        LoadWords(memOff, 800, 0xDEAD);
+        LoadWords(memOn, 800, 0xDEAD);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+        Assert.Equal(2L, Counter(onResult, "invisispec_exposures") + Counter(onResult, "invisispec_validations"));
+        Assert.True(
+            Counter(onResult, "cycles") >= Counter(offResult, "cycles"),
+            $"expected InvisiSpec ({Counter(onResult, "cycles")} cycles) to never cost less than "
+          + $"baseline ({Counter(offResult, "cycles")} cycles) on a dependent load chain"
         );
     }
 }

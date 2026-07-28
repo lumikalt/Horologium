@@ -483,25 +483,45 @@ public sealed class SetAssociativeCache : IMemory {
     }
 
     /// <summary>
-    ///     Non-mutating read (InvisiSpec speculative-buffer peek): a hit reads the resident line
-    ///     as-is with no counter/LRU/MSHR side effects; a miss recursively peeks the backing level
-    ///     so nothing up to DRAM is disturbed — no <see cref="FillBlock" />, no eviction, no stall
-    ///     charge. Deliberately skips the victim-buffer swap path too (that also mutates state).
-    ///     On a sectored cache, a tag hit only means the *line* is resident — the specific sector
-    ///     covering <paramref name="address" /> may never have been fetched (ordinary
-    ///     <see cref="Read" /> lazily fills it via <see cref="EnsureSectorResident" />, which this
-    ///     peek must not do, since fetching would itself be a mutating, stall-charging access).
-    ///     Falls through to a backing peek for a not-yet-resident sector instead of returning
-    ///     whatever stale/zero-initialized bytes happen to sit in that unfetched sector's slot.
+    ///     Non-mutating read (InvisiSpec speculative-buffer peek): never installs, evicts, or
+    ///     updates LRU/dirty/tag state — the observable cache state a wrong-path access could use
+    ///     to leak information stays untouched, which is the whole point of the defense. It DOES
+    ///     charge the same miss latency an ordinary <see cref="Read" /> would via
+    ///     <see cref="ChargeAndAllocateMshr" />/<see cref="ChargeInFlightMshr" />: a peek that misses
+    ///     the tag array recurses to a backing peek, exactly mirroring the paper's own "dual access"
+    ///     overhead (a speculative fetch pays real memory latency once here; the later deferred real
+    ///     access, once the visibility point clears, independently pays its own latency again since
+    ///     this peek never installed anything for it to hit). Without this, a USL's own completion
+    ///     would happen at hit-latency regardless of whether the address was resident, which — on a
+    ///     dependent load chain — measurably made InvisiSpec look <em>cheaper</em> than an undefended
+    ///     baseline (see TODO.md's InvisiSpec follow-up); MSHR occupancy itself isn't part of the
+    ///     defense's guarantee (real speculative loads occupy real MSHR entries too — a known,
+    ///     out-of-scope residual channel for tag/LRU-based defenses like this one), so tracking it
+    ///     here is a realism improvement, not a mutation that weakens the guarantee.
+    ///     Deliberately still skips the victim-buffer swap path (that mutates both arrays it swaps
+    ///     between) — a line resident only in the victim buffer is treated as a miss here, same as
+    ///     always. On a sectored cache, a tag hit only means the *line* is resident — the specific
+    ///     sector covering <paramref name="address" /> may never have been fetched; a peek charges
+    ///     the same flat <see cref="MissLatency" /> <see cref="EnsureSectorResident" /> would for
+    ///     that sector alone, without actually fetching it (so a subsequent real access still pays to
+    ///     fetch it for real), before falling through to a backing peek for the not-yet-resident data.
     /// </summary>
     public ulong PeekRead(ulong address, int bytes) {
         var offset = (int)(address & (ulong)_offsetMask);
         if (offset + bytes > BlockBytes) return _backing.PeekRead(address, bytes);
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        if (way < 0) return _backing.PeekRead(address, bytes);
-        if (_sectorValid != null && !_sectorValid[set][way][SectorIndex(address)])
+        if (way < 0) {
+            _pendingStalls += ChargeAndAllocateMshr(address & ~(ulong)_offsetMask);
             return _backing.PeekRead(address, bytes);
+        }
+
+        if (_sectorValid != null && !_sectorValid[set][way][SectorIndex(address)]) {
+            _pendingStalls += MissLatency;
+            return _backing.PeekRead(address, bytes);
+        }
+
+        ChargeInFlightMshr(address);
         return ReadBytes(_blocks[set][way], offset, bytes);
     }
 

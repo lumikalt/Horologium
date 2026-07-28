@@ -696,30 +696,31 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   **InvisiSpec** (enable with `enableInvisiSpec: true`; Yan, Choi, Skarlatos, Morrison, Fletcher &amp; Torrellas,
   MICRO 2018, + 2019 Corrigendum) reuses the same shared `SpectreVisibilityTracker` for the cache-hierarchy
   counterpart: every scalar load speculatively peeks its data at Execute (`IMemory.PeekRead`, a non-mutating
-  read — no hit/miss/LRU/fill side effects — overridden by `SetAssociativeCache`, default no-op elsewhere) rather
-  than doing a real access. The load's real access (an *exposure* if no older load/fence was in the ROB at its
-  own Execute time, else a *validation*, per the paper's TSO rule) is deferred to the load's own visibility point
-  and gates retirement only (`RobEntry.PendingUslAccess`) — the peeked value still reaches dependents immediately
-  via the ordinary CDB broadcast, which is the 2019 Corrigendum's critical fix (the original paper's text
-  suggested delaying value visibility too, which the corrigendum retracts). `StepUslResolution` runs each cycle
-  between `StepComplete` and `StepCommit`, firing the deferred access once `SpectreVisibilityTracker.IsSafe`
-  reports the USL's own visibility point has cleared; a squash or flush this same cycle discards any still-pending
-  USL instead of letting it fire. Counted by the `invisispec_exposures`/`invisispec_validations` dials. A
-  wrong-path (squashed) load never installs anything in the real cache under InvisiSpec, unlike this simulator's
-  undefended baseline — proven directly by a test comparing the same program on/off, not merely asserted.
-  The deferred real access now drains through its own per-entry countdown (`_pendingUslLatency`), the same
+  read — no LRU/fill/tag-install side effects, overridden by `SetAssociativeCache`/`BdiCache`, default `=> Read`
+  elsewhere) rather than doing a real access. A peek still charges the same miss latency an ordinary `Read` would
+  (via the same MSHR/sector-miss accounting), so a USL's own completion timing matches a real access even though
+  its cache-state side effects are deferred. The load's real access (an *exposure* if no older load/fence was in
+  the ROB at its own Execute time, else a *validation*, per the paper's TSO rule) is deferred to the load's own
+  visibility point and gates retirement only (`RobEntry.PendingUslAccess`) — the peeked value still reaches
+  dependents immediately via the ordinary CDB broadcast once the peek resolves, which is the 2019 Corrigendum's
+  critical fix (the original paper's text suggested delaying value visibility too, which the corrigendum
+  retracts). `StepUslResolution` runs each cycle between `StepComplete` and `StepCommit`, firing the deferred
+  access once `SpectreVisibilityTracker.IsSafe` reports the USL's own visibility point has cleared, and draining
+  any resulting miss latency through its own per-entry countdown (`_pendingUslLatency`) — the same
   MLP-overlapped shape ordinary load misses get from `StepExecute`'s `_inFlight`, instead of the cache's lump-sum
-  stall accumulator store-commit misses use — multiple USLs resolving in the same cycle overlap their miss
-  latencies instead of charging them additively (the previous, now-fixed, source of overstated IPC cost).
-  **Known limitations of this slice**: `PeekRead`'s speculative peek charges no miss latency at all, so a USL's
-  own completion happens at hit-latency regardless of address residency — the real miss cost only lands later, at
-  the deferred access. On independent loads this converges to baseline cost; on a **dependent load chain**,
-  where baseline pays each hop's miss latency serially on the critical path but InvisiSpec's peeks are all free,
-  InvisiSpec measures **cheaper than baseline** (measured directly: a 2-hop dependent chain costs 28 cycles off,
-  18 on) — an unphysical artifact, not a real defense benefit, and now the dominant remaining IPC-cost fidelity
-  gap (see TODO.md follow-up: `PeekRead` needs to charge the same latency a real access would, as its own
-  in-flight countdown, while still not mutating cache state). No coherence/multi-hart squash plumbing (`OooTrain`
-  has no coherence-invalidation-triggered load-squash hook today).
+  stall accumulator store-commit misses use, so multiple USLs resolving in the same cycle overlap their miss
+  latencies instead of charging them additively; a squash or flush this same cycle discards any still-pending USL
+  instead of letting it fire. Counted by the `invisispec_exposures`/`invisispec_validations` dials. A wrong-path
+  (squashed) load never installs anything in the real cache under InvisiSpec, unlike this simulator's undefended
+  baseline — proven directly by a test comparing the same program on/off, not merely asserted.
+  A USL that misses now pays its miss latency **twice** — once at the speculative peek, once again at the
+  deferred validation/exposure access, since the peek never installs anything for the later access to hit. This
+  is not a bug: Yan et al. state (§VI-C) that their optional Per-Core LLC-SB extension exists specifically "to
+  avoid a second access to main memory," confirming the paper's own *base* design (without that extension) pays
+  main memory twice per non-forwarded USL — the dual-access cost this section's own name refers to. This
+  simulator does not implement the LLC-SB extension (see TODO.md), so today's cost model matches the paper's
+  base design, not the LLC-SB-optimized one. No coherence/multi-hart squash plumbing (`OooTrain` has no
+  coherence-invalidation-triggered load-squash hook today).
 
   `BdiCache` now has a `PeekRead` override (non-mutating: a hit reads the resident compressed block with no
   LRU/segment update, a miss recurses to backing rather than decompressing/filling), and

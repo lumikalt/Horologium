@@ -197,6 +197,12 @@ public sealed class BdiCache : IMemory {
     ///     <see cref="SetAssociativeCache.PeekRead" />, which this level was missing before now (see
     ///     TODO.md's InvisiSpec follow-up) — combining InvisiSpec with BΔI L2 compression previously
     ///     mutated compressed-cache state on a peek, defeating the non-mutation guarantee.
+    ///     A miss still charges the same <see cref="MissLatency" /> a real <see cref="Read" /> would
+    ///     (without installing/evicting a line) — otherwise a USL's own completion would happen at
+    ///     hit-latency regardless of residency, the same unphysical gap fixed for
+    ///     <see cref="SetAssociativeCache.PeekRead" /> (see that method's docs for why this doesn't
+    ///     weaken the non-mutation guarantee: segment/eviction accounting, the state a wrong-path
+    ///     peek must not disturb, stays untouched either way).
     /// </summary>
     public ulong PeekRead(ulong address, int bytes) {
         var offset = (int)(address & (ulong)_offsetMask);
@@ -204,7 +210,10 @@ public sealed class BdiCache : IMemory {
 
         Decompose(address, out int set, out ulong tag);
         int way = FindWay(set, tag);
-        return way >= 0 ? ReadBytes(_blocks[set][way], offset, bytes) : _backing.PeekRead(address, bytes);
+        if (way >= 0) return ReadBytes(_blocks[set][way], offset, bytes);
+
+        _pendingStalls += MissLatency;
+        return _backing.PeekRead(address, bytes);
     }
 
     public void Write(ulong address, ulong value, int bytes) {

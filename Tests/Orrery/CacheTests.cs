@@ -1029,7 +1029,10 @@ public class CacheTests {
     ///     <c>Sectoring_LaterAccessToUntouchedSector_PaysMissLatencyAgain</c> above — the same
     ///     resident-line-but-cold-sector scenario, but via <c>PeekRead</c> instead of <c>Read</c>).
     ///     Peeking an unfetched sector must return the real backing value (not stale/zeroed local
-    ///     bytes) and must not fetch it for real — no sector-fill, no stall, no residency change.
+    ///     bytes) and must not fetch it for real — no sector-fill, no residency change — but DOES
+    ///     charge the same <c>MissLatency</c> a real fetch of that sector would (see
+    ///     <c>SetAssociativeCache.PeekRead</c>'s docs: a USL's own completion must not be free just
+    ///     because it was a peek).
     /// </summary>
     [Fact]
     public void PeekRead_SectoredCache_UnfetchedSectorReturnsBackingValueWithoutFetching() {
@@ -1047,7 +1050,7 @@ public class CacheTests {
 
         Assert.False(cache.IsSectorResident(8)); // peek must not fetch it for real
         Assert.Equal(1, cache.SectorFills);       // still just sector 0's fill from the Read above
-        Assert.Equal(0, cache.ConsumePendingStalls());
+        Assert.Equal(10, cache.ConsumePendingStalls()); // MissLatency charged for the unfetched sector
     }
 
     [Fact]

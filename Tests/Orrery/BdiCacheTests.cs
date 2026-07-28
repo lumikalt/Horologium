@@ -214,7 +214,9 @@ public sealed class BdiCacheTests {
         Assert.Equal(0, cache.Misses);
         Assert.Equal(0, cache.Hits);
         Assert.Equal(0, cache.ResidentLineCount); // no line installed by the peek
-        Assert.Equal(0, cache.ConsumePendingStalls()); // no miss stall charged either
+        // Charges the same MissLatency a real Read miss would (so a USL's own completion isn't
+        // unphysically free) even though no line gets installed for it.
+        Assert.Equal(10, cache.ConsumePendingStalls());
     }
 
     [Fact]

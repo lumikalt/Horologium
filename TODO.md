@@ -113,18 +113,23 @@ off here until a periodic cleanup removes them; the durable record is git histor
   countdown (`_pendingUslLatency`), the same MLP-overlapped shape ordinary load misses get from `StepExecute`'s
   `_inFlight`, instead of the cache's lump-sum stall accumulator store-commit misses use — multiple USLs
   resolving in the same cycle now overlap their miss latencies instead of charging them additively.
-- [ ] InvisiSpec follow-up (new, larger, found while fixing the item above): `IMemory.PeekRead`'s speculative
-  peek charges no miss latency at all (a cold miss just recurses to backing with no stall), so a USL's own
-  completion and CDB broadcast happen at hit-latency regardless of whether the address is resident — the real
-  miss cost only appears later, at the deferred real access. On an independent-load workload this converges to
-  baseline (see the discriminating test), but on a **dependent load chain** (each load's address depends on the
-  previous one's value) it makes InvisiSpec measure **cheaper than baseline**, since baseline pays each hop's
-  miss latency serially on the critical path while InvisiSpec's peeks are all free and its real accesses overlap
-  off the critical path — confirmed by direct measurement (a 2-hop dependent chain: 28 cycles baseline vs. 18
-  on). This is now the dominant remaining IPC-cost fidelity gap for InvisiSpec, larger than the additive/MLP fix
-  above: `PeekRead` needs to charge the same miss latency a real access would (as a per-load in-flight countdown,
-  the way ordinary loads already work) while still not mutating cache state, so the *timing* of a USL's
-  completion matches a real access even though its cache-state side effects are deferred.
+- [x] InvisiSpec follow-up: `IMemory.PeekRead` charged no miss latency at all (a cold miss just recursed to
+  backing with no stall), so a USL's own completion and CDB broadcast happened at hit-latency regardless of
+  whether the address was resident — on a dependent load chain this made InvisiSpec measure cheaper than
+  baseline (confirmed: 28 cycles baseline vs. 18 on, a 2-hop pointer chase). Fixed: `SetAssociativeCache
+  .PeekRead`/`BdiCache.PeekRead` now charge the same miss latency an ordinary `Read` would (`ChargeAndAllocateMshr`/
+  `ChargeInFlightMshr`/`EnsureSectorResident`'s sector-miss cost, as applicable) without installing, evicting, or
+  updating LRU/dirty/tag state. A missed USL now pays this latency twice — once at the speculative peek, once
+  again at the deferred validation/exposure access, since the peek never installs anything for the later access
+  to hit — which is not a bug but the paper's own base-design cost: Yan et al. (MICRO 2018, §VI-C) state the
+  Per-Core LLC-SB extension exists specifically "to avoid a second access to main memory," confirming vanilla
+  InvisiSpec (without that extension) pays main memory twice per non-forwarded USL. See the new TODO item below
+  for that extension, which this simulator does not implement.
+- [ ] InvisiSpec follow-up: Per-Core Speculative Buffer in the LLC (Yan et al., MICRO 2018, §VI-C) — an optional
+  optimization, not yet implemented, that caches a USL's speculatively-fetched line in a small buffer next to the
+  LLC so the later validation/exposure access hits there instead of paying a second full main-memory round trip.
+  Without it (today's state), every non-forwarded USL pays its full miss latency twice, per the paper's own
+  documented baseline cost — see the item above.
 - [x] InvisiSpec follow-up: `BdiCache` has no `PeekRead` override, so it falls through to `IMemory`'s default
   (`=> Read(...)`), which mutates BΔI's compressed-cache segment/eviction state on a USL peek — defeats the
   non-mutation guarantee if InvisiSpec is ever combined with `L2Compression: CompressionKind.Bdi` on the same
