@@ -93,12 +93,28 @@ off here until a periodic cleanup removes them; the durable record is git histor
   per-SSID LFST scheduling state, not learned persistence — their channel is store-to-load-forwarding
   *resolution* timing, tracked below, not predictor training. The other three `SmbPredictor.Train`/
   `TrainNoBypass` calls all fire inside `StepCommit`, already commit-time-safe.
-- [ ] STT: the store-to-load-forwarding implicit branch's own resolution channel (§6.4.2/§6.5) — a
-  memory-order-violation squash and the `StoreSetPredictor`/`SmbPredictor` LFST stall-release bookkeeping
-  (`OnStoreIssued` et al.) currently fire the instant a store's address resolves, with no taint check; delaying
-  the *observable resolution effect* until the relevant addresses are untainted would close it (same shape as
-  the explicit-branch squash deferral already shipped) — and value-prediction training/squash gating, to round
-  out the paper's complete DelayExecute+STT variant.
+- [x] STT: the store-to-load-forwarding implicit branch's own resolution channel (§6.4.2/§6.5), verified already
+  safe by construction (no new gating needed), same shape as the `StoreSetPredictor.Train` correction above.
+  `CheckLoadViolations` (called the instant a store's address resolves) only sets `LqEntry.Violated`; the
+  memory-order-violation squash itself fires exclusively in `StepCommit`'s ROB-head retire loop, unconditionally
+  — commit-time-only by construction, not flag-dependently deferred (a `Debug.Assert` mirrors the one at the
+  branch-mispredict site). `StoreSetPredictor.OnStoreIssued` only clears an internal LFST bookkeeping slot;
+  `StoreSetStallLoad` (the actual issue-time release decision) reads `SqEntry.AddressKnown` directly, never
+  `_lfst`, so `OnStoreIssued` has zero observable effect on pipeline timing. A third candidate — SMB (NoSQ)'s
+  early bypass broadcast delivering a bypassed load's value ahead of its own visibility point — is not a hole:
+  ExpOnly's threat model permits tainted data *propagation*, only gating *transmitters*, and the bypassed load's
+  own shadow/verification execution (the real transmitter) still passes through `TryIssueSlot`'s unconditional
+  STT gate. `Tests/RiscV32/Pipelines/SttStoreForwardTests.cs` demonstrates coexistence (both mechanisms fire in
+  the same run without perturbing each other); the same-instance guarantee rests on the code inspection, not the
+  dynamic test (confirmed: injecting the exact regression the test would need to catch still leaves it green).
+- [x] STT: value-prediction training/squash gating, to round out the paper's complete DelayExecute+STT variant —
+  also verified already safe by construction. `_valuePredictor.Update` and the value-misprediction squash both
+  fire exclusively inside `StepCommit`, unconditionally, same as `_predictor.Update` and the memory-order
+  violation above (two more `Debug.Assert`s added). Value prediction is eligible for `ToothClass.Load`, and a
+  confident prediction writes the PRF at Rename — but EOLE Late Execution (the only mechanism skipping
+  Issue/Execute) is restricted to `ToothClass.IntegerAlu`, so a value-predicted load always still executes for
+  real through `TryIssueSlot`'s STT gate. `Tests/RiscV32/Pipelines/SttValuePredictionTests.cs` demonstrates
+  coexistence with the same honest same-instance caveat as the item above.
 - [ ] STT/InvisiSpec: Futuristic-model visibility point (ROB head / "preceded only by non-squashable instructions")
   as a selectable alternative to the Spectre model — needs tracking unresolved loads and traps as additional
   squash sources, not just branches.

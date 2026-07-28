@@ -689,10 +689,22 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   (already safe by construction); `OnStoreDispatch`/`OnLoadDispatch`/`OnStoreIssued` are ephemeral per-SSID LFST
   scheduling state, not learned persistence, so they aren't a training channel (their own resolution-timing
   channel is a separate, still-open TODO item). The other three `SmbPredictor.Train`/`TrainNoBypass` calls all
-  fire inside `StepCommit`, already safe. Counted by the `stt_memdep_training_deferrals` dial. **Known gaps, see
-  TODO.md**: the store-to-load-forwarding implicit branch's own *resolution* channel (a memory-order-violation
-  squash and the LFST stall-release bookkeeping fire the instant a store's address resolves, untaint-gate-free)
-  and value-prediction training/squash gating are still open.
+  fire inside `StepCommit`, already safe. Counted by the `stt_memdep_training_deferrals` dial.
+  **The store-to-load-forwarding implicit branch's own resolution channel (§6.4.2/§6.5)** and
+  **value-prediction training/squash gating** were both verified already safe by construction — no new gating
+  needed, the same conclusion as `StoreSetPredictor.Train` above. The memory-order-violation squash and the
+  value-misprediction squash both fire exclusively inside `StepCommit`'s ROB-head retire loop, unconditionally
+  (two `Debug.Assert`s mirror the STT-implicit-branch one); `StoreSetPredictor.OnStoreIssued` only clears
+  internal LFST bookkeeping with zero observable pipeline effect (the actual issue-time release reads
+  `SqEntry.AddressKnown` directly). SMB (NoSQ)'s early bypass and value prediction's Rename-time write both let
+  a load's *value* reach dependents ahead of its own visibility point — permitted under ExpOnly's threat model,
+  which only gates *transmitters* (a load's own real memory access), never propagation — and in both cases the
+  load's own real access still passes through `TryIssueSlot`'s unconditional STT gate (EOLE Late Execution, the
+  only mechanism that skips it, is restricted to `ToothClass.IntegerAlu`). `Tests/RiscV32/Pipelines
+  /SttStoreForwardTests.cs` and `SttValuePredictionTests.cs` demonstrate coexistence (both mechanisms fire
+  together without perturbing each other's outcome); the same-instance guarantee itself rests on the code
+  inspection above, not on those dynamic tests — confirmed by deliberately injecting the exact regression each
+  test would need to catch and observing both stay green regardless.
   **InvisiSpec** (enable with `enableInvisiSpec: true`; Yan, Choi, Skarlatos, Morrison, Fletcher &amp; Torrellas,
   MICRO 2018, + 2019 Corrigendum) reuses the same shared `SpectreVisibilityTracker` for the cache-hierarchy
   counterpart: every scalar load speculatively peeks its data at Execute (`IMemory.PeekRead`, a non-mutating

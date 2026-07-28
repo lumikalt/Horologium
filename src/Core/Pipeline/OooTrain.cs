@@ -1439,6 +1439,21 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (head is { IsLoad: true, LqIdx: >= 0, }) {
                 LqEntry lq = _lq.At(head.LqIdx);
                 if (lq.Violated) {
+                    // STT (Yu et al., MICRO 2019, §6.4.2/6.5): a memory-order-violation squash is
+                    // structurally commit-time only — CheckLoadViolations (called from StepComplete
+                    // the instant the violating store's address resolves) only sets this flag; the
+                    // squash itself fires here, at the ROB head, unconditionally, regardless of any
+                    // STT flag. So unlike the branch-mispredict deferral above, there was never a
+                    // flag-dependent immediate-vs-deferred choice to make here — this squash was
+                    // already safe by construction. Assert the same underlying invariant anyway: if
+                    // this load ever reaches the ROB head with a still-unsafe SourceYrot, the whole
+                    // "ROB head implies already safe" foundation this feature leans on has broken.
+                    Debug.Assert(
+                        !(_enableSttExpOnly || _enableSttImplicitBranches || _enableSttMemDepGating)
+                     || head.SourceYrot is not { } loadYrot || _vpTracker!.IsSafe(loadYrot),
+                        "STT: a load reached the ROB head (memory-order violation) with an unsafe " +
+                        "SourceYrot — retirement should be strictly later than any visibility point."
+                    );
                     _memViolationsCounter.Increment();
                     _storeSets?.RecordViolation(lq.ViolatingStorePc, head.Pc);
                     SetFlush(head.Pc); // re-executes from the load's PC; flush clears the ROB+LQ+SQ
@@ -1493,6 +1508,16 @@ internal sealed partial class OoOPipelineCore : Gear {
                     _prf.Write(head.PhysDestination, actual); // self-heal before squash/refetch
                     _vpMispredictsCounter?.Increment();
                     _valuePredictor?.Update(head.Pc, head.VpHistCheckpoint, actual);
+                    // STT: value-prediction training/squash was never flag-dependently deferred (unlike
+                    // the branch-mispredict/memdep-training slices) — Update and the squash below are
+                    // both unconditionally commit-time by construction, same as the memory-order-violation
+                    // squash. Assert the same underlying invariant anyway (see that site's own comment).
+                    Debug.Assert(
+                        !(_enableSttExpOnly || _enableSttImplicitBranches || _enableSttMemDepGating)
+                     || head.SourceYrot is not { } leYrot || _vpTracker!.IsSafe(leYrot),
+                        "STT: an EOLE Late-Execution entry reached the ROB head (value-prediction " +
+                        "squash) with an unsafe SourceYrot."
+                    );
                     SetFlush(head.Pc);
                     return;
                 }
@@ -1501,6 +1526,12 @@ internal sealed partial class OoOPipelineCore : Gear {
                 _valuePredictor?.Update(head.Pc, head.VpHistCheckpoint, _prf.Read(head.PhysDestination));
                 if (head.ValuePredMispredicted) {
                     _vpMispredictsCounter?.Increment();
+                    Debug.Assert(
+                        !(_enableSttExpOnly || _enableSttImplicitBranches || _enableSttMemDepGating)
+                     || head.SourceYrot is not { } vpYrot || _vpTracker!.IsSafe(vpYrot),
+                        "STT: a value-predicted instruction reached the ROB head (value-prediction " +
+                        "squash) with an unsafe SourceYrot."
+                    );
                     SetFlush(head.Pc);
                     return;
                 }
