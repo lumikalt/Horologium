@@ -20,6 +20,17 @@ public sealed class RobEntry {
     public ulong InstrId { get; set; }
     public ITooth? Instruction { get; set; }
 
+    /// <summary>
+    ///     The branch's own InstrId when this entry is a macro-fused compare+branch pair (see
+    ///     <see cref="IMacroFuser" />), null otherwise. The branch was assigned its own InstrId
+    ///     at Fetch, before fusion collapsed it into this single ROB entry — without this field,
+    ///     that InstrId is never retired or flushed anywhere, leaving a dangling Fetch-only row
+    ///     in <see cref="PEventLog" /> traces and a gap in the InstrId sequence that
+    ///     <c>TrainCriticality</c>'s <c>head.InstrId - 1</c>/<c>head.InstrId - w</c> arithmetic
+    ///     assumes never exists.
+    /// </summary>
+    public ulong? FusedSecondInstrId { get; set; }
+
     // ── Register tracking ─────────────────────────────────────────────────────
 
     /// <summary>Architectural destination register, or -1 if none.</summary>
@@ -216,6 +227,7 @@ public sealed class RobEntry {
         Pc = 0;
         InstrId = 0;
         Instruction = null;
+        FusedSecondInstrId = null;
         ArchDestination = -1;
         PhysDestination = -1;
         PrevPhysDestination = -1;

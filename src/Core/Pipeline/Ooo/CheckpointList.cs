@@ -28,6 +28,15 @@ public sealed class CheckpointEntry {
     public ulong InstrId { get; set; }
     public ITooth? Instruction { get; set; }
 
+    /// <summary>
+    ///     The branch's own InstrId when this entry is a macro-fused compare+branch pair (see
+    ///     <see cref="IMacroFuser" />), null otherwise. The branch was assigned its own InstrId
+    ///     at Fetch, before fusion collapsed it into this single checkpoint entry — without this
+    ///     field, that InstrId is never retired or flushed anywhere, leaving a dangling
+    ///     Fetch-only row in <see cref="PEventLog" /> traces.
+    /// </summary>
+    public ulong? FusedSecondInstrId { get; set; }
+
     /// <summary><see cref="Checkpoint.Seq" /> of the epoch this instruction belongs to.</summary>
     public ulong CheckpointSeq { get; set; }
 
@@ -105,6 +114,7 @@ public sealed class CheckpointEntry {
         Pc = 0;
         InstrId = 0;
         Instruction = null;
+        FusedSecondInstrId = null;
         CheckpointSeq = 0;
         ArchDestination = -1;
         PhysDestination = -1;

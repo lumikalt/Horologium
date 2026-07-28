@@ -32,18 +32,24 @@ off here until a periodic cleanup removes them; the durable record is git histor
   retiring ROB/checkpoint/issue-group entry regardless of `ArchInstructionCount`, on all five
   TMA-registering trains (`SuperscalarTrain`, `OooTrain`, `CprTrain`, `SmtTrain`, `DaeTrain` — the
   last two have no fusion, so it's a 1:1 mirror of their existing `"retired"` increments).
-- [ ] `OooTrain`/`CprTrain` macro-fusion leaves gaps documented but not closed (all opt-in +
-  opt-in, no correctness impact on today's default-off runs): (1) on both trains, `PEventLog` only
-  ever records the primary (compare) InstrId post-Rename for a fused pair — the branch's own
-  InstrId gets a Fetch event and then nothing, a dangling row in the waterfall visualization
-  (confirmed non-crashing: `PEventLog` has no completeness invariant). (2) On `OooTrain` only, the
-  Olympia co-sim `_commitObserver`/`Rdip` hooks report only the compare's `(Pc, RawEncoding)` for a
-  fused commit, standing in for two real instructions — a trace-replay divergence source if fusion
-  and co-sim are ever both enabled together (`CprTrain` has no such hooks). (3) On `OooTrain` only,
+- [x] `OooTrain`/`CprTrain` macro-fusion left gaps documented but not closed (all opt-in + opt-in,
+  no correctness impact on default-off runs): (1) on both trains, `PEventLog` only ever recorded
+  the primary (compare) InstrId post-Rename for a fused pair — the branch's own InstrId got a
+  Fetch event and then nothing, a dangling row in the waterfall visualization. (2) On `OooTrain`
+  only, the Olympia co-sim `_commitObserver`/`Rdip` hooks reported only the compare's
+  `(Pc, RawEncoding)` for a fused commit, standing in for two real instructions — a trace-replay
+  divergence source if fusion and co-sim are both enabled. (3) On `OooTrain` only,
   `TrainCriticality`'s critical-path source-InstrId arithmetic (`head.InstrId - 1`,
-  `head.InstrId - w`) assumes InstrId contiguity, which a fused pair breaks (the branch's InstrId
-  is skipped) — mis-attributes CP edges if criticality prediction and fusion are both enabled
-  (`CprTrain` has no criticality-prediction integration).
+  `head.InstrId - w`) assumed InstrId contiguity, which a fused pair breaks (the branch's InstrId
+  is skipped) — mis-attributed CP edges if criticality prediction and fusion were both enabled.
+  Fixed by adding `FusedSecondInstrId` (the branch's own InstrId, set at Rename) to `RobEntry`/
+  `CheckpointEntry`/`RenameEntry`, threaded through Dispatch to Retire/Flush: (1) mirrors every
+  Retire/Flush `PEventLog` event for the branch's InstrId on both trains; (2) fires a second
+  `_commitObserver`/`Rdip` call with the branch's real `(Pc, RawEncoding)` (via
+  `ITooth.BranchComponent`), compare-then-branch order; (3) trains the criticality predictor a
+  second time for the branch's InstrId with the same D/E/C sources as the primary (exact, not
+  approximate — the fused pair shares one Dispatch/Issue/Execute/Commit timing throughout).
+  `CprTrain` still has no co-sim/criticality-prediction integration, so only (1) applies there.
 
 ## Cache Prefetching
 

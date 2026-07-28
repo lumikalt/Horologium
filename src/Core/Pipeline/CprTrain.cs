@@ -971,6 +971,13 @@ internal sealed class CprPipelineCore : Gear {
         // fetch was correct-path — post the pending I-side miss cycles to the globals.
         if (e.IcacheMiss) PostIcachePendings();
         PEventLog?.Record(e.InstrId, e.Pc, _cyclesCounter.Value, PEventKind.Retire);
+        // A fused entry (see IMacroFuser) commits two real architectural instructions through
+        // one checkpoint entry — the branch's own InstrId got a Fetch event and nothing since;
+        // give it a matching Retire event instead of leaving it a dangling waterfall row.
+        if (e.FusedSecondInstrId is { } secondId)
+            PEventLog?.Record(
+                secondId, e.Instruction?.BranchComponent.Pc ?? e.Pc, _cyclesCounter.Value, PEventKind.Retire
+            );
         _entryByInstrId.Remove(e.InstrId);
         cp.CommittedCount++;
         int archCount = e.Instruction?.ArchInstructionCount ?? 1;
@@ -1827,6 +1834,7 @@ internal sealed class CprPipelineCore : Gear {
             entry.IsLoad = instr.Class is ToothClass.Load or ToothClass.Atomic;
             entry.IsHalt = instr.Class == ToothClass.Halt;
             entry.IcacheMiss = fi.IcacheMiss || (fused && second.IcacheMiss);
+            entry.FusedSecondInstrId = fused ? second.InstrId : null;
 
             if (_cpList.Tail.Seq != _tailSeqForCounts) {
                 _tailSeqForCounts = _cpList.Tail.Seq;
@@ -2135,8 +2143,14 @@ internal sealed class CprPipelineCore : Gear {
 
     private void SquashCheckpointEntries(Checkpoint cp) {
         foreach (CheckpointEntry e in cp.Entries) {
-            if (e.InstrId != 0 && _entryByInstrId.ContainsKey(e.InstrId))
+            if (e.InstrId != 0 && _entryByInstrId.ContainsKey(e.InstrId)) {
                 PEventLog?.Record(e.InstrId, e.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                if (e.FusedSecondInstrId is { } secondId)
+                    PEventLog?.Record(
+                        secondId, e.Instruction?.BranchComponent.Pc ?? e.Pc, _cyclesCounter.Value, PEventKind.Flush
+                    );
+            }
+
             _entryByInstrId.Remove(e.InstrId);
             if (e.PhysDestination < 0) continue;
             // Only mark the destination if this entry still owns the allocation — aggressive
@@ -2157,8 +2171,15 @@ internal sealed class CprPipelineCore : Gear {
     private void RecordFrontendFlushEvents() {
         if (PEventLog is null) return;
         foreach (CprRenameEntry ri in _renameQueue)
-            if (ri.Entry.InstrId != 0)
+            if (ri.Entry.InstrId != 0) {
                 PEventLog.Record(ri.Entry.InstrId, ri.Entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                if (ri.Entry.FusedSecondInstrId is { } secondId)
+                    PEventLog.Record(
+                        secondId, ri.Entry.Instruction?.BranchComponent.Pc ?? ri.Entry.Pc, _cyclesCounter.Value,
+                        PEventKind.Flush
+                    );
+            }
+
         foreach (FetchedInstr fi in _decodeQueue)
             if (fi.InstrId != 0)
                 PEventLog.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Flush);
@@ -2175,11 +2196,17 @@ internal sealed class CprPipelineCore : Gear {
 
         if (PEventLog is not null)
             foreach (Checkpoint cp in _cpList.InOrder())
-                for (int i = cp.CommittedCount; i < cp.Entries.Count; i++)
-                    if (cp.Entries[i].InstrId != 0)
+                for (int i = cp.CommittedCount; i < cp.Entries.Count; i++) {
+                    CheckpointEntry e = cp.Entries[i];
+                    if (e.InstrId == 0) continue;
+                    PEventLog.Record(e.InstrId, e.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                    if (e.FusedSecondInstrId is { } secondId)
                         PEventLog.Record(
-                            cp.Entries[i].InstrId, cp.Entries[i].Pc, _cyclesCounter.Value, PEventKind.Flush
+                            secondId, e.Instruction?.BranchComponent.Pc ?? e.Pc, _cyclesCounter.Value,
+                            PEventKind.Flush
                         );
+                }
+
         RecordFrontendFlushEvents();
 
         _cpList.Flush();

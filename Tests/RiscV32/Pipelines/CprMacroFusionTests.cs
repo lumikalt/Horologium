@@ -118,6 +118,29 @@ public class CprMacroFusionTests {
     }
 
     [Fact]
+    public void MacroFusion_ClosesTheBranchInstrIdsDanglingRow() {
+        // TODO.md gap: the branch half of a fused pair keeps its own InstrId from Fetch, but
+        // before this fix nothing downstream ever recorded another PEventLog event for it — a
+        // Fetch-only row that never closes in the waterfall visualization. This checks the
+        // general symptom directly: no InstrId in the whole trace has exactly one event and
+        // that event is a bare Fetch.
+        var log = new PEventLog();
+        var mem = new FlatMemory(65536);
+        Load(mem, TakenProgram());
+        var train = new CprTrain(
+            new Rv32Mechanism(enableMacroFusion: true), mem, issueWidth: 4, pEventLog: log
+        );
+        train.Run();
+
+        Assert.True(train.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the pair to fuse");
+        var danglingFetchOnly = log.Events
+            .GroupBy(e => e.InstrId)
+            .Where(g => g.Count() == 1 && g.First().Kind == PEventKind.Fetch)
+            .ToList();
+        Assert.Empty(danglingFetchOnly);
+    }
+
+    [Fact]
     public void PreservesRetiredInstructionCount() {
         DialBoardSnapshot unfused = Run(TakenProgram(), false).SnapshotPipeline();
         DialBoardSnapshot fused = Run(TakenProgram(), true).SnapshotPipeline();

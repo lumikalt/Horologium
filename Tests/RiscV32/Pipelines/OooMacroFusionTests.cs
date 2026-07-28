@@ -120,6 +120,87 @@ public class OooMacroFusionTests {
     }
 
     [Fact]
+    public void MacroFusion_ClosesTheBranchInstrIdsDanglingRow() {
+        // TODO.md gap: the branch half of a fused pair keeps its own InstrId from Fetch, but
+        // before this fix nothing downstream ever recorded another PEventLog event for it — a
+        // Fetch-only row that never closes in the waterfall visualization. This checks the
+        // general symptom directly: no InstrId in the whole trace has exactly one event and
+        // that event is a bare Fetch.
+        var log = new PEventLog();
+        var mem = new FlatMemory(65536);
+        Load(mem, TakenProgram());
+        var train = new OooTrain(
+            new Rv32Mechanism(enableMacroFusion: true), mem, issueWidth: 4, pEventLog: log
+        );
+        train.Run();
+
+        Assert.True(train.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the pair to fuse");
+        var danglingFetchOnly = log.Events
+            .GroupBy(e => e.InstrId)
+            .Where(g => g.Count() == 1 && g.First().Kind == PEventKind.Fetch)
+            .ToList();
+        Assert.Empty(danglingFetchOnly);
+    }
+
+    private sealed class RecordingCommitObserver : ICommitObserver {
+        public List<(ulong Pc, uint RawEncoding)> Commits { get; } = [];
+        public void OnCommit(ulong pc, uint rawEncoding, IArchState state) => Commits.Add((pc, rawEncoding));
+    }
+
+    [Fact]
+    public void MacroFusion_ReportsBothInstructionsToCommitObserverAndRdip() {
+        // TODO.md gap: the co-sim commitObserver/Rdip hooks only ever reported the compare
+        // half's (Pc, RawEncoding) for a fused commit, standing in for two real instructions —
+        // a trace-replay divergence source. Both halves must now be reported, compare first
+        // (program order), each with its own real Pc/RawEncoding.
+        var observer = new RecordingCommitObserver();
+        var mem = new FlatMemory(65536);
+        uint[] program = TakenProgram();
+        Load(mem, program);
+        var train = new OooTrain(
+            new Rv32Mechanism(enableMacroFusion: true), mem, issueWidth: 4, commitObserver: observer
+        );
+        train.Run();
+
+        DialBoardSnapshot snap = train.SnapshotPipeline();
+        Assert.True(snap.Counters["macro_fusions"] > 0, "expected the pair to fuse");
+        // ebreak itself never notifies commitObserver (ICommitObserver's own "not called for
+        // EBREAK" contract) but still counts 1 toward "retired" — every other architectural
+        // instruction (including both halves of the fused pair) should appear exactly once.
+        Assert.Equal((int)snap.Counters["retired"] - 1, observer.Commits.Count);
+
+        int fuseAt = observer.Commits.FindIndex(c => c.Pc == 8); // slt's Pc (see TakenProgram)
+        Assert.True(fuseAt >= 0, "expected the compare's own Pc to be reported");
+        Assert.True(fuseAt + 1 < observer.Commits.Count, "expected a following commit for the branch half");
+        (ulong branchPc, uint branchRaw) = observer.Commits[fuseAt + 1];
+        Assert.Equal(12UL, branchPc); // bne's Pc (see TakenProgram)
+        Assert.Equal(Bne(5, 0, 12), branchRaw);
+    }
+
+    [Fact]
+    public void MacroFusion_WithCriticalityPredictionEnabled_RunsCleanlyAcrossRobWraparound() {
+        // TODO.md gap: TrainCriticality's InstrId-contiguity arithmetic (head.InstrId - 1,
+        // head.InstrId - w) assumes no gap in the ROB-slot sequence, which a fused pair
+        // introduces (the branch's own InstrId is never its own ROB entry). A small ROB
+        // forces many wraparounds of the token table's InstrId % robCapacity indexing across
+        // this run, which is exactly where a stale/uninitialized slot would surface as an
+        // exception or corrupted read; the correctness bar is simply that this completes and
+        // produces the same architectural result as without criticality prediction.
+        var mem = new FlatMemory(65536);
+        const int copies = 12;
+        uint[] program = BuildRobPressureProgram(copies);
+        Load(mem, program);
+        var train = new OooTrain(
+            new Rv32Mechanism(enableMacroFusion: true), mem,
+            issueWidth: 4, robCapacity: 8, iqCapacity: 16, enableCriticalityPrediction: true
+        );
+        train.Run();
+
+        Assert.Equal(1UL, train.ArchState.IntegerRegisters.Read(1)); // set once, untouched by the fused pairs
+        Assert.True(train.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected fusion to fire");
+    }
+
+    [Fact]
     public void PreservesRetiredInstructionCount() {
         DialBoardSnapshot unfused = Run(TakenProgram(), false).SnapshotPipeline();
         DialBoardSnapshot fused = Run(TakenProgram(), true).SnapshotPipeline();

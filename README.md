@@ -315,7 +315,17 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   entry — unlike the in-order train, an OoO consumer can't read a producer's value until the CDB broadcasts it, so
   only collapsing to one entry (not just co-issuing) removes the latency; `ITooth.ArchInstructionCount` keeps
   `_retiredCounter`/instret counting both original instructions, and `ITooth.BranchComponent` redirects branch-
-  predictor training to the fused pair's real branch PC (the fused Tooth's own `Pc` is the compare half). The benefit
+  predictor training to the fused pair's real branch PC (the fused Tooth's own `Pc` is the compare half). The branch
+  half's own InstrId (assigned at Fetch, before fusion collapses it into one ROB entry) is preserved as
+  `RobEntry.FusedSecondInstrId`, threaded from Rename through to Retire/Flush: `PEventLog` records a matching
+  Retire/Flush event for it instead of leaving a Fetch-only row dangling in the waterfall visualization; the Olympia
+  co-sim `_commitObserver`/`Rdip` hooks fire a second time with its real `(Pc, RawEncoding)` so a fused commit reports
+  as the two architectural instructions it is, not one; and `TrainCriticality` trains the critical-path predictor a
+  second time for it with the same D/E/C sources as the primary (the pair shares one Dispatch/Issue/Execute/Commit
+  timing throughout, so this is exact, not approximate) — otherwise its dropped InstrId, silently skipped in the ROB's
+  InstrId sequence, would leave stale/unrelated token-table state for a later entry's `InstrId - 1`/`InstrId - w`
+  source lookup to read. `CprTrain` mirrors only the `PEventLog` half of this (via `CheckpointEntry.FusedSecondInstrId`)
+  since it has no co-sim or criticality-prediction integration. The benefit
   doesn't show on a dense independent-pairs stream (fetch/rename/issue/commit share one width parameter, so
   throughput there is fetch-bound regardless of fusion) — it shows under ROB pressure: a fused pair costs one ROB
   entry instead of two, so more independent work survives in the shadow of a stalled ROB head (e.g. a cache-miss

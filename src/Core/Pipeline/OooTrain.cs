@@ -1077,7 +1077,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                 case { IsHalt: true, }: {
                     CommitRegisters(head);
                     TrainCriticality(head);
-                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RecordRetire(head);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
                     FinishRetire(head);
@@ -1101,7 +1101,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     }
 
                     TrainCriticality(head);
-                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RecordRetire(head);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
                     FinishRetire(head);
@@ -1112,7 +1112,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     ulong target = _trapController.ReturnFromTrap(head.ReturnPrivilege.Value, State);
                     CommitRegisters(head);
                     TrainCriticality(head);
-                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RecordRetire(head);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
                     FinishRetire(head);
@@ -1230,6 +1230,16 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (head.Instruction is not null) {
                 _commitObserver?.OnCommit(head.Pc, head.Instruction.RawEncoding, State);
                 Rdip?.OnCommit(head.Pc, head.Instruction.RawEncoding);
+
+                // A fused entry (see IMacroFuser) commits two real architectural instructions
+                // through one ROB slot — head.Pc/RawEncoding describe only the compare half.
+                // Without this, a co-sim trace replay sees one commit where two really
+                // happened, a divergence source if fusion and co-sim are both enabled.
+                if (head.FusedSecondInstrId is not null) {
+                    ITooth branch = head.Instruction.BranchComponent;
+                    _commitObserver?.OnCommit(branch.Pc, branch.RawEncoding, State);
+                    Rdip?.OnCommit(branch.Pc, branch.RawEncoding);
+                }
             }
 
             // Advance the architectural RAS shadow for a retiring call/return. Only jumps
@@ -1248,7 +1258,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (head.RequestHalt) {
                 State.Pc = head.PredictedNextPc;
                 TrainCriticality(head);
-                PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                RecordRetire(head);
                 if (head.IcacheMiss) PostIcachePendings();
                 RetireMemQueues(head);
                 FinishRetire(head);
@@ -1265,7 +1275,7 @@ internal sealed partial class OoOPipelineCore : Gear {
              && head.ResolvedNextPc is { HasValue: true, Value: var selfPc, } && selfPc == head.Pc) {
                 State.Pc = selfPc;
                 TrainCriticality(head);
-                PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                RecordRetire(head);
                 if (head.IcacheMiss) PostIcachePendings();
                 RetireMemQueues(head);
                 FinishRetire(head);
@@ -1304,7 +1314,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     }
 
                     TrainCriticality(head);
-                    PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+                    RecordRetire(head);
                     if (head.IcacheMiss) PostIcachePendings();
                     RetireMemQueues(head);
                     FinishRetire(head);
@@ -1315,7 +1325,7 @@ internal sealed partial class OoOPipelineCore : Gear {
 
             State.Pc = head.PredictedNextPc;
             TrainCriticality(head);
-            PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+            RecordRetire(head);
             if (head.IcacheMiss) PostIcachePendings();
             RetireMemQueues(head);
             FinishRetire(head);
@@ -1375,6 +1385,43 @@ internal sealed partial class OoOPipelineCore : Gear {
                 CSourceInstrId = cSource,
             }
         );
+
+        // A fused entry (see IMacroFuser) consumed two InstrIds at Fetch but committed
+        // through only this one ROB entry — the branch's own InstrId is otherwise never
+        // trained, leaving a gap that a later entry's `head.InstrId - 1`/`head.InstrId - w`
+        // D/C-source arithmetic would silently resolve against stale, unrelated token-table
+        // state from the InstrId's last real occupant. Training it with the same D/E/C
+        // sources as the primary is exact, not approximate: the fused pair shares one
+        // Dispatch/Issue/Execute/Commit timing throughout — there never were two separate
+        // instants to model.
+        if (head.FusedSecondInstrId is { } secondId) {
+            _criticalityPredictor.OnCommit(
+                new CriticalityCommitInfo {
+                    InstrId = secondId,
+                    Pc = head.Instruction?.BranchComponent.Pc ?? head.Pc,
+                    DSourceNode = dNode,
+                    DSourceInstrId = dSource,
+                    ESourceNode = eNode,
+                    ESourceInstrId = eSource,
+                    CSourceNode = cNode,
+                    CSourceInstrId = cSource,
+                }
+            );
+        }
+    }
+
+    /// <summary>
+    ///     Records a Retire event for <paramref name="head" />, and — when it is a macro-fused
+    ///     compare+branch pair (see <see cref="IMacroFuser" />) — a matching Retire event for the
+    ///     branch's own InstrId (<see cref="RobEntry.FusedSecondInstrId" />), which otherwise gets
+    ///     a Fetch event and then nothing: a dangling row in the waterfall visualization.
+    /// </summary>
+    private void RecordRetire(RobEntry head) {
+        PEventLog?.Record(head.InstrId, head.Pc, _cyclesCounter.Value, PEventKind.Retire);
+        if (head.FusedSecondInstrId is { } secondId)
+            PEventLog?.Record(
+                secondId, head.Instruction?.BranchComponent.Pc ?? head.Pc, _cyclesCounter.Value, PEventKind.Retire
+            );
     }
 
     /// <summary>Execute instructions issued last tick, filling the CDB buffer.</summary>
@@ -2021,6 +2068,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.DispatchCycle = _cyclesCounter.Value;
             rob.CpiStolenAtDispatch = _cpiStolenCycles;
             rob.IcacheMiss = ri.IcacheMiss;
+            rob.FusedSecondInstrId = ri.FusedSecondInstrId;
             PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
 
             // Critical-path prediction D-source (Table 2): ED (post-misprediction redirect)
@@ -2354,7 +2402,8 @@ internal sealed partial class OoOPipelineCore : Gear {
                     destArch > 0 ? destArch : -1, newPhys, oldPhys, p1, p2, p3,
                     fused ? second.HistCheckpoint : fi.HistCheckpoint,
                     fi.IcacheMiss || (fused && second.IcacheMiss), fi.VpHistCheckpoint, vpEligible,
-                    wasValuePredicted, predictedValue, earlyExecEligible, earlySideEffect
+                    wasValuePredicted, predictedValue, earlyExecEligible, earlySideEffect,
+                    fused ? second.InstrId : null
                 )
             );
             _decodeQueue.Dequeue();
@@ -3034,11 +3083,23 @@ internal sealed partial class OoOPipelineCore : Gear {
         _flushesCounter.Increment();
 
         if (PEventLog is not null) {
-            foreach ((_, RobEntry entry) in _rob.InOrder())
+            foreach ((_, RobEntry entry) in _rob.InOrder()) {
                 if (entry.InstrId != 0)
                     PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
-            foreach (RenameEntry ri in _renameQueue.Where(ri => ri.InstrId != 0))
+                if (entry.FusedSecondInstrId is { } secondId)
+                    PEventLog.Record(
+                        secondId, entry.Instruction?.BranchComponent.Pc ?? entry.Pc, _cyclesCounter.Value,
+                        PEventKind.Flush
+                    );
+            }
+
+            foreach (RenameEntry ri in _renameQueue.Where(ri => ri.InstrId != 0)) {
                 PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                if (ri.FusedSecondInstrId is { } secondId)
+                    PEventLog.Record(
+                        secondId, ri.Decoded?.BranchComponent.Pc ?? ri.Pc, _cyclesCounter.Value, PEventKind.Flush
+                    );
+            }
         }
 
         // Rename queue instructions are younger than any ROB entry. Undo them newest-first
@@ -3112,11 +3173,24 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         if (PEventLog is not null) {
             foreach ((_, RobEntry entry) in _rob.InOrder())
-                if (entry.InstrId > bId && entry.InstrId != 0)
+                if (entry.InstrId > bId && entry.InstrId != 0) {
                     PEventLog.Record(entry.InstrId, entry.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                    if (entry.FusedSecondInstrId is { } secondId)
+                        PEventLog.Record(
+                            secondId, entry.Instruction?.BranchComponent.Pc ?? entry.Pc, _cyclesCounter.Value,
+                            PEventKind.Flush
+                        );
+                }
+
             foreach (RenameEntry ri in _renameQueue)
-                if (ri.InstrId != 0)
+                if (ri.InstrId != 0) {
                     PEventLog.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Flush);
+                    if (ri.FusedSecondInstrId is { } secondId)
+                        PEventLog.Record(
+                            secondId, ri.Decoded?.BranchComponent.Pc ?? ri.Pc, _cyclesCounter.Value, PEventKind.Flush
+                        );
+                }
+
             foreach (FetchedInstr fi in _decodeQueue)
                 if (fi.InstrId != 0)
                     PEventLog.Record(fi.InstrId, fi.Pc, _cyclesCounter.Value, PEventKind.Flush);
@@ -3694,7 +3768,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool WasValuePredicted = false,
         ulong PredictedValue = 0,
         bool IsEarlyExecEligible = false,
-        Action<IArchState>? EarlySideEffect = null
+        Action<IArchState>? EarlySideEffect = null,
+        ulong? FusedSecondInstrId = null // the branch's own InstrId when this entry is a fused pair
     );
 
     private readonly record struct IssuedInstr(
