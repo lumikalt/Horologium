@@ -316,6 +316,7 @@ internal sealed class DaeCore(
     private Counter _tdRecoveriesCounter = null!;
     private Counter _tdRecoveryBubblesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdSlotsRetiredCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
     private UndoLoggingMemory _undoMemory = null!;
     public PEventLog? PEventLog { get; } = pEventLog;
@@ -367,6 +368,7 @@ internal sealed class DaeCore(
         TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
         _tdTotalSlotsCounter = td.TotalSlots;
         _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdSlotsRetiredCounter = td.SlotsRetired;
         _tdFetchBubblesCounter = td.FetchBubbles;
         _tdRecoveryBubblesCounter = td.RecoveryBubbles;
         _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
@@ -379,7 +381,7 @@ internal sealed class DaeCore(
         TopDownBreakdown.Compute(
             _tdTotalSlotsCounter.Value,
             _tdSlotsIssuedCounter.Value,
-            _retiredCounter.Value,
+            _tdSlotsRetiredCounter.Value,
             _tdFetchBubblesCounter.Value,
             _tdRecoveryBubblesCounter.Value,
             _cyclesCounter.Value,
@@ -639,6 +641,7 @@ internal sealed class DaeCore(
         _undoMemory.CurrentSeq = inst.Seq;
         ExecuteResult result = mechanism.Executor.Execute(instr, execState, _undoMemory);
         _retiredCounter.Increment();
+        _tdSlotsRetiredCounter.Increment(); // no fusion here: always a 1:1 slot-to-instruction map
         if (PEventLog is not null) {
             PEventLog.Record(inst.InstrId, inst.Pc, _cyclesCounter.Value, PEventKind.Execute);
             if (!result.HasTrap) PEventLog.Record(inst.InstrId, inst.Pc, _cyclesCounter.Value, PEventKind.Retire);
@@ -750,6 +753,7 @@ internal sealed class DaeCore(
         }
 
         _retiredCounter.Increment();
+        _tdSlotsRetiredCounter.Increment(); // no fusion here: always a 1:1 slot-to-instruction map
         if (PEventLog is not null) {
             PEventLog.Record(_pendingBarrierInstrId, pc, _cyclesCounter.Value, PEventKind.Execute);
             PEventLog.Record(_pendingBarrierInstrId, pc, _cyclesCounter.Value, PEventKind.Retire);

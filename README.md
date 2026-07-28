@@ -1697,12 +1697,19 @@ ISPASS 2014) at their dispatch/issue stage — the frontend/backend border. On t
 simplifies: issue never speculates past an unresolved branch, so SlotsIssued equals SlotsRetired, Bad Speculation
 consists purely of post-flush frontend-refill bubbles (split into branch mispredicts vs machine clears by cause),
 and Backend Bound is the scoreboard/FU-port/LSU backpressure residual. On the OoO trains: `td_total_slots` (issueWidth ×
-cycles), `td_slots_issued`, `td_fetch_bubbles` (unutilized
+cycles), `td_slots_issued`, `td_slots_retired`, `td_fetch_bubbles` (unutilized
 dispatch slots with no backend stall; I-fetch miss stall cycles count width slots each), `td_recovery_bubbles`
 (flush/squash recovery cycles), plus cycle-denominated level-2 events (`td_fetch_latency_cycles`,
-`td_exec_stall_cycles`, `td_memstall_load_cycles`, `td_memstall_store_cycles`). Level-1 dials classify every issue
+`td_exec_stall_cycles`, `td_memstall_load_cycles`, `td_memstall_store_cycles`). `td_slots_retired` is deliberately
+distinct from the pre-existing `retired` counter: `retired` scales by `ITooth.ArchInstructionCount` (2 for a
+macro-fused pair), while a slot is a pipeline-width unit that a fused pair still only occupies once at both
+dispatch and retirement — feeding `retired` into the slot math directly (as an earlier version of this file did)
+inflated Retiring and could mask real Bad Speculation on a fusion-heavy program. Level-1 dials classify every issue
 slot into **Frontend Bound / Bad Speculation / Retiring / Backend Bound** per the paper's Table 2 formulas (summing
-to 1; Retiring cross-validates as IPC ÷ width); level-2 dials split frontend into fetch latency vs bandwidth,
+to 1; Retiring cross-validates as IPC ÷ width when fusion is off — with fusion enabled, Retiring is slot-based
+(`SlotsRetired`/`TotalSlots`) while IPC is instruction-based (`retired`/cycles), and the two diverge precisely
+because a fused pair retires 2 architectural instructions through 1 slot); level-2 dials split frontend into
+fetch latency vs bandwidth,
 bad speculation into branch mispredicts vs machine clears (non-branch flushes: memory-order violations, traps,
 interrupts), and backend into memory vs core bound (execution-stall cycles with/without an in-flight load, per the
 paper's ExecutionStalls heuristic). All ten `td_*` dials flow through `ExperimentResult` sweep tables automatically;

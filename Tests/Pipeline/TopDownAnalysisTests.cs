@@ -83,6 +83,7 @@ public class TopDownAnalysisTests {
             new Dictionary<string, long> {
                 [TopDownBreakdown.TotalSlotsCounter] = 1000,
                 [TopDownBreakdown.SlotsIssuedCounter] = 400,
+                [TopDownBreakdown.SlotsRetiredCounter] = 380,
                 ["retired"] = 380,
                 [TopDownBreakdown.FetchBubblesCounter] = 100,
                 [TopDownBreakdown.RecoveryBubblesCounter] = 40,
@@ -96,5 +97,32 @@ public class TopDownAnalysisTests {
         Assert.NotNull(b);
         Assert.Equal(0.10, b.FrontendBound, 12);
         Assert.Equal(0.38, b.Retiring, 12);
+    }
+
+    [Fact]
+    public void FromSnapshot_UsesSlotsRetiredNotArchInstructionRetired() {
+        // A fused pair inflates the architectural "retired" count (2 per pair) without
+        // inflating SlotsIssued/SlotsRetired (1 per pair) — Retiring must track the slot
+        // counter, not "retired", or a fusion-heavy program would over-report Retiring and
+        // under-report Bad Speculation (which clamps negative results to zero).
+        var snapshot = new DialBoardSnapshot(
+            "fused.pipeline",
+            new Dictionary<string, long> {
+                [TopDownBreakdown.TotalSlotsCounter] = 1000,
+                [TopDownBreakdown.SlotsIssuedCounter] = 400,
+                [TopDownBreakdown.SlotsRetiredCounter] = 400,
+                ["retired"] = 700, // every issued slot was a fused pair: 2x architectural count
+                [TopDownBreakdown.FetchBubblesCounter] = 100,
+                [TopDownBreakdown.RecoveryBubblesCounter] = 0,
+                ["cycles"] = 500,
+            },
+            new Dictionary<string, double>(),
+            new Dictionary<string, IReadOnlyDictionary<string, long>>()
+        );
+
+        TopDownBreakdown? b = TopDownBreakdown.FromSnapshot(snapshot);
+        Assert.NotNull(b);
+        Assert.Equal(0.40, b.Retiring, 12); // 400/1000, not 700/1000
+        Assert.Equal(0.0, b.BadSpeculation, 12); // slotsIssued == slotsRetired: no bad speculation
     }
 }

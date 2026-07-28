@@ -48,6 +48,13 @@ public sealed record TopDownBreakdown(
     // "flushes" counters) gets the full breakdown from FromSnapshot for free.
     public const string TotalSlotsCounter = "td_total_slots";
     public const string SlotsIssuedCounter = "td_slots_issued";
+    // Deliberately distinct from the "retired" counter: "retired" scales by
+    // ITooth.ArchInstructionCount (2 for a macro-fused pair), but a slot is a pipeline-width
+    // unit — a fused pair retires through exactly one ROB/checkpoint/issue-group entry, i.e.
+    // one slot, same as it dispatched through one slot. Using "retired" here would make
+    // SlotsRetired exceed SlotsIssued on any fusion-enabled train, inflating Retiring and
+    // masking Bad Speculation (which clamps negative results to zero).
+    public const string SlotsRetiredCounter = "td_slots_retired";
     public const string FetchBubblesCounter = "td_fetch_bubbles";
     public const string RecoveryBubblesCounter = "td_recovery_bubbles";
     public const string FetchLatencyCyclesCounter = "td_fetch_latency_cycles";
@@ -126,7 +133,7 @@ public sealed record TopDownBreakdown(
         return Compute(
             totalSlots,
             Get(TopDownBreakdown.SlotsIssuedCounter),
-            Get("retired"),
+            Get(TopDownBreakdown.SlotsRetiredCounter),
             Get(TopDownBreakdown.FetchBubblesCounter),
             Get(TopDownBreakdown.RecoveryBubblesCounter),
             Get("cycles"),
@@ -144,7 +151,7 @@ public sealed record TopDownBreakdown(
     }
 
     /// <summary>
-    ///     Registers the eight TMA event counters and ten derived dials on a train's DialBoard.
+    ///     Registers the nine TMA event counters and ten derived dials on a train's DialBoard.
     ///     <paramref name="breakdown" /> is the train's live computation over those counters
     ///     (plus its own cycles/retired/branch/flush counters); it is evaluated lazily at dial
     ///     read time, so it may safely reference the returned holder.
@@ -157,6 +164,10 @@ public sealed record TopDownBreakdown(
             SlotsIssued = dials.AddCounter(
                 TopDownBreakdown.SlotsIssuedCounter,
                 "TMA SlotsIssued: slots that dispatched a uop into the backend (wrong-path included)"
+            ),
+            SlotsRetired = dials.AddCounter(
+                TopDownBreakdown.SlotsRetiredCounter,
+                "TMA SlotsRetired: slots that retired (a macro-fused pair counts once, not by ArchInstructionCount)"
             ),
             FetchBubbles = dials.AddCounter(
                 TopDownBreakdown.FetchBubblesCounter,
@@ -239,12 +250,13 @@ public sealed record TopDownBreakdown(
 }
 
 /// <summary>
-///     The eight TMA event counters a train records; created by
+///     The nine TMA event counters a train records; created by
 ///     <see cref="TopDownBreakdown.RegisterCounters" />.
 /// </summary>
 public sealed class TopDownCounters {
     public required Counter TotalSlots { get; init; }
     public required Counter SlotsIssued { get; init; }
+    public required Counter SlotsRetired { get; init; }
     public required Counter FetchBubbles { get; init; }
     public required Counter RecoveryBubbles { get; init; }
     public required Counter FetchLatencyCycles { get; init; }

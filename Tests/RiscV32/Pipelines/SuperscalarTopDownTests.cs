@@ -37,18 +37,32 @@ public class SuperscalarTopDownTests {
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
+    private static uint Slt(int rd, int rs1, int rs2) =>
+        (uint)((0b0000000 << 25) | (rs2 << 20) | (rs1 << 15) | (0b010 << 12) | (rd << 7) | 0b0110011);
+
+    private static uint Bne(int rs1, int rs2, int immOffset) {
+        var imm = (uint)immOffset;
+        uint bit12 = (imm >> 12) & 0x1;
+        uint bit11 = (imm >> 11) & 0x1;
+        uint bits10_5 = (imm >> 5) & 0x3F;
+        uint bits4_1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+    }
+
     private static (TopDownBreakdown Td, DialBoardSnapshot Snap) RunAndAnalyze(
         uint[] program,
         int issueWidth = 4,
         IBranchPredictor? predictor = null,
         MemoryConfig? iMemConfig = null,
         MemoryConfig? dMemConfig = null,
-        FuLatencyConfig? fuLatency = null
+        FuLatencyConfig? fuLatency = null,
+        bool enableMacroFusion = false
     ) {
         var mem = new FlatMemory(65536);
         Load(mem, program);
         var train = new SuperscalarTrain(
-            new Rv32Mechanism(), mem, issueWidth: issueWidth, predictor: predictor,
+            new Rv32Mechanism(enableMacroFusion: enableMacroFusion), mem, issueWidth: issueWidth, predictor: predictor,
             iMemConfig: iMemConfig, dMemConfig: dMemConfig, fuLatency: fuLatency
         );
         train.Run();
@@ -57,11 +71,58 @@ public class SuperscalarTopDownTests {
         Assert.NotNull(td);
 
         // Structural invariants: slots account exactly, in-order issue retires all it issues.
+        // Compared against SlotsRetired, not "retired": the latter scales by
+        // ITooth.ArchInstructionCount (2 per macro-fused pair), while a slot is a pipeline-width
+        // unit that a fused pair still only occupies once.
         Assert.Equal(snap.Counters["cycles"] * issueWidth, snap.Counters[TopDownBreakdown.TotalSlotsCounter]);
-        Assert.Equal(snap.Counters["retired"], snap.Counters[TopDownBreakdown.SlotsIssuedCounter]);
+        Assert.Equal(snap.Counters[TopDownBreakdown.SlotsRetiredCounter], snap.Counters[TopDownBreakdown.SlotsIssuedCounter]);
         double sum = td.FrontendBound + td.BadSpeculation + td.Retiring + td.BackendBound;
         Assert.InRange(sum, 1.0 - 1e-9, 1.0 + 1e-9); // issued ≡ retired → never overshoots
         return (td, snap);
+    }
+
+    [Fact]
+    public void MacroFusion_DoesNotInflateRetiringOrMaskBadSpeculation() {
+        // A dense run of the fusible SLT+BNE idiom (see RvMacroFuser): each fused pair
+        // retires as 2 architectural instructions but occupies exactly 1 issue slot. Before
+        // wiring a dedicated SlotsRetired counter, TMA fed the architectural "retired" count
+        // into the slot-retired term, so a fusion-heavy program made SlotsRetired exceed
+        // SlotsIssued — inflating Retiring and clamping Bad Speculation to zero even when a
+        // real bubble occurred. RunAndAnalyze's own SlotsRetired == SlotsIssued invariant
+        // (and the level-1 fractions summing to exactly 1) is the regression check: it would
+        // fail under fusion if the bug were still present.
+        // 20 back-to-back copies of the classic fusible idiom (see SuperscalarMacroFusionTests'
+        // TakenProgram): each block's taken branch jumps exactly to the next block's first
+        // instruction, so blocks chain safely with no out-of-bounds target even for the last one
+        // (whose branch lands squarely on the trailing Ebreak).
+        const int blockWords = 6;
+        var program = new uint[blockWords * 20 + 1];
+        for (var i = 0; i < 20; i++) {
+            int b = i * blockWords;
+            program[b + 0] = Addi(1, 0, 5);
+            program[b + 1] = Addi(2, 0, 3);
+            program[b + 2] = Slt(5, 2, 1); // x5 = (3 < 5) = 1
+            program[b + 3] = Bne(5, 0, 12); // taken: skip the next 2 addis, land on the next block
+            program[b + 4] = Addi(3, 0, 111); // skipped
+            program[b + 5] = Addi(3, 0, 222); // skipped
+        }
+
+        program[blockWords * 20] = SuperscalarTopDownTests.Ebreak;
+
+        (TopDownBreakdown td, DialBoardSnapshot snap) = RunAndAnalyze(program, issueWidth: 2, enableMacroFusion: true);
+        Assert.True(snap.Counters["macro_fusions"] > 0, "expected the SLT+BNE idiom to fuse");
+        // The architectural "retired" count is provably inflated past SlotsIssued here — exactly
+        // the condition that broke the SlotsIssued == SlotsRetired invariant (checked inside
+        // RunAndAnalyze above) before td_slots_retired existed.
+        Assert.True(
+            snap.Counters["retired"] > snap.Counters[TopDownBreakdown.SlotsIssuedCounter],
+            "expected fusion to inflate the architectural retired count past SlotsIssued"
+        );
+        Assert.True(td.Retiring is >= 0.0 and <= 1.0);
+        // Ties the live train dial (backed by ComputeTopDown, not FromSnapshot) to the same
+        // value: a regression that swapped only ComputeTopDown back to _retiredCounter would
+        // otherwise slip past every assertion above.
+        Assert.Equal(td.Retiring, snap.Dials["td_retiring"], 12);
     }
 
     [Fact]

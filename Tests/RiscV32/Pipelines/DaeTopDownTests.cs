@@ -83,7 +83,9 @@ public class DaeTopDownTests {
         // TotalSlots is exactly cycles (issueWidth = 1 for DAE's single-dispatch front end).
         Assert.Equal(snap.Counters["cycles"], snap.Counters[TopDownBreakdown.TotalSlotsCounter]);
         // Everything retired was previously issued.
-        Assert.True(snap.Counters[TopDownBreakdown.SlotsIssuedCounter] >= snap.Counters["retired"]);
+        Assert.True(
+            snap.Counters[TopDownBreakdown.SlotsIssuedCounter] >= snap.Counters[TopDownBreakdown.SlotsRetiredCounter]
+        );
 
         double sum = breakdown.FrontendBound + breakdown.BadSpeculation
                                              + breakdown.Retiring + breakdown.BackendBound;

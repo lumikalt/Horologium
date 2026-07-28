@@ -483,6 +483,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     private Counter _tdMemStallStoreCyclesCounter = null!;
     private Counter _tdRecoveryBubblesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdSlotsRetiredCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
     private Counter? _vpPredictionsCounter, _vpCorrectCounter, _vpMispredictsCounter;
     private Counter? _wbAbsorbedStallsCounter;
@@ -704,6 +705,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
         _tdTotalSlotsCounter = td.TotalSlots;
         _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdSlotsRetiredCounter = td.SlotsRetired;
         _tdFetchBubblesCounter = td.FetchBubbles;
         _tdRecoveryBubblesCounter = td.RecoveryBubbles;
         _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
@@ -1049,6 +1051,9 @@ internal sealed partial class OoOPipelineCore : Gear {
     ///     counter and <see cref="IArchState.OnRetire" /> (instret) by
     ///     <see cref="ITooth.ArchInstructionCount" /> — 1 for an ordinary instruction, 2 for a
     ///     macro-fused ROB entry — rather than assuming a 1:1 correspondence with ROB entries.
+    ///     <see cref="TopDownBreakdown.SlotsRetiredCounter" /> instead increments by exactly one
+    ///     per call: a fused ROB entry retires through one slot, same as it dispatched through
+    ///     one, regardless of how many architectural instructions it represents.
     ///     Must read <c>head.Instruction</c> before <see cref="ReorderBuffer.Retire" />: the ROB
     ///     is a pooled ring buffer, and <c>Retire()</c> clears the slot (including
     ///     <c>Instruction</c>) for reuse before returning.
@@ -1057,6 +1062,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         int archCount = head.Instruction?.ArchInstructionCount ?? 1;
         _rob.Retire();
         _retiredCounter.IncrementBy(archCount);
+        _tdSlotsRetiredCounter.Increment();
         for (var i = 0; i < archCount; i++) State.OnRetire();
     }
 
@@ -3602,7 +3608,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         TopDownBreakdown.Compute(
             _tdTotalSlotsCounter.Value,
             _tdSlotsIssuedCounter.Value,
-            _retiredCounter.Value,
+            _tdSlotsRetiredCounter.Value,
             _tdFetchBubblesCounter.Value,
             _tdRecoveryBubblesCounter.Value,
             _cyclesCounter.Value,

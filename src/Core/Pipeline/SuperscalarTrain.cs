@@ -490,6 +490,7 @@ internal sealed class SuperscalarCore(
             classIssued[fuSlot]++;
             issued++; // a fused pair still costs one issue-slot-and-cycle, the whole point of fusion
             _retiredCounter.IncrementBy(fused ? 2 : 1); // architectural instruction count, not slot count
+            _td.SlotsRetired.Increment(); // one slot retires here regardless of ArchInstructionCount
 
             int latency = result.LatencyOverride is > 0 and var overridden
                 ? overridden
@@ -830,7 +831,7 @@ internal sealed class SuperscalarCore(
         TopDownBreakdown.Compute(
             _td.TotalSlots.Value,
             _td.SlotsIssued.Value,
-            _retiredCounter.Value,
+            _td.SlotsRetired.Value,
             _td.FetchBubbles.Value,
             _td.RecoveryBubbles.Value,
             _cyclesCounter.Value,

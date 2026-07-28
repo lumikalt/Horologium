@@ -23,11 +23,15 @@ off here until a periodic cleanup removes them; the durable record is git histor
   has fewer pipe stages than build-mode) rather than the ~0-cycle-impact story everywhere else.
   **Blocked for now**: user wants to confirm first whether the actually-intended follow-up is
   something bigger that also touches `OooTrain`, before scoping this.
-- [ ] TMA slot accounting doesn't yet account for macro-fusion, on any of the three trains that
-  support it: `SuperscalarTrain`'s in-order "SlotsIssued ≡ retired" assumption (and the paper
-  cross-check `Retiring == IPC/width`), and `OooTrain`/`CprTrain`'s slot-vs-instruction bookkeeping
-  generally, no longer hold once fusion is enabled, since a fused pair issues/dispatches as 1 slot
-  but retires as 2 instructions.
+- [x] TMA slot accounting didn't account for macro-fusion, on any of the three trains that support
+  it: `SlotsIssued`/`TotalSlots` correctly counted a fused pair as 1 slot, but `slotsRetired` was
+  aliased to the architectural `"retired"` counter (2 per fused pair, via `ArchInstructionCount`),
+  so a fusion-heavy program made `SlotsRetired` exceed `SlotsIssued` — inflating Retiring and
+  clamping Bad Speculation to zero. Fixed by adding a dedicated `td_slots_retired` counter
+  (`TopDownBreakdown.SlotsRetiredCounter`/`TopDownCounters.SlotsRetired`), incremented once per
+  retiring ROB/checkpoint/issue-group entry regardless of `ArchInstructionCount`, on all five
+  TMA-registering trains (`SuperscalarTrain`, `OooTrain`, `CprTrain`, `SmtTrain`, `DaeTrain` — the
+  last two have no fusion, so it's a 1:1 mirror of their existing `"retired"` increments).
 - [ ] `OooTrain`/`CprTrain` macro-fusion leaves gaps documented but not closed (all opt-in +
   opt-in, no correctness impact on today's default-off runs): (1) on both trains, `PEventLog` only
   ever records the primary (compare) InstrId post-Rename for a fused pair — the branch's own

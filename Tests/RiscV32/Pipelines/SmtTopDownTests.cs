@@ -63,7 +63,9 @@ public class SmtTopDownTests {
         Assert.NotNull(breakdown);
 
         Assert.Equal(snap.Counters["cycles"] * 2, snap.Counters[TopDownBreakdown.TotalSlotsCounter]);
-        Assert.True(snap.Counters[TopDownBreakdown.SlotsIssuedCounter] >= snap.Counters["retired"]);
+        Assert.True(
+            snap.Counters[TopDownBreakdown.SlotsIssuedCounter] >= snap.Counters[TopDownBreakdown.SlotsRetiredCounter]
+        );
 
         double sum = breakdown.FrontendBound + breakdown.BadSpeculation
                                              + breakdown.Retiring + breakdown.BackendBound;

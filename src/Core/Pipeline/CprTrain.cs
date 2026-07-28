@@ -354,6 +354,7 @@ internal sealed class CprPipelineCore : Gear {
     private Counter _tdMemStallStoreCyclesCounter = null!;
     private Counter _tdRecoveryBubblesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdSlotsRetiredCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
 
     public CprPipelineCore(
@@ -491,6 +492,7 @@ internal sealed class CprPipelineCore : Gear {
         TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
         _tdTotalSlotsCounter = td.TotalSlots;
         _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdSlotsRetiredCounter = td.SlotsRetired;
         _tdFetchBubblesCounter = td.FetchBubbles;
         _tdRecoveryBubblesCounter = td.RecoveryBubbles;
         _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
@@ -973,6 +975,9 @@ internal sealed class CprPipelineCore : Gear {
         cp.CommittedCount++;
         int archCount = e.Instruction?.ArchInstructionCount ?? 1;
         _retiredCounter.IncrementBy(archCount);
+        // One slot retires here regardless of ArchInstructionCount: a fused checkpoint entry
+        // commits through one slot, same as it dispatched through one (see td_slots_retired).
+        _tdSlotsRetiredCounter.Increment();
         for (var i = 0; i < archCount; i++) State.OnRetire();
     }
 
@@ -2299,7 +2304,7 @@ internal sealed class CprPipelineCore : Gear {
         TopDownBreakdown.Compute(
             _tdTotalSlotsCounter.Value,
             _tdSlotsIssuedCounter.Value,
-            _retiredCounter.Value,
+            _tdSlotsRetiredCounter.Value,
             _tdFetchBubblesCounter.Value,
             _tdRecoveryBubblesCounter.Value,
             _cyclesCounter.Value,

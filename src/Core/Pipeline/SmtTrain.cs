@@ -143,6 +143,7 @@ internal sealed class SmtCore(
     private Counter _tdMemStallLoadCyclesCounter = null!;
     private Counter _tdMemStallStoreCyclesCounter = null!;
     private Counter _tdSlotsIssuedCounter = null!;
+    private Counter _tdSlotsRetiredCounter = null!;
     private Counter _tdTotalSlotsCounter = null!;
 
     public int HartCount => _harts.Length;
@@ -177,6 +178,7 @@ internal sealed class SmtCore(
         TopDownCounters td = TopDownBreakdown.RegisterCounters(Dials, ComputeTopDown);
         _tdTotalSlotsCounter = td.TotalSlots;
         _tdSlotsIssuedCounter = td.SlotsIssued;
+        _tdSlotsRetiredCounter = td.SlotsRetired;
         _tdFetchBubblesCounter = td.FetchBubbles;
         _tdFetchLatencyCyclesCounter = td.FetchLatencyCycles;
         _tdExecStallCyclesCounter = td.ExecStallCycles;
@@ -188,7 +190,7 @@ internal sealed class SmtCore(
         TopDownBreakdown.Compute(
             _tdTotalSlotsCounter.Value,
             _tdSlotsIssuedCounter.Value,
-            _retiredCounter.Value,
+            _tdSlotsRetiredCounter.Value,
             _tdFetchBubblesCounter.Value,
             0, // No recovery bubbles: no speculative rollback exists in this in-order design.
             _cyclesCounter.Value,
@@ -359,6 +361,7 @@ internal sealed class SmtCore(
             return true;
 
         _retiredCounter.Increment();
+        _tdSlotsRetiredCounter.Increment(); // no fusion here: always a 1:1 slot-to-instruction map
 
         if (result.IsHalt || result.RequestHalt) {
             ctx.Halted = true;
