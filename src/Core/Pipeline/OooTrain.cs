@@ -283,6 +283,19 @@ internal sealed partial class OoOPipelineCore : Gear {
 
     private readonly record struct PendingUsl(int RobIdx, ulong InstrId, ulong Address, int Bytes, bool NeedsValidation);
 
+    // Once a USL's real access fires (StepUslResolution) and misses, its miss latency drains here
+    // as a per-entry countdown — the same MLP-overlap shape StepExecute gives ordinary load misses
+    // via _inFlight — rather than a lump-sum stall charge, so multiple USLs resolving in the same
+    // cycle overlap their miss penalties instead of paying them additively. No CDB broadcast is
+    // involved (the USL's data already reached dependents at its original speculative Execute);
+    // reaching zero here only clears RobEntry.PendingUslAccess so Commit can retire it. No squash
+    // cleanup beyond StepFlush's full clear is needed: an entry only lands here once its visibility
+    // point has already cleared, and once IsSafe(instrId) is true for an instruction it stays true
+    // (every branch older than it is resolved for good) — so no later partial squash can retroactively
+    // invalidate an entry already in this list, only a full flush (e.g. an older trap; traps aren't
+    // yet a tracked squash source, see TODO.md's Futuristic-model item) discards it.
+    private readonly List<(int RobIdx, int Countdown)> _pendingUslLatency = [];
+
     // STT full DelayExecute+STT, explicit-branch slice only (Yu et al., MICRO 2019, Section 6.4.1):
     // closes the resolution-based implicit channel through explicit branches. Predictor training
     // (_predictor.Update) and the value/bypass-mispredict squashes already fire only at commit —
@@ -1292,8 +1305,25 @@ internal sealed partial class OoOPipelineCore : Gear {
     ///     memory-order-violation path (LqEntry.Violated) — a genuine cross-core coherence mismatch,
     ///     which validation exists to catch, cannot arise without multi-hart coherence-squash plumbing
     ///     this slice deliberately does not build (see TODO.md).
+    ///     A miss on the real access does not freeze the shared clock: its latency is drained through
+    ///     <see cref="_pendingUslLatency" />'s own per-entry countdown (see that field's docs), the same
+    ///     MLP-overlapped shape ordinary load misses get from <see cref="_inFlight" /> in
+    ///     <see cref="StepExecute" />, instead of the cache's lump-sum stall accumulator that store-commit
+    ///     misses use.
     /// </summary>
     private void StepUslResolution() {
+        // Drain previously-fired USLs' own miss-latency countdowns first (mirrors StepExecute's
+        // drain-then-issue ordering for _inFlight) — a hit fired this same cycle clears its gate
+        // below without ever passing through here.
+        for (int i = _pendingUslLatency.Count - 1; i >= 0; i--) {
+            (int robIdx, int countdown) = _pendingUslLatency[i];
+            if (--countdown <= 0) {
+                _rob.At(robIdx).PendingUslAccess = false;
+                _pendingUslLatency.RemoveAt(i);
+            }
+            else { _pendingUslLatency[i] = (robIdx, countdown); }
+        }
+
         for (int i = _pendingUsls.Count - 1; i >= 0; i--) {
             PendingUsl p = _pendingUsls[i];
             if (_flushPending || (_squashPending && p.InstrId > _squashInstrId)) continue;
@@ -1302,9 +1332,11 @@ internal sealed partial class OoOPipelineCore : Gear {
             _ = DLayers.Accessor.Read(p.Address, p.Bytes);
             if (p.NeedsValidation) _invisispecValidationsCounter?.Increment();
             else _invisispecExposuresCounter?.Increment();
-
-            _rob.At(p.RobIdx).PendingUslAccess = false;
             _pendingUsls.RemoveAt(i);
+
+            long stalls = _anyCache ? DLayers.ConsumeAllStalls() : 0;
+            if (stalls > 0) _pendingUslLatency.Add((p.RobIdx, (int)stalls));
+            else _rob.At(p.RobIdx).PendingUslAccess = false;
         }
     }
 
@@ -3478,6 +3510,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         _rob.Flush();
         _vpTracker?.Clear();
         _pendingUsls.Clear();
+        _pendingUslLatency.Clear();
         _pendingTaintedMispredicts.Clear();
         foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
@@ -3586,6 +3619,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         _rob.TruncateYoungerThan(bId);
         _vpTracker?.TruncateYoungerThan(bId);
         _pendingUsls.RemoveAll(p => p.InstrId > bId);
+        // _pendingUslLatency needs no truncation here: an entry only lands there once its own
+        // visibility point already cleared, and once safe an instruction stays safe (every branch
+        // older than it is resolved for good) — so a partial squash can never retroactively catch
+        // an entry already draining its post-fire miss latency (see that field's docs).
         _pendingTaintedMispredicts.RemoveAll(id => id > bId);
         foreach (IssueQueue iq in _iqs) iq.SquashYoungerThan(bId);
         _lq.TruncateYoungerThan(bId);

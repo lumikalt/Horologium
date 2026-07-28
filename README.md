@@ -707,12 +707,19 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   USL instead of letting it fire. Counted by the `invisispec_exposures`/`invisispec_validations` dials. A
   wrong-path (squashed) load never installs anything in the real cache under InvisiSpec, unlike this simulator's
   undefended baseline — proven directly by a test comparing the same program on/off, not merely asserted.
-  **Known limitations of this slice**: the deferred real access is charged through the cache's lump-sum stall
-  accumulator (the same path store-commit misses use) rather than a per-load in-flight countdown, so multiple
-  USLs resolving in the same cycle have their miss latencies charged additively instead of MLP-overlapped like an
-  ordinary baseline load — this overstates the measured IPC cost relative to the paper's real dual-access
-  overhead (see TODO.md follow-up). No coherence/multi-hart squash plumbing (`OooTrain` has no
-  coherence-invalidation-triggered load-squash hook today).
+  The deferred real access now drains through its own per-entry countdown (`_pendingUslLatency`), the same
+  MLP-overlapped shape ordinary load misses get from `StepExecute`'s `_inFlight`, instead of the cache's lump-sum
+  stall accumulator store-commit misses use — multiple USLs resolving in the same cycle overlap their miss
+  latencies instead of charging them additively (the previous, now-fixed, source of overstated IPC cost).
+  **Known limitations of this slice**: `PeekRead`'s speculative peek charges no miss latency at all, so a USL's
+  own completion happens at hit-latency regardless of address residency — the real miss cost only lands later, at
+  the deferred access. On independent loads this converges to baseline cost; on a **dependent load chain**,
+  where baseline pays each hop's miss latency serially on the critical path but InvisiSpec's peeks are all free,
+  InvisiSpec measures **cheaper than baseline** (measured directly: a 2-hop dependent chain costs 28 cycles off,
+  18 on) — an unphysical artifact, not a real defense benefit, and now the dominant remaining IPC-cost fidelity
+  gap (see TODO.md follow-up: `PeekRead` needs to charge the same latency a real access would, as its own
+  in-flight countdown, while still not mutating cache state). No coherence/multi-hart squash plumbing (`OooTrain`
+  has no coherence-invalidation-triggered load-squash hook today).
 
   `BdiCache` now has a `PeekRead` override (non-mutating: a hit reads the resident compressed block with no
   LRU/segment update, a miss recurses to backing rather than decompressing/filling), and

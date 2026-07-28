@@ -109,12 +109,22 @@ off here until a periodic cleanup removes them; the durable record is git histor
   `invisispec_exposures`/`invisispec_validations` dials; no coherence/multi-hart squash plumbing (out of scope;
   `OooTrain` has no coherence-invalidation-triggered load-squash hook today). — Yan et al., MICRO 2018 (+ 2019
   Corrigendum)
-- [ ] InvisiSpec follow-up: `StepUslResolution`'s deferred real access is charged through the cache's lump-sum
-  stall accumulator (the same path store-commit misses use), not a per-load in-flight countdown — so multiple
-  USLs resolving in the same cycle have their miss latencies charged additively instead of MLP-overlapped like
-  ordinary baseline loads. This overstates InvisiSpec's measured IPC cost vs. the paper's real dual-access
-  overhead; route the deferred access through `StepExecute`'s in-flight countdown instead for a calibrated
-  number.
+- [x] InvisiSpec follow-up: `StepUslResolution`'s deferred real access now drains through its own per-entry
+  countdown (`_pendingUslLatency`), the same MLP-overlapped shape ordinary load misses get from `StepExecute`'s
+  `_inFlight`, instead of the cache's lump-sum stall accumulator store-commit misses use — multiple USLs
+  resolving in the same cycle now overlap their miss latencies instead of charging them additively.
+- [ ] InvisiSpec follow-up (new, larger, found while fixing the item above): `IMemory.PeekRead`'s speculative
+  peek charges no miss latency at all (a cold miss just recurses to backing with no stall), so a USL's own
+  completion and CDB broadcast happen at hit-latency regardless of whether the address is resident — the real
+  miss cost only appears later, at the deferred real access. On an independent-load workload this converges to
+  baseline (see the discriminating test), but on a **dependent load chain** (each load's address depends on the
+  previous one's value) it makes InvisiSpec measure **cheaper than baseline**, since baseline pays each hop's
+  miss latency serially on the critical path while InvisiSpec's peeks are all free and its real accesses overlap
+  off the critical path — confirmed by direct measurement (a 2-hop dependent chain: 28 cycles baseline vs. 18
+  on). This is now the dominant remaining IPC-cost fidelity gap for InvisiSpec, larger than the additive/MLP fix
+  above: `PeekRead` needs to charge the same miss latency a real access would (as a per-load in-flight countdown,
+  the way ordinary loads already work) while still not mutating cache state, so the *timing* of a USL's
+  completion matches a real access even though its cache-state side effects are deferred.
 - [x] InvisiSpec follow-up: `BdiCache` has no `PeekRead` override, so it falls through to `IMemory`'s default
   (`=> Read(...)`), which mutates BΔI's compressed-cache segment/eviction state on a USL peek — defeats the
   non-mutation guarantee if InvisiSpec is ever combined with `L2Compression: CompressionKind.Bdi` on the same

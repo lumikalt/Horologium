@@ -185,25 +185,20 @@ public class InvisiSpecTests {
 
     /// <summary>
     ///     Three independent cold loads to distinct cache lines, no dependency and no branch between
-    ///     them, so every visibility-point check trivially reports "safe" — this isolates InvisiSpec's
-    ///     own overhead (the deferred real access) from any branch-resolution delay. Baseline overlaps
-    ///     the three misses: <c>StepExecute</c> gives each load its own in-flight countdown entry, and
-    ///     independent countdowns tick in parallel, so total added latency is roughly one
-    ///     <c>CacheMissLatency</c>, not three. InvisiSpec's deferred accesses instead go through
-    ///     <c>StepUslResolution</c>'s direct <c>DLayers.Accessor.Read</c> call, whose miss cost lands in
-    ///     the cache's lump-sum stall accumulator (the same path stores use, off the load critical
-    ///     path) rather than a per-load in-flight countdown — so when multiple deferred accesses
-    ///     resolve in the same cycle, their miss latencies are charged additively, not overlapped. This
-    ///     is a real cost of the current implementation (measurably more cycles than baseline) but the
-    ///     magnitude is an implementation artifact of reusing the lump-sum stall path for what should be
-    ///     a per-load latency — see the caveat in <c>README.md</c>'s InvisiSpec section and the matching
-    ///     TODO.md follow-up. This test asserts only the direction (InvisiSpec costs more here) and that
-    ///     all three loads were resolved as USLs, not a specific cycle count or expose/validate split
-    ///     (which load in the trio is still "pending" when the next one executes is a timing detail,
-    ///     not the property under test).
+    ///     them, so every visibility-point check trivially reports "safe" the instant it's checked —
+    ///     this isolates InvisiSpec's own overhead (the deferred real access) from any
+    ///     branch-resolution delay. <c>StepUslResolution</c>'s deferred real access now drains through
+    ///     its own per-entry countdown (<c>_pendingUslLatency</c>), the same MLP-overlapped shape
+    ///     ordinary load misses get from <c>StepExecute</c>'s <c>_inFlight</c>, instead of the cache's
+    ///     lump-sum stall accumulator stores use — so with no visibility delay in the way, InvisiSpec's
+    ///     cycle count converges to baseline's rather than paying each miss additively. This is the
+    ///     discriminating regression test for that recalibration: reverting the fix (routing the
+    ///     deferred access back through the lump-sum path) reintroduces additive charging and this
+    ///     assertion fails with InvisiSpec's cycles measurably higher than baseline's — confirmed
+    ///     directly before finalizing this test.
     /// </summary>
     [Fact]
-    public void SurvivingIndependentLoadsCostMoreCyclesThanBaseline() {
+    public void SurvivingIndependentLoadsCostSameCyclesAsBaseline_MlpOverlapped() {
         uint[] program = [
             Lw(1, 0, 512), // mem[512] — cold miss
             Lw(2, 0, 576), // mem[576] — distinct line, cold miss
@@ -230,10 +225,61 @@ public class InvisiSpecTests {
 
         AssertIdenticalArchState(off, on);
         Assert.Equal(3L, Counter(onResult, "invisispec_exposures") + Counter(onResult, "invisispec_validations"));
+        Assert.Equal(Counter(offResult, "cycles"), Counter(onResult, "cycles"));
+    }
+
+    /// <summary>
+    ///     InvisiSpec's genuine cost driver, isolated from the lump-sum artifact fixed above: a slow
+    ///     (3x chained-<c>mul</c>, 9-cycle) branch precedes a cold USL, holding its own real access
+    ///     (and therefore its retirement — <c>RobEntry.PendingUslAccess</c>) pending until the branch's
+    ///     visibility point clears; the branch targets its own fall-through so it never mispredicts —
+    ///     this isolates the retirement-delay cost from any squash. The USL's speculative peek is free
+    ///     (<c>PeekRead</c> never charges a miss stall) and broadcasts its value immediately, so eight
+    ///     independent filler <c>addi</c>s after it complete and sit ready to retire long before the
+    ///     USL does — but in-order commit cannot pass the still-pending USL at the ROB head, and the
+    ///     trailing <c>ebreak</c> cannot itself retire (the self-loop halt condition) until every older
+    ///     instruction, including the USL, has. Baseline has no such gate: the same load retires as
+    ///     soon as its data is ready, so the filler and <c>ebreak</c> follow immediately behind it.
+    ///     Confirmed to fail (InvisiSpec no longer costs more) if the deferred access is made to fire
+    ///     unconditionally at Execute instead of waiting for <c>_vpTracker.IsSafe</c>.
+    /// </summary>
+    [Fact]
+    public void RealAccessDeferredPastVisibilityPointCostsMoreThanBaseline() {
+        uint[] program = [
+            Addi(5, 0, 1), // x5 = 1
+            Mul(6, 5, 5), // x6 = 1
+            Mul(6, 6, 6), // still 1 (3x chained mul: ~9-cycle resolution window for the branch below)
+            Mul(6, 6, 6), // still 1
+            Bne(6, 0, 4), // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only,
+            // never mispredicts, but stays unresolved in the visibility tracker for the mul chain's
+            // full latency, holding the USL below pending for that whole window.
+            Lw(1, 0, 512), // USL: cold miss, deferred real access held by the branch above
+            Addi(10, 0, 1), Addi(11, 0, 1), Addi(12, 0, 1), Addi(13, 0, 1), // 8 independent fillers:
+            Addi(14, 0, 1), Addi(15, 0, 1), Addi(16, 0, 1), Addi(17, 0, 1), // complete immediately,
+            // but cannot retire ahead of the still-pending USL at the ROB head.
+            Ebreak,
+        ];
+
+        var memOff = new FlatMemory(4096);
+        var memOn = new FlatMemory(4096);
+        var dMemConfig = new MemoryConfig(1024);
+        OooTrain off = Make(memOff, false, dMemConfig);
+        OooTrain on = Make(memOn, true, dMemConfig);
+        LoadWords(memOff, 0, program);
+        LoadWords(memOn, 0, program);
+        LoadWords(memOff, 512, 1);
+        LoadWords(memOn, 512, 1);
+
+        RevolutionResult offResult = off.Run();
+        RevolutionResult onResult = on.Run();
+
+        AssertIdenticalArchState(off, on);
+        Assert.Equal(1L, Counter(onResult, "invisispec_exposures") + Counter(onResult, "invisispec_validations"));
         Assert.True(
             Counter(onResult, "cycles") > Counter(offResult, "cycles"),
             $"expected InvisiSpec ({Counter(onResult, "cycles")} cycles) to cost more than "
-          + $"baseline ({Counter(offResult, "cycles")} cycles) on independent surviving misses"
+          + $"baseline ({Counter(offResult, "cycles")} cycles) when the deferred access is held past "
+          + "a slow branch's visibility point"
         );
     }
 }
