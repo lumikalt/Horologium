@@ -102,6 +102,9 @@ public sealed record TrainConfig(
     // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): every load speculatively peeks its
     // data and defers its real cache access to its own visibility point. OooTrain only.
     bool EnableInvisiSpec = false,
+    // STT full DelayExecute+STT, explicit-branch slice (Yu et al., MICRO 2019, §6.4.1): defers a
+    // mispredicted branch's squash until its own taint clears. OooTrain only.
+    bool EnableSttImplicitBranches = false,
 
     // ── DaeTrain parameters ───────────────────────────────────────────────────
     int DaeLaneQueueDepth = 8, // per-lane instruction queue depth (Access / Execute lanes)
@@ -225,7 +228,8 @@ public sealed record TrainConfig(
                 Rdip: Rdip,
                 EnableStoreSets: EnableStoreSets,
                 EnableSttExpOnly: EnableSttExpOnly,
-                EnableInvisiSpec: EnableInvisiSpec
+                EnableInvisiSpec: EnableInvisiSpec,
+                EnableSttImplicitBranches: EnableSttImplicitBranches
             ),
             "cpr" => new CprSpec(
                 IssueWidth, IqCapacity, ExtraPhysRegs,

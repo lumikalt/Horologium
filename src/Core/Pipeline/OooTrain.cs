@@ -1,5 +1,6 @@
 #region
 
+using System.Diagnostics;
 using Mechanism;
 using Mechanism.BranchPred;
 using Orrery.Cache;
@@ -58,7 +59,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableEoleEarlyExec = false,
         IMemory? fdipBackingMemory = null,
         bool enableSttExpOnly = false,
-        bool enableInvisiSpec = false
+        bool enableInvisiSpec = false,
+        bool enableSttImplicitBranches = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -96,7 +98,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableEoleLateExec,
                 enableEoleEarlyExec,
                 enableSttExpOnly: enableSttExpOnly,
-                enableInvisiSpec: enableInvisiSpec
+                enableInvisiSpec: enableInvisiSpec,
+                enableSttImplicitBranches: enableSttImplicitBranches
             )
         );
         _train.Build();
@@ -130,7 +133,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableEoleEarlyExec = false,
         IMemory? fdipBackingMemory = null,
         bool enableSttExpOnly = false,
-        bool enableInvisiSpec = false
+        bool enableInvisiSpec = false,
+        bool enableSttImplicitBranches = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -158,7 +162,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableEoleLateExec: enableEoleLateExec,
                 enableEoleEarlyExec: enableEoleEarlyExec,
                 enableSttExpOnly: enableSttExpOnly,
-                enableInvisiSpec: enableInvisiSpec
+                enableInvisiSpec: enableInvisiSpec,
+                enableSttImplicitBranches: enableSttImplicitBranches
             )
         );
         _train.Build();
@@ -273,6 +278,28 @@ internal sealed partial class OoOPipelineCore : Gear {
     private Counter? _invisispecValidationsCounter;
 
     private readonly record struct PendingUsl(int RobIdx, ulong InstrId, ulong Address, int Bytes, bool NeedsValidation);
+
+    // STT full DelayExecute+STT, explicit-branch slice only (Yu et al., MICRO 2019, Section 6.4.1):
+    // closes the resolution-based implicit channel through explicit branches. Predictor training
+    // (_predictor.Update) and the value/bypass-mispredict squashes already fire only at commit —
+    // strictly later than any instruction's visibility point — so they are already safe by
+    // construction and untouched here (verified by inspection, not assumed; the load-bearing
+    // "ROB head implies already safe" invariant this relies on is asserted at the commit-time
+    // mispredict site in StepCommit, not just trusted silently). The one real hole is the execute-time
+    // speculative squash (see StepComplete/StepPartialSquash): armed the instant a branch resolves
+    // mispredicted, with no taint check, so a squash whose timing depends on tainted data is itself
+    // an implicit covert channel. When enabled, a mispredicted branch's own SourceYrot must be safe
+    // (no older unresolved branch, via the shared _vpTracker) before its squash may be armed;
+    // otherwise it is queued here and re-checked every cycle (StepSttMispredictResolution) — the
+    // branch keeps executing/resolving normally (paper: "STT lets the instructions execute, and
+    // only increases the latency of recovering from a tainted branch misprediction"), only the
+    // *observable squash effect* is delayed. Store-to-load-forwarding/memory-dependence-speculation
+    // predictor training (StoreSetPredictor.OnStoreIssued/Train, SmbPredictor.Train — both fire at
+    // Complete, keyed on potentially-tainted addresses/SSN distances) is a separate, NOT-yet-closed
+    // prediction-based implicit channel — tracked as its own TODO.md follow-up, not solved here.
+    private readonly bool _enableSttImplicitBranches;
+    private readonly List<ulong> _pendingTaintedMispredicts = [];
+    private Counter? _sttMispredictDeferralsCounter;
 
     // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
     // a self-contained shadow execution lane entered when dispatch is stalled behind a full
@@ -558,7 +585,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool enableEoleLateExec = false,
         bool enableEoleEarlyExec = false,
         bool enableSttExpOnly = false,
-        bool enableInvisiSpec = false
+        bool enableInvisiSpec = false,
+        bool enableSttImplicitBranches = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -606,7 +634,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         _vrStrideTable = _enableVectorRunahead ? new VrStrideEntry[256] : [];
         _enableSttExpOnly = enableSttExpOnly;
         _enableInvisiSpec = enableInvisiSpec;
-        _vpTracker = enableSttExpOnly || enableInvisiSpec ? new SpectreVisibilityTracker() : null;
+        _enableSttImplicitBranches = enableSttImplicitBranches;
+        _vpTracker = enableSttExpOnly || enableInvisiSpec || enableSttImplicitBranches
+            ? new SpectreVisibilityTracker()
+            : null;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -707,6 +738,12 @@ internal sealed partial class OoOPipelineCore : Gear {
                 "invisispec_validations", "USLs resolved via validation (an older load/fence was in the ROB)"
             );
         }
+
+        if (_enableSttImplicitBranches)
+            _sttMispredictDeferralsCounter = Dials.AddCounter(
+                "stt_mispredict_deferrals",
+                "Cycles a mispredicted branch's squash was held pending its own visibility point (STT explicit-branch protection)"
+            );
 
         if (_enableEoleLateExec)
             _eoleLateExecCounter = Dials.AddCounter(
@@ -919,6 +956,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         // Complete: broadcast last tick's execution results onto CDB.
         StepComplete();
 
+        // STT full DelayExecute+STT, explicit-branch slice: re-check any mispredicted branch whose
+        // squash StepComplete deferred because its own resolution was still tainted.
+        if (_enableSttImplicitBranches) StepSttMispredictResolution();
+
         // InvisiSpec: resolve any USL whose visibility point cleared this cycle (fire its
         // deferred real cache access) before Commit checks RobEntry.PendingUslAccess below.
         if (_enableInvisiSpec) StepUslResolution();
@@ -996,6 +1037,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         // execute rather than deferring the flush to the ROB head (see StepPartialSquash).
         var haveMispredict = false;
         ulong oldestMispredId = 0;
+        RobEntry? oldestMispredRob = null;
 
         foreach (ExecResult r in _cdbBuffer) {
             RobEntry rob = _rob.At(r.RobIdx);
@@ -1028,6 +1070,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (thisMispredicted && (!haveMispredict || r.InstrId < oldestMispredId)) {
                 haveMispredict = true;
                 oldestMispredId = r.InstrId;
+                oldestMispredRob = rob;
             }
 
             if (r.HasStoreCapture) {
@@ -1097,20 +1140,72 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         _cdbBuffer.Clear();
 
-        // Arm an execute-time partial squash on the oldest branch that mispredicted this tick.
-        // Skip when that branch is already the ROB head (the commit-time path flushes it — an
-        // identical outcome, nothing older to overlap), or when an older in-flight halt/trap will
-        // redirect or stop the machine at commit: that makes this branch definitively wrong-path,
-        // and the commit-time model never counts such a mispredict because the older halt/trap
-        // retires first (e.g., speculative fetch of a loop branch past a program-terminating ebreak).
-        if (haveMispredict && _rob.Head.InstrId != oldestMispredId && !AnyOlderHaltOrTrap(oldestMispredId)) {
-            RobEntry b = FindRobByInstrId(oldestMispredId);
-            ulong resolvedPc = b.ResolvedNextPc.Value;
-            _squashPending = true;
-            _squashInstrId = oldestMispredId;
-            _squashTarget = resolvedPc;
-            _squashTaken = resolvedPc != b.Pc + (ulong)(b.Instruction?.SizeBytes ?? 4);
+        // Arm an execute-time partial squash on the oldest branch that mispredicted this tick —
+        // unless STT explicit-branch protection is on and this branch's own resolution is still
+        // tainted (SourceYrot not yet safe): squashing on it right now would make the squash's
+        // timing a function of tainted data (the resolution-based implicit channel, §6.4.1). Such
+        // a branch is queued instead and re-checked every cycle by StepSttMispredictResolution —
+        // it keeps executing/resolving normally, only this observable effect is delayed.
+        if (haveMispredict) {
+            if (_enableSttImplicitBranches && oldestMispredRob!.SourceYrot is { } yrot && !_vpTracker!.IsSafe(yrot))
+                _pendingTaintedMispredicts.Add(oldestMispredId);
+            else
+                ArmMispredictSquash(oldestMispredId, oldestMispredRob!);
         }
+    }
+
+    /// <summary>
+    ///     Arms an execute-time partial squash for a mispredicted branch, unless it is already the
+    ///     ROB head (the commit-time path flushes it — an identical outcome, nothing older to
+    ///     overlap) or an older in-flight halt/trap will redirect or stop the machine at commit
+    ///     (making this branch definitively wrong-path; the commit-time model never counts such a
+    ///     mispredict because the older halt/trap retires first). Called either directly from
+    ///     <see cref="StepComplete" /> (the common case) or later from
+    ///     <see cref="StepSttMispredictResolution" />, once a deferred tainted branch's own
+    ///     visibility point finally clears.
+    /// </summary>
+    private void ArmMispredictSquash(ulong branchInstrId, RobEntry b) {
+        if (_rob.Head.InstrId == branchInstrId || AnyOlderHaltOrTrap(branchInstrId)) return;
+        ulong resolvedPc = b.ResolvedNextPc!.Value;
+        _squashPending = true;
+        _squashInstrId = branchInstrId;
+        _squashTarget = resolvedPc;
+        _squashTaken = resolvedPc != b.Pc + (ulong)(b.Instruction?.SizeBytes ?? 4);
+    }
+
+    /// <summary>
+    ///     STT full DelayExecute+STT, explicit-branch slice (Yu et al., MICRO 2019, §6.4.1): re-checks
+    ///     every branch whose squash was deferred by <see cref="StepComplete" /> because its own
+    ///     resolution was still tainted. Arms the squash for the single oldest now-safe candidate (an
+    ///     older squash, once it fires, discards every younger entry anyway — including any other
+    ///     now-safe candidate still in this list, cleaned up by <see cref="StepPartialSquash" />/
+    ///     <see cref="StepFlush" />). Skips entirely if a squash was already armed this same cycle
+    ///     (by an ordinary untainted mispredict in <see cref="StepComplete" />) rather than risk
+    ///     overwriting it incorrectly — deferred one extra cycle in that rare collision, which only
+    ///     makes the defense more conservative, never less safe.
+    /// </summary>
+    private void StepSttMispredictResolution() {
+        if (_pendingTaintedMispredicts.Count == 0) return;
+        _sttMispredictDeferralsCounter?.Increment();
+
+        if (_flushPending || _squashPending) return;
+
+        ulong best = ulong.MaxValue;
+        var bestIdx = -1;
+        for (var i = 0; i < _pendingTaintedMispredicts.Count; i++) {
+            ulong instrId = _pendingTaintedMispredicts[i];
+            RobEntry b = FindRobByInstrId(instrId);
+            if (b.SourceYrot is { } yrot && !_vpTracker!.IsSafe(yrot)) continue;
+            if (instrId < best) {
+                best = instrId;
+                bestIdx = i;
+            }
+        }
+
+        if (bestIdx < 0) return;
+
+        _pendingTaintedMispredicts.RemoveAt(bestIdx);
+        ArmMispredictSquash(best, FindRobByInstrId(best));
     }
 
     /// <summary>
@@ -1382,6 +1477,17 @@ internal sealed partial class OoOPipelineCore : Gear {
             }
 
             if (head.ResolvedNextPc.HasValue) {
+                // STT explicit-branch protection relies on retirement being strictly later than any
+                // visibility point: a branch reaching the ROB head must already have a safe SourceYrot,
+                // which is exactly why the commit-time mispredict path below never needs its own taint
+                // check (only StepComplete's earlier, execute-time squash does). If this ever fires,
+                // that invariant — not just this slice's security property — has broken.
+                Debug.Assert(
+                    !_enableSttImplicitBranches || head.SourceYrot is not { } headYrot || _vpTracker!.IsSafe(headYrot),
+                    "STT: branch reached the ROB head with an unsafe SourceYrot — retirement should be " +
+                    "strictly later than any visibility point."
+                );
+
                 // Capture all fields from head before Retire() clears the slot.
                 ulong resolvedPc = head.ResolvedNextPc.Value;
                 ulong instrPc = head.Pc;
@@ -2203,7 +2309,10 @@ internal sealed partial class OoOPipelineCore : Gear {
             // here from source operands' PRF-resident Yrot (sources are always older, already
             // dispatched instructions, so their Yrot is already final). A Load/Atomic additionally
             // roots taint at its own destination — its fetched data isn't visible yet either.
-            if (_enableSttExpOnly) {
+            // Also computed when only _enableSttImplicitBranches is set (no STT-ExpOnly load-issue
+            // gating): a branch's own SourceYrot is needed to decide whether its resolution's
+            // observable squash effect must be deferred (see StepComplete/StepSttMispredictResolution).
+            if (_enableSttExpOnly || _enableSttImplicitBranches) {
                 ulong? srcYrot = null;
                 if (ri.P1 >= 0 && _prf.Yrot(ri.P1) is { } y1) srcYrot = y1;
                 if (ri.P2 >= 0 && _prf.Yrot(ri.P2) is { } y2)
@@ -3284,6 +3393,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         _rob.Flush();
         _vpTracker?.Clear();
         _pendingUsls.Clear();
+        _pendingTaintedMispredicts.Clear();
         foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
         _sq.Flush();
@@ -3391,6 +3501,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         _rob.TruncateYoungerThan(bId);
         _vpTracker?.TruncateYoungerThan(bId);
         _pendingUsls.RemoveAll(p => p.InstrId > bId);
+        _pendingTaintedMispredicts.RemoveAll(id => id > bId);
         foreach (IssueQueue iq in _iqs) iq.SquashYoungerThan(bId);
         _lq.TruncateYoungerThan(bId);
         _sq.TruncateYoungerThan(bId);

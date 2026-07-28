@@ -233,7 +233,12 @@ public sealed record OutOfOrderSpec(
     bool EnableSttExpOnly = false,
     // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): every load speculatively peeks its
     // data (no cache-state mutation) and defers its real access to its own visibility point.
-    bool EnableInvisiSpec = false
+    bool EnableInvisiSpec = false,
+    // STT full DelayExecute+STT, explicit-branch slice (Yu et al., MICRO 2019, §6.4.1): a
+    // mispredicted branch's squash is deferred until its own SourceYrot is safe, closing the
+    // resolution-based implicit channel through explicit branches. Store-forwarding/value-
+    // prediction predictor-training channels are not covered by this flag (see TODO.md).
+    bool EnableSttImplicitBranches = false
 ) : PipelineSpec {
     public override ISteppableTrain Build(
         IMechanism mechanism,
@@ -259,7 +264,8 @@ public sealed record OutOfOrderSpec(
         EnableStoreSets,
         fdipBackingMemory: fdipBackingMemory,
         enableSttExpOnly: EnableSttExpOnly,
-        enableInvisiSpec: EnableInvisiSpec
+        enableInvisiSpec: EnableInvisiSpec,
+        enableSttImplicitBranches: EnableSttImplicitBranches
     );
 
     public override ISteppableTrain Build(
@@ -284,7 +290,8 @@ public sealed record OutOfOrderSpec(
         EnableStoreSets,
         fdipBackingMemory: fdipBackingMemory,
         enableSttExpOnly: EnableSttExpOnly,
-        enableInvisiSpec: EnableInvisiSpec
+        enableInvisiSpec: EnableInvisiSpec,
+        enableSttImplicitBranches: EnableSttImplicitBranches
     );
 }
 

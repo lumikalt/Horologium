@@ -663,9 +663,24 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   address operands carry a taint root that hasn't reached the visibility point is held at Issue — the classic
   `y = mem[mem[x]]` pointer-chase gadget is delayed until the branch that precedes it resolves, even when
   correctly predicted, which is the real, measurable IPC cost the paper's DelayExecute+STT-ExpOnly configuration
-  reports. Held cycles are counted by the `stt_load_issue_stalls` dial. The Futuristic visibility-point model and
-  full implicit-channel (prediction/resolution-based) protection are deliberately out of scope for this slice
-  (see TODO.md).
+  reports. Held cycles are counted by the `stt_load_issue_stalls` dial. The Futuristic visibility-point model is
+  deliberately out of scope for this slice (see TODO.md).
+  **STT implicit-branch protection** (enable with `enableSttImplicitBranches: true`) closes the resolution-based
+  implicit channel through explicit branches (§6.4.1): a mispredicted branch whose own resolution is still
+  tainted (`RobEntry.SourceYrot` not yet safe) would otherwise squash younger wrong-path instructions the
+  instant it resolves, making the squash's *timing* itself a function of tainted data. With this flag, such a
+  branch is queued (`_pendingTaintedMispredicts`) and re-checked every cycle (`StepSttMispredictResolution`);
+  the branch keeps executing/resolving normally — only this observable squash effect is delayed — until its
+  taint clears, matching the paper's own framing ("STT lets the instructions execute, and only increases the
+  latency of recovering from a tainted branch misprediction"). Predictor training (`_predictor.Update`) and the
+  value-prediction/SMB-bypass mispredict squashes already fire only at commit — strictly later than any
+  visibility point — so they were already safe by construction before this flag existed, and are untouched by
+  it. Counted by the `stt_mispredict_deferrals` dial; composes with `enableSttExpOnly` (both flags together are
+  the paper's actual "DelayExecute+STT" main proposal, not either flag alone). **Known gap**: the store-to-load
+  forwarding/memory-dependence-speculation predictor training (`StoreSetPredictor.OnStoreIssued`/`Train`,
+  `SmbPredictor.Train`) still fires at Complete on potentially-tainted addresses/SSN distances with no untaint
+  gate — a prediction-based implicit channel this flag does not close (the corresponding *squashes* are already
+  commit-time-safe; only the training is open). See TODO.md.
   **InvisiSpec** (enable with `enableInvisiSpec: true`; Yan, Choi, Skarlatos, Morrison, Fletcher &amp; Torrellas,
   MICRO 2018, + 2019 Corrigendum) reuses the same shared `SpectreVisibilityTracker` for the cache-hierarchy
   counterpart: every scalar load speculatively peeks its data at Execute (`IMemory.PeekRead`, a non-mutating

@@ -72,8 +72,22 @@ off here until a periodic cleanup removes them; the durable record is git histor
   Spectre-model visibility-point tracker (all older branches resolved). A load whose address traces a taint
   root to another not-yet-visible load is held at Issue; measured via the `stt_load_issue_stalls` dial and a
   direct on/off cycle-count comparison. — Yu et al., MICRO 2019
-- [ ] STT: implicit-channel protection (prediction-based and resolution-based leaks via branches/store-forwarding/
-  value prediction, "implicit branches") — the full DelayExecute+STT variant, not just ExpOnly.
+- [x] STT: explicit-branch resolution-based implicit channel (Yu et al., MICRO 2019, §6.4.1) on `OooTrain`, gated
+  by `enableSttImplicitBranches` — a mispredicted branch whose own resolution is still tainted (`RobEntry
+  .SourceYrot` not yet safe on the shared `SpectreVisibilityTracker`) has its execute-time squash deferred
+  (`_pendingTaintedMispredicts`/`StepSttMispredictResolution`) rather than armed immediately, so the squash's
+  timing is no longer a function of tainted data; measured via `stt_mispredict_deferrals` and an on/off cycle
+  comparison. Predictor training (`_predictor.Update`) and the value/bypass-mispredict squashes already fire
+  only at commit — strictly later than any visibility point — so they were already safe by construction and
+  untouched by this flag.
+- [ ] STT: prediction-based implicit channel through memory-dependence speculation — `StoreSetPredictor
+  .OnStoreIssued`/`Train` and `SmbPredictor.Train` (§6.4.2's "implicit branch with prediction") fire at Complete
+  keyed on potentially-tainted store/load addresses and SSN distances, with no untaint gate. Not closed by
+  `enableSttImplicitBranches`; the corresponding squashes (bypass-mispredict, memory-order-violation) are
+  already commit-time-safe, only the predictor *training* is open.
+- [ ] STT: full implicit-channel coverage — the store-to-load-forwarding implicit branch itself (§6.4.2/§6.5,
+  beyond just its predictor-training channel above) and value-prediction training/squash gating, to round out
+  the paper's complete DelayExecute+STT variant.
 - [ ] STT/InvisiSpec: Futuristic-model visibility point (ROB head / "preceded only by non-squashable instructions")
   as a selectable alternative to the Spectre model — needs tracking unresolved loads and traps as additional
   squash sources, not just branches.
