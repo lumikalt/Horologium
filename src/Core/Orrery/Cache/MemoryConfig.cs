@@ -20,6 +20,7 @@ public enum PrefetcherKind {
     Spp,
     Ppf,
     Stems,
+    Mlop,
 }
 
 public enum ReplacementPolicyKind {
@@ -424,6 +425,7 @@ public sealed record MemoryLayers(
         PrefetcherKind.Spp      => new SppPrefetcher(blockBytes),
         PrefetcherKind.Ppf      => new PpfPrefetcher(blockBytes),
         PrefetcherKind.Stems    => new StemsPrefetcher(blockBytes),
+        PrefetcherKind.Mlop     => new MlopPrefetcher(blockBytes),
         _                       => null,
     };
 

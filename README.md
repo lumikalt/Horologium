@@ -1126,7 +1126,7 @@ lookahead translation).
 
 `IPrefetcher.OnAccess(pc, address, wasHit, Span<ulong> targets)` writes zero or more prefetch addresses into the
 caller-provided span and returns the count; the `OooeTrain` execute stage drives it once per demand load and calls
-`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Ten prefetchers are implemented: **NextLine** —
+`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Twelve prefetchers are implemented: **NextLine** —
 always prefetches the cache line immediately following the access; bandwidth-greedy but effective for sequential
 workloads. **Stride / RPT** — Reference Prediction Table (per-PC stride tracking with a 0–3 saturating confidence
 counter); issues a prefetch at `address + stride` once the stride is confirmed (confidence ≥ 2). **Stream** — multi-way
@@ -1229,9 +1229,22 @@ occurrence, this reconstruction runs synchronously and returns the whole predict
 throttling the same way SPP/PPF's lookahead walks replace theirs), with ±2-position collision resolution matching the
 paper's own (§4.2). Verified directly against the paper's own worked example (Fig. 3/5): training on the observed
 order A, A+4, B, A+2, B+6, A−1, C, D, D+1, D+2 and re-triggering A reconstructs the exact original continuation.
-Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf,Stems}` on
+**MLOP** — Multi-Lookahead Offset Prefetcher (Shakerinava, Bakhshalipour, Lotfi-Kamran &amp; Sarbazi-Azad, DPC-3 2019):
+generalizes BOP by scoring candidate offsets at 16 independent lookahead levels instead of committing to one. A
+256-entry direct-mapped Access Map Table (AMT), keyed by a 64-line-aligned region, holds a 64-bit spatial bitvector per
+region plus its last 15 accessed positions in order. On each eligible access at region-relative position P, offset d
+scores at lookahead level L if bit (P − d) is set in the region's bitvector after excluding its L − 1 most recently
+recorded positions — level 1 excludes nothing (any prior access counts), level 16 excludes the 15 most recent (the
+qualifying access must be further back), so low levels favor raw coverage and high levels favor only genuinely timely
+offsets. Every 500 eligible accesses the top-scoring offset per level becomes that level's selected offset and scores
+reset; a level with no scoring evidence stays silent (offset 0) until it wins one. Issuance emits one prefetch per
+level's selected offset, level 1 (soonest-needed) through level 16 (most lead time) in priority order, deduplicated and
+clamped to a page boundary. Candidate offsets are 1..63 (positive-only, matching this codebase's BOP simplification —
+nothing larger could ever score against a 64-line region anyway). For a dense stride-k demand-miss stream this
+converges deterministically to `bestOffset[L] = k·L` for every level — the property a unit test verifies directly.
+Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf,Stems,Mlop}` on
 `MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher:
-"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"/"stems"` in `TrainConfig` JSON.
+"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"/"stems"/"mlop"` in `TrainConfig` JSON.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

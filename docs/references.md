@@ -15,6 +15,7 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Eyerman et al., ACM TOCS 2009 | A Mechanistic Performance Model for Superscalar Out-of-Order Processors | S. Eyerman, L. Eeckhout, T. Karkhanis, J. E. Smith | ACM TOCS 27(2), 2009 | `~/dl/eyerman_tocs09_mechanistic_model.pdf` |
 | Sherwood et al., ASPLOS 2002 | Automatically Characterizing Large Scale Program Behavior | T. Sherwood, E. Perelman, G. Hamerly, B. Calder | ASPLOS-X, 2002 | `~/dl/sherwood_asplos02_simpoint.pdf` |
 | Michaud, HPCA 2016 | Best-Offset Hardware Prefetching | P. Michaud | HPCA 2016 | `~/dl/michaud_hpca16_bop.pdf` |
+| Shakerinava et al., DPC-3 2019 | Multi-Lookahead Offset Prefetching | M. Shakerinava, M. Bakhshalipour, P. Lotfi-Kamran, H. Sarbazi-Azad | DPC-3 (ISCA 2019) | `~/dl/Multi_lookahead.pdf` |
 | Kim et al., MICRO 2016 | Path Confidence based Lookahead Prefetching | J. Kim, S. H. Pugsley, P. V. Gratz, A. L. N. Reddy, C. Wilkerson, Z. Chishti | MICRO-49, 2016 | `~/dl/kim_micro16_spp.pdf` |
 | Bhatia et al., ISCA 2019 | Perceptron-Based Prefetch Filtering | E. Bhatia, G. Chacon, S. Pugsley, E. Teran, P. V. Gratz, D. A. Jiménez | ISCA 2019 | `~/dl/bhatia_isca19_ppf.pdf` |
 | Lipasti & Shen, MICRO 1996 | Exceeding the Dataflow Limit via Value Prediction | M. H. Lipasti, J. P. Shen | MICRO-29, 1996 | `~/dl/lipasti_lvpt.pdf` |

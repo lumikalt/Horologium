@@ -134,6 +134,7 @@ public sealed record TrainConfig(
             "spp"       => PrefetcherKind.Spp,
             "ppf"       => PrefetcherKind.Ppf,
             "stems"     => PrefetcherKind.Stems,
+            "mlop"      => PrefetcherKind.Mlop,
             _           => PrefetcherKind.None,
         };
         return mc with {

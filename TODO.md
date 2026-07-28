@@ -53,7 +53,7 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Cache Prefetching
 
-- [ ] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
+- [x] MLOP (multi-lookahead offset prefetcher): BOP generalized to score offsets at multiple lookahead depths; DPC-3
   winner. — Shakerinava et al., DPC-3 2019
 
 ## Memory System

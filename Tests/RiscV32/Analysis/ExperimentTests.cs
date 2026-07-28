@@ -100,6 +100,20 @@ public class ExperimentTests {
     }
 
     [Fact]
+    public void TrainConfig_DPrefetcherMlopString_ReachesMlopPrefetcherInstance() {
+        // Regression guard for the "mlop" string → PrefetcherKind.Mlop → MlopPrefetcher wiring
+        // added across TrainConfig/MemoryConfig/AssemblerViewModel — a typo in any of those three
+        // hand-edited switches would silently fall through to PrefetcherKind.None and no unit test
+        // on MlopPrefetcher itself would ever catch it, since none of them go through this string path.
+        var cfg = new TrainConfig(DCache: new CacheHardwareConfig(4096, 2, 32, 8), DPrefetcher: "mlop");
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        Assert.Equal(PrefetcherKind.Mlop, dMem.Prefetcher);
+
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x10000), dMem);
+        Assert.IsType<MlopPrefetcher>(dLayers.Prefetcher);
+    }
+
+    [Fact]
     public void TrainConfig_ToMemoryConfig_MapsCorrectly() {
         var cfg = new TrainConfig(
             ICache: new CacheHardwareConfig(4096, 2, 64, 8),
