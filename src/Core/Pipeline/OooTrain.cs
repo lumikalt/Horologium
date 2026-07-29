@@ -2419,14 +2419,24 @@ internal sealed partial class OoOPipelineCore : Gear {
         _sq.InOrder().TakeWhile(sq => sq.SeqNo < loadSeqNo).Any(sq => !sq.AddressKnown);
 
     /// <summary>
-    ///     True if the load's predicted dependent store is still in the SQ with an unresolved
-    ///     address.  Returns false if the store is not found (committed, flushed, or never
+    ///     True if the load's predicted dependent store is still in the SQ without a known
+    ///     value.  Returns false if the store is not found (committed, flushed, or never
     ///     assigned) or if the atomic guard fires (predStoreSeqNo >= loadSeqNo).
+    ///     <para>
+    ///         Gates on <see cref="SqEntry.DataKnown" />, not <see cref="SqEntry.AddressKnown" />:
+    ///         with early store-address resolution (<c>enableEarlyStoreAddress</c>), a store's
+    ///         address can be known well before its data. Releasing the predicted-dependent load
+    ///         at address-known would let it race the store's real write — <see
+    ///         cref="TryForwardFromStore" /> can't forward yet (it also requires DataKnown), so
+    ///         the load would read stale memory instead, guaranteeing a memory-order violation on
+    ///         every prediction instead of the clean stall Store Sets exists to provide. Same bug
+    ///         class as the one fixed on <c>CprTrain</c>'s equivalent check.
+    ///     </para>
     /// </summary>
     private bool StoreSetStallLoad(ulong loadSeqNo, ulong predStoreSeqNo) {
         if (predStoreSeqNo == 0 || predStoreSeqNo >= loadSeqNo) return false;
         foreach (SqEntry sq in _sq.InOrder()) {
-            if (sq.SeqNo == predStoreSeqNo) return !sq.AddressKnown;
+            if (sq.SeqNo == predStoreSeqNo) return !sq.DataKnown;
             if (sq.SeqNo > predStoreSeqNo) break;
         }
 

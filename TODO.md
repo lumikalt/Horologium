@@ -23,7 +23,28 @@ off here until a periodic cleanup removes them; the durable record is git histor
   has fewer pipe stages than build-mode) rather than the ~0-cycle-impact story everywhere else.
   **Blocked for now**: user wants to confirm first whether the actually-intended follow-up is
   something bigger that also touches `OooTrain`, before scoping this.
-- [ ] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
+- [x] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
+  Analyzed and scoped honestly before building: load+ALU fusion (`RvMacroFuser`'s second
+  pattern, `RvFusedLoadAlu`) on `OooTrain`/`CprTrain`/`SuperscalarTrain` collapses the
+  load-to-use scheduling round-trip for the `lw t0,...; alu t0,t0,...` read-modify idiom —
+  occupancy/critical-path relief like macro-fusion, not a throughput win, and structurally
+  weaker than macro-fusion's own effect since it can't legitimately collapse execute latency
+  the way compare+branch does. Store-address+store-data turned out to be a dead end as
+  literal fusion — stores are already one indivisible unit, so fusing a split back to one
+  slot just recreates today's model with zero effect. The real, separately-scoped feature
+  actually built is a store address/data *split*: `SqEntry.DataKnown` alongside
+  `AddressKnown`, plus `StepEarlyStoreAddressResolution`/`IExecutor.TryComputeStoreAddress`
+  letting a store's address release address-only dependents (`HasUnresolvedPrecedingStore`/
+  `ConservativeLoads`, Store Sets) as soon as it's known, independent of a slower data
+  operand — a genuine, measured cycle-count win on `OooTrain` when a store's address is
+  ready before its data (`enableEarlyStoreAddress`, default off). Porting to `CprTrain`
+  caught a real bug: its Store Sets release check used `AddressKnown` as a "store fully
+  resolved" proxy, which the split invalidates — fixed to check `DataKnown` instead. A
+  post-implementation review caught the identical bug already latent on `OooTrain`'s own
+  `StoreSetStallLoad` (same `AddressKnown`-as-"resolved" proxy) — confirmed live with a
+  same-address load under `enableStoreSets` + `enableEarlyStoreAddress` (a guaranteed
+  memory-order violation on every loop iteration instead of a clean stall) and fixed the
+  same way.
 
 ## Cache Prefetching
 

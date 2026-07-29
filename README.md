@@ -329,6 +329,17 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   doesn't show on a dense independent-pairs stream (fetch/rename/issue/commit share one width parameter, so
   throughput there is fetch-bound regardless of fusion) — it shows under ROB pressure: a fused pair costs one ROB
   entry instead of two, so more independent work survives in the shadow of a stalled ROB head (e.g. a cache-miss
+  load) before dispatch stalls on ROB-full. **Load+ALU micro-fusion** (`RvMacroFuser`'s second pattern,
+  `RvFusedLoadAlu`, same `enableMacroFusion` flag) fuses a load immediately followed by an ALU op that both reads
+  and overwrites the load's own destination register (e.g. `lw t0,0(a0); addi t0,t0,4`) into a single ROB+IQ entry,
+  `ToothClass.Load`-classed so every existing Load-keyed mechanism (LQ allocation, forwarding, STT/InvisiSpec
+  gating, cache-hit/miss latency selection) applies unchanged. Safe without a general liveness analysis because the
+  ALU op's destination is provably the same architectural register as the load's, and fusion only ever triggers on
+  the actual adjacent decoded/dispatched stream — unlike compare+branch, this can't collapse execute latency (a
+  load's cache-hit/miss latency is charged after `Execute()` as a visibility-delay countdown, not modeled inside it;
+  fusing eliminates only the extra Issue→wakeup→re-issue round-trip the ALU consumer would otherwise pay), so it's
+  lower-impact than compare+branch fusion even in principle. Tracked separately from compare+branch fusion via a
+  distinct `micro_fusions` counter (compare+branch keeps `macro_fusions`).
   load) before dispatch stalls on ROB-full. Functional units are configurable per class (`FuLatencyConfig`): each
   class (integer ALU, multiplier/divider, pipelined FP, FP divide/sqrt, load-store, branch, system) has an independent
   issue-port count and execution latency; multi-cycle results flow through a countdown-based in-flight buffer before CDB
@@ -343,7 +354,17 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   which stores a load depends on: a Store-Set Identifier Table (SSIT, 1024 entries, PC-indexed) maps instructions to
   store-set IDs; a Last Fetched Store Table (LFST, 1024 entries) tracks the most-recently-dispatched store per set;
   loads stall at issue until their predicted store's address is known; violations train the predictor via four
-  SSID-merge rules (Chrysos &amp; Emer, ISCA 1998). Because the SSIT carries no address information, one genuine
+  SSID-merge rules (Chrysos &amp; Emer, ISCA 1998). **Store address/data decomposition** (opt-in via
+  `enableEarlyStoreAddress`) lets that address become known before the store's data operand does, instead of both
+  only ever resolving together via the store's single atomic Issue/Execute: `StepEarlyStoreAddressResolution` scans
+  in-flight store IQ entries each cycle and, once the address operand alone is ready, calls a new
+  `IExecutor.TryComputeStoreAddress` hook to set `SqEntry.Address`/`AddressKnown` early — releasing this store-set
+  stall, `HasUnresolvedPrecedingStore` (`FuLatencyConfig.ConservativeLoads`), and forwarding-candidate address
+  matching sooner when a store's data operand has a slower producer chain than its address. This requires a genuine
+  `SqEntry.DataKnown` split (`AddressKnown` can now be true well before `Value`/`Width` are valid) —
+  `TryForwardFromStore`/`FindForwardingProducerSeqNo` gate on both. Because the store's own retire-gating
+  Issue/Execute event and `RobEntry.IsComplete` are untouched, this needed no second IQ entry or dual-completion
+  tracking — deliberately lighter than the textbook STA/STD µop-decomposition shape. Because the SSIT carries no address information, one genuine
   conflict permanently merges every future dynamic instance of that load/store PC pair — costly for recursive/generic
   functions that reuse one PC pair across many independent addresses. Both tables are cleared every 4096 load
   dispatches (`clearPeriod`) to bound that cost; the value was chosen by sweeping the full gem5-compare benchmark
@@ -787,7 +808,11 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   keyed by fetch-time Pc and training the compare's Pc instead would orphan the entry future fetches look up.
   Checkpoint *count* is unaffected by fusion (one opens per low-confidence branch either way); the benefit instead
   shows under checkpoint-entry pressure once the checkpoint buffer fills and instructions pile onto the still-open
-  tail checkpoint — fused pairs cost that tail one entry instead of two. Instructions retire in **bulk**: a whole
+  tail checkpoint — fused pairs cost that tail one entry instead of two. **Load+ALU micro-fusion** and **store
+  address/data decomposition** (see `OooeTrain`, above) apply identically here — `enableEarlyStoreAddress`'s early
+  address resolution updates `HierarchicalStoreQueue` and the inline Store Sets release check in `TryIssueSlot`
+  (which reads `SqEntry.DataKnown`, not just `AddressKnown`, for the same reason `TryForwardFromStore` does on
+  `OooeTrain`) rather than `StoreQueue` directly. Instructions retire in **bulk**: a whole
   checkpoint commits at once when its completion counter fills, bounded only by the one-store-per-cycle D-cache
   write port (a completed prefix ending in a trap/halt commits early — same architectural outcome as the paper's
   recover-and-force-checkpoint dance, slightly less re-execution). **Aggressive register reclamation** (after
@@ -1727,7 +1752,13 @@ speculation beyond the fetch queue. Macro-fusion (opt-in via `Rv32Mechanism(enab
 default) recognizes RV32's SLT(U)/SLTI(U) + BEQ/BNE-against-zero idiom — the RISC-V analogue of x86 cmp+jcc,
 since RV32 branches already embed their own comparison — through `IMechanism.MacroFuser`, and issues the pair as
 one issue-slot µop instead of paying the RAW-bypass round-trip between them; `_retiredCounter`/instret still count
-both original instructions, so IPC stays meaningful across a fusion-on/off comparison. A **µop cache**
+both original instructions, so IPC stays meaningful across a fusion-on/off comparison. **Load+ALU micro-fusion**
+(same flag, see `OooeTrain` above) applies the identical scoreboard-stall-collapse logic here — a load's
+destination becomes ready `LoadHitLatency` cycles after issue, so a dependent same-register ALU op fails the RAW
+check and issues a cycle later; fusion folds both into one issue slot/cycle, tracked via a separate
+`micro_fusions` counter. Store address/data decomposition doesn't apply to `SuperscalarTrain`: it's strictly
+in-order issue, so a store already can't issue at all until every source is ready, same as any instruction — there
+is no independent per-operand scheduling to split. A **µop cache**
 (`UopCache`, Solomon et al. ISLPED 2001; opt-in via `uopCacheSets > 0`, off by default) caches decoded basic
 blocks tagged by their start PC — a hit serves the whole cached block straight into the fetch queue, skipping
 the I-cache access and decode entirely, with a live predictor call still run for the block's trailing branch (never

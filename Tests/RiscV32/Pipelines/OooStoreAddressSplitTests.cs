@@ -33,6 +33,14 @@ namespace Tests.RiscV32.Pipelines;
 ///         <see cref="FlatMemory" /> instance, so reading the latter directly can observe a
 ///         write before it's flushed back.
 ///     </para>
+///     <para>
+///         <see cref="SameAddressLoad_UnderStoreSets_DoesNotRaceStoreData" /> covers the same bug
+///         class fixed on <c>CprTrain</c> (see <see cref="CprStoreAddressSplitTests" />):
+///         <c>StoreSetStallLoad</c> used to gate on <c>AddressKnown</c>, which — once address and
+///         data could resolve independently — let a predicted-dependent load race a store's real
+///         write and guaranteed a memory-order violation on every prediction instead of the clean
+///         stall Store Sets exists to provide. Fixed to gate on <c>DataKnown</c> instead.
+///     </para>
 /// </summary>
 public class OooStoreAddressSplitTests {
     private const uint Ebreak = 0x00100073;
@@ -57,6 +65,19 @@ public class OooStoreAddressSplitTests {
 
     private static uint Sw(int rs1, int rs2, int imm) =>
         (uint)(((imm & 0xFE0) << 20) | (rs2 << 20) | (rs1 << 15) | (0b010 << 12) | ((imm & 0x1F) << 7) | 0b0100011);
+
+    private static uint Mul(int rd, int rs1, int rs2) =>
+        (uint)((0b0000001 << 25) | (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0110011);
+
+    private static uint Bne(int rs1, int rs2, int immOffset) {
+        var imm = (uint)immOffset;
+        uint bit12 = (imm >> 12) & 0x1;
+        uint bit11 = (imm >> 11) & 0x1;
+        uint bits10_5 = (imm >> 5) & 0x3F;
+        uint bits4_1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+    }
 
     private static readonly MemoryConfig SlowMissConfig =
         new(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
@@ -161,6 +182,58 @@ public class OooStoreAddressSplitTests {
             withSnap.Counters["cycles"] < withoutSnap.Counters["cycles"],
             $"expected early address resolution to reduce cycles: without={withoutSnap.Counters["cycles"]}, " +
             $"with={withSnap.Counters["cycles"]}"
+        );
+    }
+
+    // Store address ready fast (x0-based), data ready slow (deterministic multiply chain, so
+    // it's equally slow every loop iteration — not a cache-state-dependent miss), younger
+    // same-address load, run around a real backward branch so the Store Sets predictor
+    // (enableStoreSets) gets a real chance to train "this load depends on this store" and
+    // release it. Regression guard for the AddressKnown-vs-DataKnown bug: releasing on address
+    // alone would let the load race the store's real write and violate on every iteration
+    // instead of cleanly stalling, since TryForwardFromStore also requires DataKnown and so
+    // can't forward in time either. Asserts early resolution causes no MORE violations than
+    // early resolution disabled — the fixed behavior — rather than a cycle-count reduction,
+    // since Store Sets' payoff here is "avoid the violation", not a scheduling latency win.
+    [Fact]
+    public void SameAddressLoad_UnderStoreSets_DoesNotRaceStoreData() {
+        uint[] program = [
+            Addi(9, 0, 4), // pc=0: loop trip count = 4
+            Addi(6, 0, 10), // pc=4 [LOOP]
+            Mul(6, 6, 6), // pc=8: x6 = 100 — deterministically slow store data
+            Mul(6, 6, 6), // pc=12: x6 = 10000
+            Sw(0, 6, 400), // pc=16: mem[400] = x6, address = x0+400 (trivially ready)
+            Lw(4, 0, 400), // pc=20: younger, same-address load
+            Addi(9, 9, -1), // pc=24
+            Bne(9, 0, 4 - 28), // pc=28: branch back to pc=4 if x9 != 0
+            OooStoreAddressSplitTests.Ebreak, // pc=32
+        ];
+
+        var withoutMem = new FlatMemory(65536);
+        Load(withoutMem, program);
+        var without = new OooTrain(
+            new Rv32Mechanism(), withoutMem, issueWidth: 4,
+            enableStoreSets: true, enableEarlyStoreAddress: false
+        );
+        without.Run();
+
+        var withMem = new FlatMemory(65536);
+        Load(withMem, program);
+        var with = new OooTrain(
+            new Rv32Mechanism(), withMem, issueWidth: 4,
+            enableStoreSets: true, enableEarlyStoreAddress: true
+        );
+        with.Run();
+
+        Assert.Equal(10000UL, without.ArchState.IntegerRegisters.Read(4));
+        Assert.Equal(10000UL, with.ArchState.IntegerRegisters.Read(4));
+
+        long withoutViolations = without.SnapshotPipeline().Counters["mem_order_violations"];
+        long withViolations = with.SnapshotPipeline().Counters["mem_order_violations"];
+        Assert.True(
+            withViolations <= withoutViolations,
+            $"expected early address resolution not to increase violations under Store Sets: " +
+            $"without={withoutViolations}, with={withViolations}"
         );
     }
 }
