@@ -149,6 +149,28 @@ public class ExperimentTests {
     }
 
     [Fact]
+    public void TrainConfig_L2VariantCeaser_ReachesCeaserCacheInstance() {
+        // Regression guard for the CacheHardwareConfig.Variant -> MemoryConfig.L2Variant ->
+        // CeaserCache wiring in MemoryLayers.Build: a config-level typo or a dropped field would
+        // silently fall back to a plain SetAssociativeCache, and no CeaserCache-direct unit test
+        // would ever catch it, since none of them go through this config path.
+        var cfg = new TrainConfig(
+            DCache: new CacheHardwareConfig(4096, 2, 32, 8),
+            L2Cache: new CacheHardwareConfig(
+                65536, 8, 32, 20, Variant: CacheVariantKind.Ceaser, CeaserPartitions: 2
+            )
+        );
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        Assert.Equal(CacheVariantKind.Ceaser, dMem.L2Variant);
+        Assert.Equal(2, dMem.L2CeaserPartitions);
+
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
+        Assert.Null(dLayers.L2Cache); // a CEASER-variant level is not a SetAssociativeCache
+        CeaserCache ceaser = Assert.IsType<CeaserCache>(dLayers.L2Ceaser);
+        Assert.Equal(2, ceaser.Partitions);
+    }
+
+    [Fact]
     public void TrainConfig_EnableSttExpOnly_ReachesOooTrainSttMachinery() {
         // Regression guard for TrainConfig.EnableSttExpOnly -> OutOfOrderSpec.EnableSttExpOnly ->
         // OooTrain(enableSttExpOnly:) wiring: a dropped parameter anywhere along that chain would

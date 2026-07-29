@@ -27,6 +27,8 @@ this file carries the full title so the paper can be found. Local PDFs live in `
 | Somogyi et al., ISCA 2006 | Spatial Memory Streaming | S. Somogyi, T. F. Wenisch, A. Ailamaki, B. Falsafi, A. Moshovos | ISCA 2006 | `~/dl/sms.pdf` |
 | Somogyi et al., ISCA 2009 | Spatio-Temporal Memory Streaming | S. Somogyi, T. F. Wenisch, A. Ailamaki, B. Falsafi | ISCA 2009 | `~/dl/stms.pdf` |
 | Bakhshalipour et al., HPCA 2019 | Bingo Spatial Data Prefetcher | M. Bakhshalipour, M. Shakerinava, P. Lotfi-Kamran, H. Sarbazi-Azad | HPCA 2019 | `~/docs/papers/Computer Architecture/Prefetching/Bakhshalipour Bingo.pdf` |
+| Qureshi, MICRO 2018 | CEASER: Mitigating Conflict-Based Cache Attacks via Encrypted-Address and Remapping | M. K. Qureshi | MICRO-51, 2018 | `~/docs/papers/Security/Side-Channel Attacks/Qureshi CEASER.pdf` |
+| Qureshi, ISCA 2019 | New Attacks and Defense for Encrypted-Address Cache | M. K. Qureshi | ISCA 2019 | `~/docs/papers/Security/Side-Channel Attacks/Qureshi CEASER-S.pdf` |
 | Wunderlich et al., ISCA 2003 | SMARTS: Accelerating Microarchitecture Simulation via Rigorous Statistical Sampling | R. E. Wunderlich, T. F. Wenisch, B. Falsafi, J. C. Hoe | ISCA 2003 | `~/dl/wunderlich_isca03_smarts.pdf` |
 | Sabu et al., HPCA 2022 | LoopPoint: Checkpoint-driven Sampled Simulation for Multi-threaded Applications | S. Sabu, H. Patil, W. Heirman, T. E. Carlson | HPCA 2022 | `~/dl/looppoint_hpca2022.pdf` |
 | Solomon et al., ISLPED 2001 | Micro-Operation Cache: A Power Aware Frontend for Variable Instruction Length ISA | B. Solomon, A. Mendelson, D. Orenstien, Y. Almog, R. Ronen | ISLPED 2001 (extended in IEEE TVLSI 11(5), 2003) | `~/dl/solomon_uop-cache.pdf` |

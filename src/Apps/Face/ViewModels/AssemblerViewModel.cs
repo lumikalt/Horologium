@@ -355,6 +355,8 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial string L2CacheInclusionPolicy { get; set; } = "nine";
     [ObservableProperty] public partial string L2CacheCompression { get; set; } = "none";
     [ObservableProperty] public partial int L2CacheSegmentBytes { get; set; } = 8;
+    [ObservableProperty] public partial string L2CacheVariant { get; set; } = "none";
+    [ObservableProperty] public partial int L2CeaserPartitions { get; set; } = 1;
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
     [ObservableProperty] public partial string DCachePrefetcher { get; set; } = "none";
     [ObservableProperty] public partial int DCachePrefetcherTableSize { get; set; } = 64;
@@ -406,6 +408,7 @@ public partial class AssemblerViewModel : ObservableObject {
     public static IReadOnlyList<string> WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
     public static IReadOnlyList<string> InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
     public static IReadOnlyList<string> CompressionOptions { get; } = ["none", "bdi",];
+    public static IReadOnlyList<string> CacheVariantOptions { get; } = ["none", "ceaser",];
 
     public string CacheMetadataLabel => CacheReplacementPolicy switch {
         "srrip" or "brrip" or "drrip" or "ship" or "ship_pc" or "hawkeye" => "RRPV",
@@ -1165,6 +1168,9 @@ public partial class AssemblerViewModel : ObservableObject {
     private static CompressionKind ParseCompression(string s) =>
         s == "bdi" ? CompressionKind.Bdi : CompressionKind.None;
 
+    private static CacheVariantKind ParseCacheVariant(string s) =>
+        s == "ceaser" ? CacheVariantKind.Ceaser : CacheVariantKind.None;
+
     private static MemoryConfig BuildCacheConfig(
         bool enabled,
         int capacityKb,
@@ -1227,6 +1233,7 @@ public partial class AssemblerViewModel : ObservableObject {
             WriteMissPolicyKind l2Wmp = ParseWriteMissPolicy(L2CacheWriteMissPolicy);
             InclusionPolicyKind l2Ip = ParseInclusionPolicy(L2CacheInclusionPolicy);
             CompressionKind l2Compression = ParseCompression(L2CacheCompression);
+            CacheVariantKind l2Variant = ParseCacheVariant(L2CacheVariant);
             iCfg = iCfg with {
                 L2CapacityBytes = L2CacheCapacityKb * 1024,
                 L2Ways = L2CacheWays,
@@ -1246,6 +1253,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2InclusionPolicy = l2Ip,
                 L2Compression = l2Compression,
                 L2SegmentBytes = L2CacheSegmentBytes,
+                L2Variant = l2Variant,
+                L2CeaserPartitions = L2CeaserPartitions,
             };
             dCfg = dCfg with {
                 L2CapacityBytes = L2CacheCapacityKb * 1024,
@@ -1266,6 +1275,8 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2InclusionPolicy = l2Ip,
                 L2Compression = l2Compression,
                 L2SegmentBytes = L2CacheSegmentBytes,
+                L2Variant = l2Variant,
+                L2CeaserPartitions = L2CeaserPartitions,
             };
         }
 

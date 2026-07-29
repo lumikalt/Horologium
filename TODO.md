@@ -67,8 +67,31 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Security
 
-- [ ] Randomized/partitioned cache side-channel defenses: CEASER(-S) encrypted-address remapping and ScatterCache
-  skewed randomization. — Qureshi, MICRO 2018 / ISCA 2019; Werner et al., USENIX Security 2019
+- [x] Randomized cache side-channel defense: CEASER encrypted-address remapping and CEASER-S
+  P-way partitioning. — Qureshi, MICRO 2018 / ISCA 2019. New `CeaserCache : IMemory` (L2/L3 only,
+  same restriction as BΔI), a from-scratch class following `BdiCache`'s "structurally different
+  cache variant" precedent rather than a `SetAssociativeCache` fork — `SetAssociativeCache`'s
+  `(tag, set) → address` concatenation reconstruction, used at 8+ call sites, is incompatible with
+  a keyed/randomized index. Modeling simplification: stores the plaintext line address directly as
+  the tag instead of the paper's encrypted-line-address (ELA) tag — behaviorally equivalent (same
+  hit/miss/eviction/remap behavior; nothing about tag storage format is observable) and eliminates
+  the need for the paper's invertible 4-stage Feistel cipher entirely, since nothing ever needs to
+  be decrypted. The index function is accordingly a keyed avalanche hash (murmur3's `fmix64`
+  finalizer over `address XOR key`) rather than a literal S-box/P-box block cipher, and no per-line
+  EpochID bit is needed (full-address tag comparison is never ambiguous). CEASER-S is the same
+  class with a `Partitions` parameter (P=1 is plain CEASER, matching the paper's own "CEASER-S1 ==
+  CEASER"), each partition with independent keys/SPtr/ACtr and its own way-range; a miss installs
+  into a uniformly-random partition. This does not model or claim cryptographic hardness against a
+  real attacker — only the mapping-randomization/periodic-remap behavior that affects miss rate,
+  latency, and data placement.
+- [ ] ScatterCache: way-separate skewed-associative randomized indexing (an Index Derivation
+  Function maps address+key to a distinct index per way-array) with SDID-based security-domain
+  isolation. — Werner et al., USENIX Security 2019. Deferred from the CEASER/CEASER-S pass above:
+  structurally distinct from CEASER's shared-index-per-set model (needs `IMemory.SetRequestPc`-style
+  SDID plumbing, no per-set replacement policy in the usual sense), large enough to warrant its own
+  pass. Purnal & Verbauwhede's follow-up eviction-set-profiling attack (arXiv 2019) is not a
+  mechanism to implement — note it as a documentation caveat when ScatterCache lands (their
+  profiling technique is faster than the original paper's own threat model assumed).
 
 ## Benchmarks
 

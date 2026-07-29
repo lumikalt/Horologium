@@ -200,6 +200,8 @@ public sealed partial class OooTrain : ISteppableTrain {
     public SetAssociativeCache? L3Cache => _core.ILayers.L3Cache;
     public BdiCache? L2Bdi => _core.ILayers.L2Bdi;
     public BdiCache? L3Bdi => _core.ILayers.L3Bdi;
+    public CeaserCache? L2Ceaser => _core.ILayers.L2Ceaser;
+    public CeaserCache? L3Ceaser => _core.ILayers.L3Ceaser;
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
     public PEventLog? PEventLog => _core.PEventLog;
@@ -938,6 +940,8 @@ internal sealed partial class OoOPipelineCore : Gear {
                                               || ILayers.L3Cache is not null || DLayers.L3Cache is not null
                                               || ILayers.L2Bdi is not null || DLayers.L2Bdi is not null
                                               || ILayers.L3Bdi is not null || DLayers.L3Bdi is not null
+                                              || ILayers.L2Ceaser is not null || DLayers.L2Ceaser is not null
+                                              || ILayers.L3Ceaser is not null || DLayers.L3Ceaser is not null
                                               || ILayers.Tlb is not null || DLayers.Tlb is not null;
         if (_anyCache) {
             // Lump-sum model: penalty cycles are appended per cycle, not overlapped.
@@ -960,12 +964,12 @@ internal sealed partial class OoOPipelineCore : Gear {
             _icacheMissesCounter = Dials.AddCounter("icache_misses", "L1 I-cache misses");
         }
 
-        if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null) {
+        if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
 
-        if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null) {
+        if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
@@ -983,12 +987,12 @@ internal sealed partial class OoOPipelineCore : Gear {
             }
         }
 
-        if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null) {
+        if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
 
-        if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null) {
+        if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
@@ -1958,8 +1962,8 @@ internal sealed partial class OoOPipelineCore : Gear {
             long dm1 = 0, dm2 = 0, dm3 = 0, dmt = 0;
             if (classifyDMiss) {
                 dm1 = DLayers.Cache?.Misses ?? 0;
-                dm2 = (DLayers.L2Cache?.Misses ?? 0) + (DLayers.L2Bdi?.Misses ?? 0);
-                dm3 = (DLayers.L3Cache?.Misses ?? 0) + (DLayers.L3Bdi?.Misses ?? 0);
+                dm2 = (DLayers.L2Cache?.Misses ?? 0) + (DLayers.L2Bdi?.Misses ?? 0) + (DLayers.L2Ceaser?.Misses ?? 0);
+                dm3 = (DLayers.L3Cache?.Misses ?? 0) + (DLayers.L3Bdi?.Misses ?? 0) + (DLayers.L3Ceaser?.Misses ?? 0);
                 dmt = DLayers.Tlb?.Misses ?? 0;
             }
 
@@ -1969,9 +1973,11 @@ internal sealed partial class OoOPipelineCore : Gear {
                 issuedRob.DMissClass =
                     DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
                     (DLayers.L3Cache is { } dl3 && dl3.Misses > dm3)
-                    || (DLayers.L3Bdi is { } dl3b && dl3b.Misses > dm3) ? CpiMissClass.L3D :
+                    || (DLayers.L3Bdi is { } dl3b && dl3b.Misses > dm3)
+                    || (DLayers.L3Ceaser is { } dl3c && dl3c.Misses > dm3) ? CpiMissClass.L3D :
                     (DLayers.L2Cache is { } dl2 && dl2.Misses > dm2)
-                    || (DLayers.L2Bdi is { } dl2b && dl2b.Misses > dm2) ? CpiMissClass.L2D :
+                    || (DLayers.L2Bdi is { } dl2b && dl2b.Misses > dm2)
+                    || (DLayers.L2Ceaser is { } dl2c && dl2c.Misses > dm2) ? CpiMissClass.L2D :
                     DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
                     CpiMissClass.None;
 
@@ -3099,8 +3105,8 @@ internal sealed partial class OoOPipelineCore : Gear {
             long im1 = 0, im2 = 0, im3 = 0, imt = 0;
             if (_anyCache) {
                 im1 = ILayers.Cache?.Misses ?? 0;
-                im2 = (ILayers.L2Cache?.Misses ?? 0) + (ILayers.L2Bdi?.Misses ?? 0);
-                im3 = (ILayers.L3Cache?.Misses ?? 0) + (ILayers.L3Bdi?.Misses ?? 0);
+                im2 = (ILayers.L2Cache?.Misses ?? 0) + (ILayers.L2Bdi?.Misses ?? 0) + (ILayers.L2Ceaser?.Misses ?? 0);
+                im3 = (ILayers.L3Cache?.Misses ?? 0) + (ILayers.L3Bdi?.Misses ?? 0) + (ILayers.L3Ceaser?.Misses ?? 0);
                 imt = ILayers.Tlb?.Misses ?? 0;
             }
 
@@ -3215,8 +3221,10 @@ internal sealed partial class OoOPipelineCore : Gear {
             bool icacheMiss = _anyCache && ((ILayers.Cache?.Misses ?? 0) > im1
                                          || (ILayers.L2Cache?.Misses ?? 0) > im2
                                          || (ILayers.L2Bdi?.Misses ?? 0) > im2
+                                         || (ILayers.L2Ceaser?.Misses ?? 0) > im2
                                          || (ILayers.L3Cache?.Misses ?? 0) > im3
                                          || (ILayers.L3Bdi?.Misses ?? 0) > im3
+                                         || (ILayers.L3Ceaser?.Misses ?? 0) > im3
                                          || (ILayers.Tlb?.Misses ?? 0) > imt);
 
             ulong instrId = _nextInstrId++;
@@ -4292,9 +4300,11 @@ internal sealed partial class OoOPipelineCore : Gear {
         if (iStalls > 0) {
             long wL1 = ILayers.Cache is { } l1 ? (l1.Misses - _lastIMisses) * l1.MissLatency : 0;
             long wL2 = ILayers.L2Cache is { } l2 ? (l2.Misses - _lastIl2Misses) * l2.MissLatency :
-                ILayers.L2Bdi is { } l2b ? (l2b.Misses - _lastIl2Misses) * l2b.MissLatency : 0;
+                ILayers.L2Bdi is { } l2b ? (l2b.Misses - _lastIl2Misses) * l2b.MissLatency :
+                ILayers.L2Ceaser is { } l2c ? (l2c.Misses - _lastIl2Misses) * l2c.MissLatency : 0;
             long wL3 = ILayers.L3Cache is { } l3 ? (l3.Misses - _lastIl3Misses) * l3.MissLatency :
-                ILayers.L3Bdi is { } l3b ? (l3b.Misses - _lastIl3Misses) * l3b.MissLatency : 0;
+                ILayers.L3Bdi is { } l3b ? (l3b.Misses - _lastIl3Misses) * l3b.MissLatency :
+                ILayers.L3Ceaser is { } l3c ? (l3c.Misses - _lastIl3Misses) * l3c.MissLatency : 0;
             long wTlb = ILayers.Tlb is { } tlb ? (tlb.Misses - _lastITlbMisses) * tlb.MissLatency : 0;
             long wSum = wL1 + wL2 + wL3 + wTlb;
             if (wSum <= 0) { _cpiPendingL1I += iStalls; }
@@ -4315,10 +4325,16 @@ internal sealed partial class OoOPipelineCore : Gear {
             ILayers.L2Bdi, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
         );
         UpdateCacheStat(
+            ILayers.L2Ceaser, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
+        );
+        UpdateCacheStat(
             ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(
             ILayers.L3Bdi, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
+        );
+        UpdateCacheStat(
+            ILayers.L3Ceaser, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
         if (_dcachePrefetchesCounter is not null && DLayers.Cache is not null) {
@@ -4337,10 +4353,16 @@ internal sealed partial class OoOPipelineCore : Gear {
             DLayers.L2Bdi, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );
         UpdateCacheStat(
+            DLayers.L2Ceaser, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
+        );
+        UpdateCacheStat(
             DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
         UpdateCacheStat(
             DLayers.L3Bdi, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
+        );
+        UpdateCacheStat(
+            DLayers.L3Ceaser, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
@@ -4426,6 +4448,20 @@ internal sealed partial class OoOPipelineCore : Gear {
 
     private static void UpdateCacheStat(
         BdiCache? cache,
+        Counter? hitsCounter,
+        Counter? missesCounter,
+        ref long lastHits,
+        ref long lastMisses
+    ) {
+        if (cache is null) return;
+        hitsCounter!.IncrementBy(cache.Hits - lastHits);
+        missesCounter!.IncrementBy(cache.Misses - lastMisses);
+        lastHits = cache.Hits;
+        lastMisses = cache.Misses;
+    }
+
+    private static void UpdateCacheStat(
+        CeaserCache? cache,
         Counter? hitsCounter,
         Counter? missesCounter,
         ref long lastHits,

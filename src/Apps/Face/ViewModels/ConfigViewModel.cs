@@ -156,6 +156,10 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int L2CacheSegmentBytes { get; set; } = 8;
 
+    [ObservableProperty] public partial string L2CacheVariant { get; set; } = "none";
+
+    [ObservableProperty] public partial int L2CeaserPartitions { get; set; } = 1;
+
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     [ObservableProperty] public partial string DPrefetcher { get; set; } = "none";
@@ -219,6 +223,7 @@ public partial class ConfigViewModel : ObservableObject {
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
     public static string[] InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
     public static string[] CompressionOptions { get; } = ["none", "bdi",];
+    public static string[] CacheVariantOptions { get; } = ["none", "ceaser",];
 
     public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo", "cpr", "dae",];
 
@@ -309,6 +314,11 @@ public partial class ConfigViewModel : ObservableObject {
 
     private static string FormatCompression(CompressionKind k) => k == CompressionKind.Bdi ? "bdi" : "none";
 
+    private static CacheVariantKind ParseCacheVariant(string s) =>
+        s == "ceaser" ? CacheVariantKind.Ceaser : CacheVariantKind.None;
+
+    private static string FormatCacheVariant(CacheVariantKind k) => k == CacheVariantKind.Ceaser ? "ceaser" : "none";
+
     public NamedConfig ToNamedConfig() {
         BranchPredictorConfig? predictor = PredictorType switch {
             "always_not_taken" => BranchPredictorConfig.AlwaysNotTaken(),
@@ -368,7 +378,8 @@ public partial class ConfigViewModel : ObservableObject {
                 L2CacheWbCapacity, L2CacheBankCount, L2CacheReadPorts, L2CacheWritePorts, L2CacheSectorBytes,
                 L2CacheVictimCacheEntries, L2CacheVictimCacheHitLatency,
                 ParseInclusionPolicy(L2CacheInclusionPolicy),
-                ParseCompression(L2CacheCompression), L2CacheSegmentBytes
+                ParseCompression(L2CacheCompression), L2CacheSegmentBytes,
+                ParseCacheVariant(L2CacheVariant), L2CeaserPartitions
             )
             : null;
 
@@ -549,6 +560,8 @@ public partial class ConfigViewModel : ObservableObject {
             vm.L2CacheInclusionPolicy = FormatInclusionPolicy(l2.InclusionPolicy);
             vm.L2CacheCompression = FormatCompression(l2.Compression);
             vm.L2CacheSegmentBytes = l2.SegmentBytes;
+            vm.L2CacheVariant = FormatCacheVariant(l2.Variant);
+            vm.L2CeaserPartitions = l2.CeaserPartitions;
         }
 
         return vm;

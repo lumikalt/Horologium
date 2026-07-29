@@ -1468,6 +1468,72 @@ classification now fold `L2Bdi`/`L3Bdi` in alongside the typed `L2Cache`/`L3Cach
 it on the innermost/L1 level, matching the flat-config path's L1 exclusion), and the Face cache-config UI exposes a
 compression selector and segment-size control alongside the other L2 fields.
 
+### Randomized-index cache side-channel defense (src/Core/Orrery/Cache)
+
+`CeaserCache` implements CEASER (Qureshi, MICRO 2018) and CEASER-S (Qureshi, ISCA 2019) — a
+keyed, periodically re-randomized address→set mapping defending against cache-based side-channel
+attacks (Prime+Probe and relatives) that rely on a conventional cache's static bit-slice indexing
+to build eviction sets. Like `BdiCache`, it's a standalone `IMemory` class rather than an option on
+`SetAssociativeCache`: that class's tag storage assumes the classic `tag = address >> (offsetBits +
+indexBits)` split and reconstructs a resident line's address by concatenating the stored tag with
+its physical set index at 8+ call sites (writeback, inclusion invalidation, eviction callbacks,
+checkpointing) — a keyed/randomized index breaks that reconstruction, since the set a line lives in
+no longer determines its address's low index bits.
+
+The papers' hardware design stores the *encrypted* line address (ELA) as the tag — to keep the tag
+array the same width as an ordinary cache — and must decrypt ELA→PLA on writeback, which is why
+they need an invertible block cipher (a 4-stage Feistel network, their "LLBC"). That requirement is
+an artifact of minimizing real tag-array bits; it doesn't apply to a functional simulator.
+`CeaserCache` stores the *plaintext* line address directly as the tag instead — observable-
+equivalent (identical hit/miss, eviction address, timing, and remap behavior; nothing about tag
+storage format is user-visible) and it eliminates the need for invertibility entirely, since nothing
+ever needs to be decrypted: writeback, the remap sweep, and eviction all read the address straight
+off the tag. The index function is accordingly just a keyed avalanche hash — murmur3's `fmix64`
+finalizer applied to `address XOR key` (the key is folded in before avalanching, not appended after,
+so a key change genuinely redistributes the mapping) — with no Feistel/S-box/P-box machinery and no
+per-line EpochID bit (the paper's 1-bit disambiguator between two same-set ELA tags that could
+coincidentally collide — moot here, since a full-address tag comparison is never ambiguous). This
+models CEASER's mapping-randomization and periodic-remap behavior — the part that affects miss
+rate, latency, and data placement, everything a simulator can actually measure — but makes no claim
+of cryptographic hardness against a real attacker.
+
+Each partition keeps a persistent sweeping set pointer (`SPtr`) and access counter (`ACtr`). Every
+access increments `ACtr`; once it reaches `Aplr × waysPerPartition`, the set at `SPtr` is remapped —
+each resident line there is re-indexed under the partition's `NextKey` and relocated if its target
+set changed — then `SPtr` advances (mod sets) and `ACtr` resets. When `SPtr` wraps to 0 a full epoch
+has swept every set: `CurrKey` becomes `NextKey` and a fresh `NextKey` is drawn. A lookup for
+address `A` checks `A`'s `CurrKey`-indexed set if that set hasn't been swept yet this epoch (still
+`>= SPtr`), otherwise its `NextKey`-indexed set (already swept, so if resident `A` was already
+relocated there). CEASER-S (the paper's own framing: "CEASER-S1 is the same as the original CEASER
+design") is the same class with a `partitions` constructor parameter — P=1 is plain CEASER; P>1
+splits the ways into P contiguous ranges, each with independent keys/`SPtr`/`ACtr` over the same set
+count. A lookup checks every partition; a hit in any one is a cache hit. A miss installs into a
+uniformly-randomly chosen partition (the paper: "CEASER-S randomly picks the half in which to
+install the line"), evicting via that partition's own replacement policy.
+
+Scope matches `BdiCache`'s own fidelity level: no sectoring, MSHR modeling, victim buffer, bus
+banking, or inclusion cascade. `GetSnapshot()` (per-line `(Partition, Set, Way, Valid, Address,
+LruAge, Dirty)` introspection) and `SetOf(partition, address)` (the set an address currently maps to
+in one partition, non-mutating) support tooling and testing without exposing the private index
+function. Selectable per level via `MemoryConfig.L2Variant`/`L3Variant`
+(`CacheVariantKind.{None,Ceaser}`, plus `L2CeaserPartitions`/`L3CeaserPartitions`/`L2CeaserAplr`/
+`L3CeaserAplr`/`L2CeaserSeed`/`L3CeaserSeed`/`L2CeaserEncryptLatency`/`L3CeaserEncryptLatency`), or
+`CacheHardwareConfig.Variant`/`CeaserPartitions`/`CeaserAplr`/`CeaserSeed`/`CeaserEncryptLatency` on
+the `L2Cache`/`L3Cache` entries of `TrainConfig` JSON — mutually exclusive with `Compression`, same
+L1-exclusion as BΔI (LLC-scoped, matching both papers' own evaluation). When a level uses the CEASER
+variant, `MemoryLayers.Build` constructs a `CeaserCache` for it instead of a `SetAssociativeCache` —
+that level's `L2Cache`/`L3Cache` property is then null and its stats live on the new
+`L2Ceaser`/`L3Ceaser` properties instead, mirroring `L2Bdi`/`L3Bdi` exactly: `ConsumeAllStalls()`,
+every train's (SingleCycle/FiveStage/Superscalar/Ooo/Cpr) dial counters and (Cpr/Ooo) CPI-stack miss
+classification, and `OooeTrain`'s microarchitectural checkpoint (`IL2CEASER`/`DL2CEASER`/
+`IL3CEASER`/`DL3CEASER` sections) all fold `L2Ceaser`/`L3Ceaser` in alongside the typed
+`L2Cache`/`L3Cache` and `L2Bdi`/`L3Bdi`.
+
+ScatterCache (Werner et al., USENIX Security 2019) — way-separate skewed-associative indexing with
+SDID-based security-domain isolation — is deferred to a follow-up pass: structurally distinct from
+CEASER's shared-index-per-set model, it needs its own SDID plumbing (mirroring `IMemory.SetRequestPc`)
+and is large enough to warrant separate implementation.
+
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 
 `MoesifCache` is an N-way set-associative write-back cache that participates in a MOESIF coherence protocol with

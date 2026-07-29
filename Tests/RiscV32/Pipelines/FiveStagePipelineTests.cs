@@ -546,6 +546,44 @@ public class FiveStagePipelineTests {
         );
     }
 
+    // Same de-risking rationale as WithCompressedL2_LoadInstructions_RecordL2BdiDialCounters,
+    // for the parallel CeaserCache wiring hand-edited into all five trains.
+    [Fact]
+    public void WithCeaserL2_LoadInstructions_RecordL2CeaserDialCounters() {
+        var mem = new FlatMemory(4096);
+        MemoryConfig dCfg = new(
+            32, 1, 32, 4,
+            L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
+            L2Variant: CacheVariantKind.Ceaser
+        );
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem, iMemConfig: dCfg, dMemConfig: dCfg);
+        Load(
+            mem,
+            0x00000093, // addi x1, x0, 0
+            0x0000a203, // lw x4, 0(x1)
+            0x400a283, // lw x5, 64(x1)
+            0x0000a303, // lw x6, 0(x1)
+            0x00100073  // ebreak
+        );
+        RevolutionResult result = train.Run();
+
+        Assert.NotNull(train.L2Ceaser);
+        Assert.True(train.L2Ceaser!.Misses > 0, "L2Ceaser should record misses for the cold lines");
+        Assert.True(train.L2Ceaser.Hits > 0, "L2Ceaser should record a hit on the re-accessed line");
+        Assert.Null(train.L2Cache); // Ceaser-variant slot leaves the typed field null
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(
+            snap.Counters.GetValueOrDefault("l2_dcache_misses") > 0,
+            "l2_dcache_misses dial counter should reflect L2Ceaser activity"
+        );
+        Assert.True(
+            snap.Counters.GetValueOrDefault("l2_dcache_hits") > 0,
+            "l2_dcache_hits dial counter should reflect L2Ceaser activity"
+        );
+    }
+
     [Fact]
     public void WithTlb_IdentityMapping_CorrectResult() {
         var mem = new FlatMemory(4096);

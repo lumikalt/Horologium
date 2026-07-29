@@ -45,7 +45,16 @@ public sealed record CacheHardwareConfig(
     // BdiCache, not a SetAssociativeCache, backs that level when set. Ignored on ICache/DCache,
     // matching the paper's own L1-excluded scope (see MemoryConfig.CompressionKind docs).
     CompressionKind Compression = CompressionKind.None,
-    int SegmentBytes = 8
+    int SegmentBytes = 8,
+    // CEASER/CEASER-S randomized-index cache (Qureshi, MICRO 2018 / ISCA 2019): only meaningful on
+    // L2Cache/L3Cache — a CeaserCache, not a SetAssociativeCache, backs that level when set.
+    // Mutually exclusive with Compression; ignored on ICache/DCache, matching both papers' own
+    // LLC-scoped evaluation (see MemoryConfig.CacheVariantKind docs).
+    CacheVariantKind Variant = CacheVariantKind.None,
+    int CeaserPartitions = 1,
+    int CeaserAplr = 100,
+    int CeaserSeed = 12345,
+    int CeaserEncryptLatency = 2
 );
 
 /// <summary>
@@ -347,6 +356,16 @@ public sealed record TrainConfig(
             L2Compression: l2?.Compression ?? CompressionKind.None,
             L3Compression: l3?.Compression ?? CompressionKind.None,
             L2SegmentBytes: l2?.SegmentBytes ?? 8,
-            L3SegmentBytes: l3?.SegmentBytes ?? 8
+            L3SegmentBytes: l3?.SegmentBytes ?? 8,
+            L2Variant: l2?.Variant ?? CacheVariantKind.None,
+            L3Variant: l3?.Variant ?? CacheVariantKind.None,
+            L2CeaserPartitions: l2?.CeaserPartitions ?? 1,
+            L3CeaserPartitions: l3?.CeaserPartitions ?? 1,
+            L2CeaserAplr: l2?.CeaserAplr ?? 100,
+            L3CeaserAplr: l3?.CeaserAplr ?? 100,
+            L2CeaserSeed: l2?.CeaserSeed ?? 12345,
+            L3CeaserSeed: l3?.CeaserSeed ?? 12345,
+            L2CeaserEncryptLatency: l2?.CeaserEncryptLatency ?? 2,
+            L3CeaserEncryptLatency: l3?.CeaserEncryptLatency ?? 2
         );
 }

@@ -64,6 +64,14 @@ namespace Orrery.Spec;
 ///         accept <see cref="PolicyFactory" />, and ignores every field not meaningful to
 ///         <see cref="BdiCache" /> (sectoring, victim cache, MSHR, write-back buffer, banking/ports).
 ///     </para>
+///     <para>
+///         <see cref="Variant" /> (default <see cref="CacheVariantKind.None" />) builds this level
+///         as a <see cref="CeaserCache" /> instead of a plain <see cref="SetAssociativeCache" /> —
+///         see <see cref="MemoryConfig.L2Variant" /> for the flat-config equivalent. Mutually
+///         exclusive with <see cref="Compression" />; same inclusion-cascade and ignored-field
+///         behavior as a compressed level, plus <see cref="CeaserPartitions" />/
+///         <see cref="CeaserAplr" />/<see cref="CeaserSeed" />/<see cref="CeaserEncryptLatency" />.
+///     </para>
 /// </summary>
 public sealed record CacheLevelSpec(
     int CapacityBytes,
@@ -93,6 +101,11 @@ public sealed record CacheLevelSpec(
     int VictimCacheHitLatency = 1,
     CompressionKind Compression = CompressionKind.None,
     int SegmentBytes = 8,
+    CacheVariantKind Variant = CacheVariantKind.None,
+    int CeaserPartitions = 1,
+    int CeaserAplr = 100,
+    int CeaserSeed = 12345,
+    int CeaserEncryptLatency = 2,
     Func<int, int, IReplacementPolicy?>? PolicyFactory = null,
     Func<IPrefetcher?>? PrefetcherFactory = null
 ) {

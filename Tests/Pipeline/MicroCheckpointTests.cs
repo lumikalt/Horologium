@@ -887,6 +887,112 @@ public class MicroCheckpointTests {
         );
     }
 
+    // ── CEASER-variant L2 (CeaserCache) ───────────────────────────────────────
+    //
+    // Same BdiL2LoopProgram; Aplr defaults to 100 (threshold = 100*ways accesses), well beyond
+    // this short run's access count, so no remap fires mid-test — isolates the tag/data/dirty
+    // round-trip from the remap-state round-trip (covered separately by CeaserCacheTests'
+    // Checkpoint_RestoresAcrossMidEpochRemapProgress).
+
+    private static readonly MemoryConfig CeaserL2DCacheCfg = new(
+        32, 1, 32, 4,
+        L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
+        L2Variant: CacheVariantKind.Ceaser,
+        TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
+    );
+
+    private static OooTrain MakeCeaserL2Train(FlatMemory mem, ulong entryPoint = 0, bool withL2Ceaser = true) =>
+        new(
+            new Rv32Mechanism(), mem, entryPoint,
+            robCapacity: 16, iqCapacity: 8,
+            iMemConfig: MicroCheckpointTests.ICacheCfg,
+            dMemConfig: withL2Ceaser ? MicroCheckpointTests.CeaserL2DCacheCfg : MicroCheckpointTests.CacheCfg
+        );
+
+    /// <summary>
+    ///     Same structure as <see cref="L2Bdi_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation" />
+    ///     for the CEASER-variant L2 (<see cref="CeaserCache" />) — proves
+    ///     <see cref="CeaserCache.WriteState" />/<see cref="CeaserCache.ReadState" /> round-trip
+    ///     through a full pipeline checkpoint.
+    /// </summary>
+    [Fact]
+    public void L2Ceaser_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        var memA = new FlatMemory(4096);
+        Load(memA, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainA = MakeCeaserL2Train(memA);
+
+        trainA.BeginStepping();
+        for (var i = 0; i < 30; i++) trainA.StepCycle();
+        trainA.Drain();
+
+        ulong checkpointPc = trainA.ArchState.Pc;
+        IReadOnlyList<DialBoardSnapshot> baseline = trainA.SnapshotDials();
+
+        using var ms = new MemoryStream();
+        trainA.SaveMicroCheckpoint(ms, memA);
+
+        while (trainA.StepCycle()) { }
+
+        RevolutionResult refResult = trainA.FinishStepping(baseline);
+
+        var memB = new FlatMemory(4096);
+        Load(memB, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainB = MakeCeaserL2Train(memB, checkpointPc);
+        ms.Position = 0;
+        trainB.RestoreMicroCheckpoint(ms, memB);
+
+        trainB.BeginStepping();
+        while (trainB.StepCycle()) { }
+
+        RevolutionResult reloadResult = trainB.FinishStepping();
+
+        Assert.Equal(refResult.TotalTicks, reloadResult.TotalTicks);
+        Assert.Equal(Counter(refResult, "retired"), Counter(reloadResult, "retired"));
+        Assert.Equal(Counter(refResult, "l2_dcache_misses"), Counter(reloadResult, "l2_dcache_misses"));
+        Assert.Equal(Counter(refResult, "l2_dcache_hits"), Counter(reloadResult, "l2_dcache_hits"));
+
+        Assert.True(Counter(refResult, "l2_dcache_hits") > 0);
+    }
+
+    /// <summary>
+    ///     Round-trip theater guard (see feedback memory "Checkpoint round-trip theater") for
+    ///     CEASER's L2 slot: a restored train must incur strictly fewer L2 misses than a train
+    ///     that reaches the identical checkpoint PC but was never restored (cold L2Ceaser).
+    /// </summary>
+    [Fact]
+    public void L2Ceaser_RestoredTrain_HasFewerL2MissesThanColdStartOverSameRemainingWindow() {
+        var memA = new FlatMemory(4096);
+        Load(memA, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainA = MakeCeaserL2Train(memA);
+
+        trainA.BeginStepping();
+        for (var i = 0; i < 30; i++) trainA.StepCycle();
+        trainA.Drain();
+        ulong checkpointPc = trainA.ArchState.Pc;
+
+        using var ms = new MemoryStream();
+        trainA.SaveMicroCheckpoint(ms, memA);
+
+        var memRestored = new FlatMemory(4096);
+        Load(memRestored, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainRestored = MakeCeaserL2Train(memRestored, checkpointPc);
+        ms.Position = 0;
+        trainRestored.RestoreMicroCheckpoint(ms, memRestored);
+        RevolutionResult restoredResult = trainRestored.Run();
+
+        var memCold = new FlatMemory(4096);
+        Load(memCold, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainCold = MakeCeaserL2Train(memCold, checkpointPc);
+        RevolutionResult coldResult = trainCold.Run();
+
+        Assert.True(
+            Counter(coldResult, "l2_dcache_misses") > Counter(restoredResult, "l2_dcache_misses"),
+            $"cold-start L2 misses ({Counter(coldResult, "l2_dcache_misses")}) should exceed " +
+            $"restored L2 misses ({Counter(restoredResult, "l2_dcache_misses")}) — otherwise " +
+            "ReadState isn't actually restoring resident state."
+        );
+    }
+
     // ── Optional OoO predictor/prefetcher tables ─────────────────────────────
     //
     // StoreSetPredictor and SmbPredictor are `internal`, so a direct unit-level round trip isn't
