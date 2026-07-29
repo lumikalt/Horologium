@@ -64,7 +64,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableSttMemDepGating = false,
         bool enableInvisiSpecLlcSb = false,
         int llcSbCapacity = 16,
-        int llcSbHitLatency = 1
+        int llcSbHitLatency = 1,
+        bool sttFuturisticModel = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -107,7 +108,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableSttMemDepGating: enableSttMemDepGating,
                 enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
                 llcSbCapacity: llcSbCapacity,
-                llcSbHitLatency: llcSbHitLatency
+                llcSbHitLatency: llcSbHitLatency,
+                sttFuturisticModel: sttFuturisticModel
             )
         );
         _train.Build();
@@ -146,7 +148,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableSttMemDepGating = false,
         bool enableInvisiSpecLlcSb = false,
         int llcSbCapacity = 16,
-        int llcSbHitLatency = 1
+        int llcSbHitLatency = 1,
+        bool sttFuturisticModel = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -179,7 +182,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableSttMemDepGating: enableSttMemDepGating,
                 enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
                 llcSbCapacity: llcSbCapacity,
-                llcSbHitLatency: llcSbHitLatency
+                llcSbHitLatency: llcSbHitLatency,
+                sttFuturisticModel: sttFuturisticModel
             )
         );
         _train.Build();
@@ -276,9 +280,19 @@ internal sealed partial class OoOPipelineCore : Gear {
     // STT-ExpOnly (Yu et al., MICRO 2019): loads are treated as the only "transmitter" class
     // (explicit-channel-only, per the paper's own DelayExecute+STT-ExpOnly evaluated variant).
     // A load whose address depends on not-yet-visible data (RobEntry.SourceYrot) is held at
-    // Issue until the Spectre-model visibility point clears it — see TryIssueSlot.
+    // Issue until the shared visibility point clears it — see TryIssueSlot.
     private readonly bool _enableSttExpOnly;
-    private readonly SpectreVisibilityTracker? _vpTracker;
+
+    // Shared visibility-point tracker, selectable between the Spectre model
+    // (SpectreVisibilityTracker: safe once all older branches resolve) and the Futuristic model
+    // (FuturisticVisibilityTracker: safe once at the ROB head, or once no older in-flight
+    // instruction of ANY squash-source type is unresolved), via sttFuturisticModel. Every gating
+    // call site below is written against the IVisibilityTracker interface and is oblivious to
+    // which model is active. _futuristicTracker aliases the same instance, narrowed to the
+    // concrete type, only where Futuristic-specific registration/resolution calls are needed —
+    // it is null in Spectre mode (and whenever the shared tracker itself is null).
+    private readonly IVisibilityTracker? _vpTracker;
+    private readonly FuturisticVisibilityTracker? _futuristicTracker;
     private Counter? _sttLoadIssueStallsCounter;
 
     // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): an unsafe speculative load (USL)
@@ -303,9 +317,9 @@ internal sealed partial class OoOPipelineCore : Gear {
     // reaching zero here only clears RobEntry.PendingUslAccess so Commit can retire it. No squash
     // cleanup beyond StepFlush's full clear is needed: an entry only lands here once its visibility
     // point has already cleared, and once IsSafe(instrId) is true for an instruction it stays true
-    // (every branch older than it is resolved for good) — so no later partial squash can retroactively
-    // invalidate an entry already in this list, only a full flush (e.g. an older trap; traps aren't
-    // yet a tracked squash source, see TODO.md's Futuristic-model item) discards it.
+    // (dispatch order is InstrId order, so no older blocking entry can ever be registered after a
+    // younger one has already resolved) — so no later partial squash can retroactively invalidate
+    // an entry already in this list, only a full flush (e.g. an older trap) discards it.
     private readonly List<(int RobIdx, int Countdown)> _pendingUslLatency = [];
 
     // InvisiSpec's optional Per-Core Speculative Buffer in the LLC (Yan et al., MICRO 2018, §VI-C):
@@ -656,7 +670,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool enableSttMemDepGating = false,
         bool enableInvisiSpecLlcSb = false,
         int llcSbCapacity = 16,
-        int llcSbHitLatency = 1
+        int llcSbHitLatency = 1,
+        bool sttFuturisticModel = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -707,8 +722,9 @@ internal sealed partial class OoOPipelineCore : Gear {
         _enableSttImplicitBranches = enableSttImplicitBranches;
         _enableSttMemDepGating = enableSttMemDepGating;
         _vpTracker = enableSttExpOnly || enableInvisiSpec || enableSttImplicitBranches || enableSttMemDepGating
-            ? new SpectreVisibilityTracker()
+            ? sttFuturisticModel ? new FuturisticVisibilityTracker() : new SpectreVisibilityTracker()
             : null;
+        _futuristicTracker = _vpTracker as FuturisticVisibilityTracker;
         _enableInvisiSpecLlcSb = enableInvisiSpec && enableInvisiSpecLlcSb;
         _llcSbCapacity = llcSbCapacity;
         _llcSbHitLatency = llcSbHitLatency;
@@ -1039,6 +1055,14 @@ internal sealed partial class OoOPipelineCore : Gear {
             _cpiStolenCycles++;
         }
 
+        // Futuristic model, condition (i): the current ROB head is safe regardless of any still-
+        // pending squash source (see FuturisticVisibilityTracker's class doc) — force it resolved
+        // before anything below reads IsSafe this cycle, so a USL/load sitting at the head isn't
+        // stuck waiting on a squash source (e.g. an EOLE Late-Execution verification) that can
+        // only ever be settled at Commit, which would otherwise never arrive since retirement
+        // itself is what's gated on IsSafe becoming true.
+        if (_futuristicTracker is not null && !_rob.IsEmpty) _futuristicTracker.ForceResolve(_rob.Head.InstrId);
+
         // Complete: broadcast last tick's execution results onto CDB.
         StepComplete();
 
@@ -1142,6 +1166,11 @@ internal sealed partial class OoOPipelineCore : Gear {
             rob.RequestBlock = r.RequestBlock;
             rob.SideEffect = r.SideEffect;
 
+            // Futuristic model: this instruction's own trap status is now known. Only resolve the
+            // bit when it did NOT trap — a trapping instruction stays an unresolved squash source
+            // until its squash actually fires at commit, exactly like a mispredicted branch below.
+            if (_futuristicTracker is not null && !rob.HasTrap) _futuristicTracker.ResolveTrap(r.InstrId);
+
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
             bool thisMispredicted = rob.ResolvedNextPc is { HasValue: true, Value: var resolvedPc, }
                                   && resolvedPc != rob.PredictedNextPc;
@@ -1175,6 +1204,13 @@ internal sealed partial class OoOPipelineCore : Gear {
                 CheckLoadViolations(sq.SeqNo, r.StoreAddr, r.StoreBytes, sq.Pc);
                 _storeSets?.OnStoreIssued(sq.Pc, sq.SeqNo);
                 if (_smbPredictor is not null) CheckBypassLoads(sq);
+                // Futuristic model: an older store's address being unknown is exactly what lets a
+                // younger load alias/violate it (Table I's "address alias between a load and an
+                // earlier store") — resolving this bit is what stops this store from blocking
+                // every younger instruction's safety, regardless of whether the store itself later
+                // traps (if it does, the Trap bit above still keeps it — and everything younger,
+                // via the eventual full flush — correctly blocked).
+                _futuristicTracker?.ResolveStoreAddr(r.InstrId);
             }
 
             // Load disambiguation state (LQ.Executed/Address + violation check) is
@@ -1199,6 +1235,11 @@ internal sealed partial class OoOPipelineCore : Gear {
                         ulong? actualProducer = FindForwardingProducerSeqNo(lq.SeqNo, lq.Address, lq.Bytes);
                         lq.HasActualProducer = actualProducer.HasValue;
                         lq.ActualProducerSeqNo = actualProducer ?? 0;
+                    }
+                    else {
+                        // Futuristic model: verified correct — this load can stop blocking younger
+                        // instructions on the SMB-bypass squash source.
+                        _futuristicTracker?.ResolveSmb(r.InstrId);
                     }
                 }
                 else if (_smbPredictor is not null && !lq.Bypassed) {
@@ -1233,8 +1274,13 @@ internal sealed partial class OoOPipelineCore : Gear {
             // mismatch is caught here and squashed at commit (StepCommit), never here (the
             // unconditional PRF write below self-heals the value regardless of the outcome).
             if (rob.WasValuePredicted) {
-                if (_prf.Read(r.PhysDest) == r.RegValue.Value)
+                if (_prf.Read(r.PhysDest) == r.RegValue.Value) {
                     _vpCorrectCounter?.Increment();
+                    // Futuristic model: verified correct — stop blocking younger instructions on
+                    // the value-prediction squash source. (EOLE Late Execution's own verification,
+                    // which never reaches here, resolves this bit at Commit instead — see StepCommit.)
+                    _futuristicTracker?.ResolveVp(r.InstrId);
+                }
                 else
                     rob.ValuePredMispredicted = true;
             }
@@ -1428,6 +1474,15 @@ internal sealed partial class OoOPipelineCore : Gear {
         while (_rob is { IsEmpty: false, Head: { IsComplete: true, PendingUslAccess: false, }, }
              && committed < _issueWidth) {
             RobEntry head = _rob.Head;
+
+            // Futuristic model, condition (i): the RunCycle-level ForceResolve above only covers
+            // whichever entry was the ROB head at the START of this tick — but this loop can retire
+            // more than one entry per tick (up to _issueWidth), and every subsequent head examined
+            // here only becomes head mid-tick, after this loop's own retirements advance it. Without
+            // this second call, such an entry could retire (leaving the ROB) with a still-pending
+            // bit that nothing will ever clear again — a permanent phantom blocker for anything
+            // younger. Idempotent with the RunCycle-level call for the first iteration.
+            _futuristicTracker?.ForceResolve(head.InstrId);
 
             switch (head) {
                 case { IsHalt: true, }: {
@@ -2455,6 +2510,10 @@ internal sealed partial class OoOPipelineCore : Gear {
                 robFault.DispatchCycle = _cyclesCounter.Value;
                 robFault.CpiStolenAtDispatch = _cpiStolenCycles;
                 PEventLog?.Record(ri.InstrId, ri.Pc, _cyclesCounter.Value, PEventKind.Dispatch);
+                // Futuristic model: this entry is a guaranteed trap that never traverses
+                // StepComplete — it just rides along unresolved until ForceResolve clears it at
+                // the ROB head (see FuturisticVisibilityTracker's class doc).
+                _futuristicTracker?.Register(ri.InstrId, FuturisticVisibilityTracker.Sources.Trap);
                 _renameQueue.Dequeue();
                 dispatched++;
                 continue;
@@ -2565,6 +2624,17 @@ internal sealed partial class OoOPipelineCore : Gear {
 
                 if (eeEligible) rob.SideEffect = ri.EarlySideEffect;
 
+                // Futuristic model: neither Early nor Late Execution traverses StepComplete, so
+                // neither gets an early Trap/Vp resolution there — both just ride along unresolved
+                // until ForceResolve clears them at the ROB head (Late Execution's own in-order
+                // verification at Commit happens at exactly that same moment, so this costs it no
+                // extra latency; Early Execution never mispredicts, so only Trap applies to it).
+                if (_futuristicTracker is not null) {
+                    FuturisticVisibilityTracker.Sources mask = FuturisticVisibilityTracker.Sources.Trap;
+                    if (leEligible) mask |= FuturisticVisibilityTracker.Sources.Vp;
+                    _futuristicTracker.Register(ri.InstrId, mask);
+                }
+
                 // Synthetic Issue/Execute PEvents at the same cycle, so PEvent-driven consumers
                 // (waveform viewer, CPI/TMA views) see a coherent — if instantaneous —
                 // Fetch→Dispatch→Issue→Execute trail instead of an instruction stuck forever
@@ -2626,6 +2696,20 @@ internal sealed partial class OoOPipelineCore : Gear {
                 sq.StaticBytes = instr.MemoryAccessBytes;
                 _storeSets?.OnStoreDispatch(ri.Pc, memSeqNo);
                 rob.SqIdx = sqIdx;
+            }
+
+            // Futuristic model: register every instruction that reaches the ordinary IQ path
+            // (branches were already registered above via OnDispatchBranch — additive, so this
+            // just ORs Trap in again harmlessly) with the squash sources that apply to it. A
+            // store's address isn't known yet (StoreAddr); an SMB-bypassing load's verification
+            // is still pending (Smb); a value-predicted load or ALU op's prediction is still
+            // pending (Vp, including ordinary — non-Late-Execution — value prediction on loads).
+            if (_futuristicTracker is not null) {
+                FuturisticVisibilityTracker.Sources mask = FuturisticVisibilityTracker.Sources.Trap;
+                if (needsSq) mask |= FuturisticVisibilityTracker.Sources.StoreAddr;
+                if (needsLq && _lq.At(rob.LqIdx).Bypassed) mask |= FuturisticVisibilityTracker.Sources.Smb;
+                if (rob.IsVpEligible) mask |= FuturisticVisibilityTracker.Sources.Vp;
+                _futuristicTracker.Register(ri.InstrId, mask);
             }
 
             // Allocate IQ slot. Check PRF readiness at dispatch time: sources may have

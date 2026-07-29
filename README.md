@@ -663,8 +663,24 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   address operands carry a taint root that hasn't reached the visibility point is held at Issue — the classic
   `y = mem[mem[x]]` pointer-chase gadget is delayed until the branch that precedes it resolves, even when
   correctly predicted, which is the real, measurable IPC cost the paper's DelayExecute+STT-ExpOnly configuration
-  reports. Held cycles are counted by the `stt_load_issue_stalls` dial. The Futuristic visibility-point model is
-  deliberately out of scope for this slice (see TODO.md).
+  reports. Held cycles are counted by the `stt_load_issue_stalls` dial.
+  The **Futuristic visibility-point model** (Yan et al., MICRO 2018, §V-A1, Table I; Yu et al., MICRO 2019) is
+  a selectable alternative to the Spectre model above, enabled with `sttFuturisticModel: true` on the same shared
+  tracker — every STT-ExpOnly/InvisiSpec/implicit-branch/memdep-gating call site reads the tracker only through
+  the `IVisibilityTracker` interface, so switching models changes none of them. An instruction is safe once it
+  either (i) is at the ROB head, or (ii) is "speculative non-squashable" — preceded only by instructions that
+  individually cannot be squashed by any of Table I's events. `Pipeline.Ooo.FuturisticVisibilityTracker`
+  generalizes the Spectre tracker's branch-only FIFO into a per-instruction pending-source bitmask (`Trap`,
+  `Branch`, `StoreAddr`, `Smb`, `Vp`), registered at Dispatch and cleared bit-by-bit only on each source's
+  "no squash" outcome — a squash-bound outcome leaves its bit set until the squash actually fires, exactly like
+  the Spectre tracker's own mispredicted-branch handling, so an instruction that turns out to squash something is
+  never mistaken for safe beforehand. Condition (i) is enforced by the caller: `OooTrain` force-resolves the
+  current ROB head once per cycle before anything reads `IsSafe`, and again for every entry `StepCommit`'s own
+  retire loop examines (needed because that loop can retire more than one entry per tick). Table I's
+  load-store/load-load aliasing risk falls out of the generalized FIFO for free — an older unresolved store
+  blocks every younger instruction structurally, no separate per-load tracking needed. Multi-hart
+  coherence-invalidation squashes and single-core load-load aliasing remain out of scope, matching every other
+  InvisiSpec/STT slice below.
   **STT implicit-branch protection** (enable with `enableSttImplicitBranches: true`) closes the resolution-based
   implicit channel through explicit branches (§6.4.1): a mispredicted branch whose own resolution is still
   tainted (`RobEntry.SourceYrot` not yet safe) would otherwise squash younger wrong-path instructions the

@@ -115,9 +115,29 @@ off here until a periodic cleanup removes them; the durable record is git histor
   Issue/Execute) is restricted to `ToothClass.IntegerAlu`, so a value-predicted load always still executes for
   real through `TryIssueSlot`'s STT gate. `Tests/RiscV32/Pipelines/SttValuePredictionTests.cs` demonstrates
   coexistence with the same honest same-instance caveat as the item above.
-- [ ] STT/InvisiSpec: Futuristic-model visibility point (ROB head / "preceded only by non-squashable instructions")
-  as a selectable alternative to the Spectre model — needs tracking unresolved loads and traps as additional
-  squash sources, not just branches.
+- [x] STT/InvisiSpec: Futuristic-model visibility point (Yan et al., MICRO 2018, §V-A1, Table I; Yu et al., MICRO
+  2019), selectable via `sttFuturisticModel` as an alternative to the Spectre model on the same shared tracker —
+  every existing STT-ExpOnly/InvisiSpec/implicit-branch/memdep-gating call site already reads the tracker only
+  through the new `IVisibilityTracker` interface, so switching models needed no change to any of them.
+  `FuturisticVisibilityTracker` (`src/Core/Pipeline/Ooo/`) generalizes the Spectre tracker's branch-only FIFO to a
+  per-instruction pending-source bitmask (`Trap`/`Branch`/`StoreAddr`/`Smb`/`Vp`), registered at Dispatch and
+  cleared bit-by-bit as each source resolves with a "no squash" outcome — resolving early on a squash-bound
+  outcome would be the security hole (a younger instruction wrongly marked safe before an older one's squash
+  fires), so a bit only ever clears on the safe branch of its check, exactly like the Spectre tracker's own
+  mispredicted-branch handling. Condition (i) (ROB head is unconditionally safe) is enforced by the caller —
+  `OooTrain` force-resolves the current ROB head once before anything reads `IsSafe` each cycle, AND again inside
+  `StepCommit`'s own retire loop for every entry examined there (the first call alone left a real gap: that loop
+  can retire more than one entry per tick, and any entry only becoming head mid-tick, after an earlier retirement
+  advanced it, never got force-resolved — a permanent phantom blocker for anything younger, caught by
+  `SttFuturisticModelTests.DualSourceLoad...` hanging at `maxTicks` before the second call site was added). Table
+  I's own "address alias between a load and an earlier store" falls out of the generalized FIFO for free — an
+  older unresolved store blocks every younger instruction's safety structurally, with no separate per-load
+  tracking needed. Multi-hart coherence-invalidation squashes and single-core load-load aliasing remain out of
+  scope, matching every other InvisiSpec/STT slice (`OooTrain` has no coherence-invalidation-triggered squash hook
+  today). `Tests/RiscV32/Pipelines/SttFuturisticModelTests.cs` proves the Futuristic model catches a squash source
+  (a slow store) the Spectre model structurally cannot see in a branch-free program, and that a single load
+  carrying two independent pending sources (SMB-bypass and value-prediction verification) doesn't deadlock or
+  drop either.
 - [x] InvisiSpec: invisible speculative loads via a non-mutating cache peek (`IMemory.PeekRead`, default = same
   as `Read`, overridden by `SetAssociativeCache`) plus a real expose/validate transaction deferred to the shared
   Spectre-model visibility point, gating retirement only (`RobEntry.PendingUslAccess`) — a USL's data still

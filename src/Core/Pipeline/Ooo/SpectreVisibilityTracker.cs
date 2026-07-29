@@ -14,13 +14,14 @@ namespace Pipeline.Ooo;
 ///         unresolved branch and is therefore safe.
 ///     </para>
 ///     <para>
-///         The Futuristic model (visibility point = ROB head, i.e. "preceded only by
-///         non-squashable instructions") is deliberately not implemented here — it
-///         additionally requires tracking unresolved loads and traps as squash sources,
-///         a larger scope left for a follow-up.
+///         The Futuristic model (visibility point = ROB head, or "preceded only by
+///         non-squashable instructions") is implemented separately, in
+///         <see cref="FuturisticVisibilityTracker" /> — it additionally tracks stores, traps,
+///         SMB-bypass verification, and value-prediction verification as squash sources, not
+///         just branches.
 ///     </para>
 /// </summary>
-public sealed class SpectreVisibilityTracker {
+public sealed class SpectreVisibilityTracker : IVisibilityTracker {
     private readonly LinkedList<ulong> _branches = new();
     private readonly HashSet<ulong> _resolved = [];
 
