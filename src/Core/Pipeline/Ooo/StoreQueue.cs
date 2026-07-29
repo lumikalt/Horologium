@@ -16,13 +16,28 @@ public sealed class SqEntry {
     /// </summary>
     public ulong SeqNo { get; set; }
 
-    /// <summary>True once the store has executed and Address/Value/Width are valid.</summary>
+    /// <summary>
+    ///     True once <see cref="Address" /> is valid — either resolved early (address operand
+    ///     ready, data operand still pending; see the owning train's early store-address
+    ///     resolution pass) or via the store's full execute, which also sets
+    ///     <see cref="DataKnown" />. Address-only consumers (store-set stalling, memory-order
+    ///     violation checks, forwarding-candidate address matching) may act on this alone;
+    ///     anything that reads <see cref="Value" />/<see cref="Width" /> must also check
+    ///     <see cref="DataKnown" />.
+    /// </summary>
     public bool AddressKnown { get; set; }
 
-    /// <summary>Effective address written at execute time.</summary>
+    /// <summary>
+    ///     True once the store has fully executed and <see cref="Value" />/<see cref="Width" />
+    ///     are valid. <see cref="Address" /> is also guaranteed valid by this point, whether or
+    ///     not <see cref="AddressKnown" /> flipped earlier.
+    /// </summary>
+    public bool DataKnown { get; set; }
+
+    /// <summary>Effective address, valid once <see cref="AddressKnown" />.</summary>
     public ulong Address { get; set; }
 
-    /// <summary>Value to be written to memory at commit time.</summary>
+    /// <summary>Value to be written to memory at commit time, valid once <see cref="DataKnown" />.</summary>
     public ulong Value { get; set; }
 
     /// <summary>Number of bytes to write.</summary>
@@ -53,6 +68,7 @@ public sealed class SqEntry {
         InstrId = 0;
         SeqNo = 0;
         AddressKnown = false;
+        DataKnown = false;
         Address = 0;
         Value = 0;
         Width = 0;

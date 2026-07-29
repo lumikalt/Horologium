@@ -65,7 +65,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableInvisiSpecLlcSb = false,
         int llcSbCapacity = 16,
         int llcSbHitLatency = 1,
-        bool sttFuturisticModel = false
+        bool sttFuturisticModel = false,
+        bool enableEarlyStoreAddress = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -109,7 +110,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
                 llcSbCapacity: llcSbCapacity,
                 llcSbHitLatency: llcSbHitLatency,
-                sttFuturisticModel: sttFuturisticModel
+                sttFuturisticModel: sttFuturisticModel,
+                enableEarlyStoreAddress: enableEarlyStoreAddress
             )
         );
         _train.Build();
@@ -149,7 +151,8 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableInvisiSpecLlcSb = false,
         int llcSbCapacity = 16,
         int llcSbHitLatency = 1,
-        bool sttFuturisticModel = false
+        bool sttFuturisticModel = false,
+        bool enableEarlyStoreAddress = false
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -183,7 +186,8 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
                 llcSbCapacity: llcSbCapacity,
                 llcSbHitLatency: llcSbHitLatency,
-                sttFuturisticModel: sttFuturisticModel
+                sttFuturisticModel: sttFuturisticModel,
+                enableEarlyStoreAddress: enableEarlyStoreAddress
             )
         );
         _train.Build();
@@ -284,6 +288,11 @@ internal sealed partial class OoOPipelineCore : Gear {
     // A load whose address depends on not-yet-visible data (RobEntry.SourceYrot) is held at
     // Issue until the shared visibility point clears it — see TryIssueSlot.
     private readonly bool _enableSttExpOnly;
+
+    // Store address/data decomposition: gives a store's address-operand readiness independent
+    // effect on StoreSetStallLoad/CheckLoadViolations/forwarding-candidate matching, ahead of
+    // its data operand — see StepEarlyStoreAddressResolution.
+    private readonly bool _enableEarlyStoreAddress;
 
     // Shared visibility-point tracker, selectable between the Spectre model
     // (SpectreVisibilityTracker: safe once all older branches resolve) and the Futuristic model
@@ -674,7 +683,8 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool enableInvisiSpecLlcSb = false,
         int llcSbCapacity = 16,
         int llcSbHitLatency = 1,
-        bool sttFuturisticModel = false
+        bool sttFuturisticModel = false,
+        bool enableEarlyStoreAddress = false
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -721,6 +731,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         _runaheadPipelineDepth = Math.Max(1, runaheadPipelineDepth);
         _vrStrideTable = _enableVectorRunahead ? new VrStrideEntry[256] : [];
         _enableSttExpOnly = enableSttExpOnly;
+        _enableEarlyStoreAddress = enableEarlyStoreAddress;
         _enableInvisiSpec = enableInvisiSpec;
         _enableSttImplicitBranches = enableSttImplicitBranches;
         _enableSttMemDepGating = enableSttMemDepGating;
@@ -1129,6 +1140,13 @@ internal sealed partial class OoOPipelineCore : Gear {
         // Execute: run last tick's issued instructions.
         StepExecute();
 
+        // Early store-address resolution: any store whose address operand became ready this
+        // tick (via StepComplete's broadcast, above) gets a provisional Address/AddressKnown
+        // now, ahead of its own Issue/Execute — so StoreSetStallLoad/CheckLoadViolations/
+        // forwarding-candidate matching (all address-only) can react before this store's data
+        // operand arrives.
+        if (_enableEarlyStoreAddress) StepEarlyStoreAddressResolution();
+
         // Issue: select up to issueWidth ready IQ entries.
         StepIssue();
 
@@ -1204,6 +1222,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                 // Update the SQ entry with the resolved store address and value.
                 SqEntry sq = _sq.At(rob.SqIdx);
                 sq.AddressKnown = true;
+                sq.DataKnown = true;
                 sq.Address = r.StoreAddr;
                 sq.Value = r.StoreVal;
                 sq.Width = r.StoreBytes;
@@ -1666,6 +1685,13 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (head.SqIdx >= 0) {
                 SqEntry sq = _sq.At(head.SqIdx);
                 if (sq.AddressKnown) {
+                    Debug.Assert(
+                        sq.DataKnown,
+                        "A store reached commit with its address known but data still unknown — " +
+                        "retirement is gated on RobEntry.IsComplete, which only follows the store's " +
+                        "own full Execute (the same event that sets DataKnown), so this should be " +
+                        "unreachable regardless of early address resolution."
+                    );
                     if (dcachePortUsed) break;
                     CommitStore(sq.Address, sq.Value, sq.Width);
                     dcachePortUsed = true;
@@ -2043,6 +2069,51 @@ internal sealed partial class OoOPipelineCore : Gear {
                 return true;
 
         return false;
+    }
+
+    /// <summary>
+    ///     For every in-flight store whose address operand (rs1) is ready but whose SQ entry
+    ///     doesn't yet have an address — regardless of whether its data operand (rs2) is also
+    ///     ready — resolve and record its effective address early. This never touches
+    ///     <see cref="RobEntry.IsComplete" />, the PRF, or the CDB: it only annotates
+    ///     <see cref="SqEntry.Address" />/<see cref="SqEntry.AddressKnown" />, a side channel
+    ///     consumed solely by address-only aliasing/forwarding-candidate checks. The store's own
+    ///     real Issue/Execute (needing both operands, exactly as before this existed) still
+    ///     drives retirement and re-sets Address redundantly alongside Value/Width/DataKnown —
+    ///     harmless, since rs1's value can't change between here and there (its producer has
+    ///     already retired/broadcast by definition of being "ready").
+    /// </summary>
+    private void StepEarlyStoreAddressResolution() {
+        IRegisterFile regs = State.IntegerRegisters;
+        for (var iqIdx = 0; iqIdx < _activeIqCount; iqIdx++) {
+            IssueQueue iq = _iqs[iqIdx];
+            for (var slot = 0; slot < iq.Capacity; slot++) {
+                RsEntry rs = iq.At(slot);
+                if (!rs.Busy || rs.Instruction?.Class != ToothClass.Store || !rs.Src1Ready) continue;
+
+                RobEntry rob = _rob.At(rs.RobIndex);
+                if (rob.SqIdx < 0) continue;
+                SqEntry sq = _sq.At(rob.SqIdx);
+                if (sq.AddressKnown) continue;
+
+                IReadOnlyList<int> srcs = rs.Instruction.SourceRegisters;
+                if (srcs.Count == 0) continue;
+                int archRs1 = srcs[0];
+
+                // Save/inject/restore, same technique ExecuteOne uses: the executor reads
+                // operands through IArchState.IntegerRegisters by architectural index, so the
+                // renamed physical register's captured value must be visible there temporarily.
+                ulong saved = archRs1 >= 0 ? regs.Read(archRs1) : 0;
+                if (archRs1 >= 0) regs.Write(archRs1, rs.Src1Value);
+                ulong? addr = _executor.TryComputeStoreAddress(rs.Instruction, State, DLayers.Accessor);
+                if (archRs1 >= 0) regs.Write(archRs1, saved);
+
+                if (addr.HasValue) {
+                    sq.AddressKnown = true;
+                    sq.Address = addr.Value;
+                }
+            }
+        }
     }
 
     /// <summary>Select up to issueWidth ready IQ entries and forward to execute.</summary>
@@ -2431,7 +2502,9 @@ internal sealed partial class OoOPipelineCore : Gear {
         ulong mask = loadBytes >= 8 ? ulong.MaxValue : (1UL << (loadBytes * 8)) - 1;
         foreach (SqEntry sq in _sq.InOrder()) {
             if (sq.SeqNo >= loadSeqNo) break;
-            if (!sq.AddressKnown) continue;
+            // DataKnown, not just AddressKnown: an early-resolved address (see
+            // StepEarlyStoreAddressResolution) has no valid Value/Width yet.
+            if (!sq.AddressKnown || !sq.DataKnown) continue;
             // Skip unless the store's byte range fully contains the load's byte range.
             if (sq.Address > loadAddr || loadEnd > sq.Address + (ulong)sq.Width) continue;
             // Extract the relevant bytes: shift right by the byte offset within the store.
@@ -2454,7 +2527,11 @@ internal sealed partial class OoOPipelineCore : Gear {
         ulong? producerSeqNo = null;
         foreach (SqEntry sq in _sq.InOrder()) {
             if (sq.SeqNo >= loadSeqNo) break;
-            if (!sq.AddressKnown) continue;
+            // DataKnown, not just AddressKnown: an early-resolved address (see
+            // StepEarlyStoreAddressResolution) has no valid Width yet — Width defaults to 0,
+            // which the containment check below would already reject, but check explicitly
+            // rather than lean on that coincidence.
+            if (!sq.AddressKnown || !sq.DataKnown) continue;
             if (sq.Address > loadAddr || loadEnd > sq.Address + (ulong)sq.Width) continue;
             producerSeqNo = sq.SeqNo;
         }

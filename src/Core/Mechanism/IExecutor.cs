@@ -22,4 +22,16 @@ public interface IExecutor {
         IArchState state,
         IMemory memory
     );
+
+    /// <summary>
+    ///     Resolves a store's effective address without requiring its data operand to be
+    ///     known — lets a train release address-only dependents (aliasing checks, forwarding
+    ///     candidate matching) as soon as the address operand is ready, independent of a
+    ///     slower data-producing chain. Returns null if <paramref name="instruction" /> isn't
+    ///     a store, if the ISA doesn't support early address resolution, or if translation
+    ///     would fault — a swallowed fault here is not a missed trap: the store's own real
+    ///     <see cref="Execute" /> call still translates and raises it normally once the store
+    ///     fully issues. Default: unsupported.
+    /// </summary>
+    ulong? TryComputeStoreAddress(ITooth instruction, IArchState state, IMemory memory) => null;
 }

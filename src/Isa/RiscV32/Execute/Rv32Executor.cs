@@ -1331,6 +1331,24 @@ public partial class Rv32Executor : IExecutor {
         return ExecuteResult.WithResult(value & 0xFFFFFFFF);
     }
 
+    // RV64's RvSd isn't handled here — Rv64Executor doesn't override this, so a 64-bit store's
+    // address is only ever resolved at its normal full Execute (a missed early-resolution
+    // opportunity, not a correctness gap: AddressKnown just stays false until then).
+    public virtual ulong? TryComputeStoreAddress(ITooth instruction, IArchState state, IMemory memory) {
+        if (instruction.Payload is not RvOp op) return null;
+        (int rs1, int imm) = op switch {
+            RvSb(var r, _, var i) => (r, i),
+            RvSh(var r, _, var i) => (r, i),
+            RvSw(var r, _, var i) => (r, i),
+            _                     => (-1, 0),
+        };
+        if (rs1 < 0) return null;
+
+        ulong vaddr = state.IntegerRegisters.Read(rs1) + (ulong)imm;
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        return fault != 0 ? null : addr;
+    }
+
     protected ExecuteResult Store(
         IMemory memory,
         IArchState state,
