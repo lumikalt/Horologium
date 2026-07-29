@@ -58,4 +58,12 @@ public interface IMemory {
     ///     No-op on implementations that do not use PC-based signatures.
     /// </summary>
     void SetRequestPc(ulong pc) { }
+
+    /// <summary>
+    ///     Notifies the memory subsystem of the Security-Domain ID (SDID) of the requester about to
+    ///     issue a memory request. Used by ScatterCache to compute a domain-dependent mapping. Must
+    ///     be called before the corresponding Read/Write. No-op on implementations that do not use
+    ///     SDID-based indexing.
+    /// </summary>
+    void SetRequestSdid(int sdid) { }
 }

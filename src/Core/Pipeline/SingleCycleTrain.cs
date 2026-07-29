@@ -78,6 +78,8 @@ public sealed class SingleCycleTrain : ISteppableTrain {
     public BdiCache? L3Bdi => _core.ILayers.L3Bdi;
     public CeaserCache? L2Ceaser => _core.ILayers.L2Ceaser;
     public CeaserCache? L3Ceaser => _core.ILayers.L3Ceaser;
+    public ScatterCache? L2Scatter => _core.ILayers.L2Scatter;
+    public ScatterCache? L3Scatter => _core.ILayers.L3Scatter;
     public Tlb? ITlb => _core.ILayers.Tlb;
     public Tlb? DTlb => _core.DLayers.Tlb;
 
@@ -169,6 +171,8 @@ internal sealed class SingleCycleCore(
                                               || ILayers.L3Bdi is not null || DLayers.L3Bdi is not null
                                               || ILayers.L2Ceaser is not null || DLayers.L2Ceaser is not null
                                               || ILayers.L3Ceaser is not null || DLayers.L3Ceaser is not null
+                                              || ILayers.L2Scatter is not null || DLayers.L2Scatter is not null
+                                              || ILayers.L3Scatter is not null || DLayers.L3Scatter is not null
                                               || ILayers.Tlb is not null || DLayers.Tlb is not null;
         if (_anyCache)
             _cacheMissStallsCounter = Dials.AddCounter(
@@ -180,12 +184,14 @@ internal sealed class SingleCycleCore(
             _icacheMissesCounter = Dials.AddCounter("icache_misses", "L1 I-cache misses");
         }
 
-        if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null) {
+        if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null
+                                         || ILayers.L2Scatter is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
 
-        if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null) {
+        if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null
+                                         || ILayers.L3Scatter is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
@@ -195,12 +201,14 @@ internal sealed class SingleCycleCore(
             _dcacheMissesCounter = Dials.AddCounter("dcache_misses", "L1 D-cache misses");
         }
 
-        if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null) {
+        if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null
+                                         || DLayers.L2Scatter is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
 
-        if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null) {
+        if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null
+                                         || DLayers.L3Scatter is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
@@ -379,6 +387,9 @@ internal sealed class SingleCycleCore(
             ILayers.L2Ceaser, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
         );
         UpdateCacheStat(
+            ILayers.L2Scatter, _l2IcacheHitsCounter, _l2IcacheMissesCounter, ref _lastIl2Hits, ref _lastIl2Misses
+        );
+        UpdateCacheStat(
             ILayers.L3Cache, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(
@@ -386,6 +397,9 @@ internal sealed class SingleCycleCore(
         );
         UpdateCacheStat(
             ILayers.L3Ceaser, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
+        );
+        UpdateCacheStat(
+            ILayers.L3Scatter, _l3IcacheHitsCounter, _l3IcacheMissesCounter, ref _lastIl3Hits, ref _lastIl3Misses
         );
         UpdateCacheStat(DLayers.Cache, _dcacheHitsCounter, _dcacheMissesCounter, ref _lastDHits, ref _lastDMisses);
         UpdateCacheStat(
@@ -398,6 +412,9 @@ internal sealed class SingleCycleCore(
             DLayers.L2Ceaser, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
         );
         UpdateCacheStat(
+            DLayers.L2Scatter, _l2DcacheHitsCounter, _l2DcacheMissesCounter, ref _lastDl2Hits, ref _lastDl2Misses
+        );
+        UpdateCacheStat(
             DLayers.L3Cache, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
         UpdateCacheStat(
@@ -405,6 +422,9 @@ internal sealed class SingleCycleCore(
         );
         UpdateCacheStat(
             DLayers.L3Ceaser, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
+        );
+        UpdateCacheStat(
+            DLayers.L3Scatter, _l3DcacheHitsCounter, _l3DcacheMissesCounter, ref _lastDl3Hits, ref _lastDl3Misses
         );
         UpdateTlbStat(ILayers.Tlb, _itlbHitsCounter, _itlbMissesCounter, ref _lastITlbHits, ref _lastITlbMisses);
         UpdateTlbStat(DLayers.Tlb, _dtlbHitsCounter, _dtlbMissesCounter, ref _lastDTlbHits, ref _lastDTlbMisses);
@@ -441,6 +461,20 @@ internal sealed class SingleCycleCore(
 
     private static void UpdateCacheStat(
         CeaserCache? cache,
+        Counter? hitsCounter,
+        Counter? missesCounter,
+        ref long lastHits,
+        ref long lastMisses
+    ) {
+        if (cache is null) return;
+        hitsCounter!.IncrementBy(cache.Hits - lastHits);
+        missesCounter!.IncrementBy(cache.Misses - lastMisses);
+        lastHits = cache.Hits;
+        lastMisses = cache.Misses;
+    }
+
+    private static void UpdateCacheStat(
+        ScatterCache? cache,
         Counter? hitsCounter,
         Counter? missesCounter,
         ref long lastHits,

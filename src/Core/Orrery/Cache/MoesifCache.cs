@@ -18,6 +18,16 @@ namespace Orrery.Cache;
 ///     Must be registered with a shared <see cref="MoesifBus" /> that connects it to other caches
 ///     sharing the same physical address space.
 ///     Policy: write-back, write-allocate, LRU replacement.
+///     <para>
+///         <see cref="Sdid" /> identifies this cache's (hart's) Security-Domain ID for a
+///         <see cref="Orrery.Cache.ScatterCache" /> that might sit behind <see cref="IBus.Backing" /> —
+///         set once at construction (a MoesifCache instance represents one hart for its whole
+///         lifetime, unlike ScatterCache's own per-access <c>SetRequestSdid</c>) and forwarded via
+///         <see cref="IMemory.SetRequestSdid" /> before every direct access to
+///         <see cref="IBus.Backing" />, mirroring how the single-hart trains call
+///         <see cref="IMemory.SetRequestPc" /> before each access. A no-op when the shared LLC isn't
+///         a ScatterCache (the default no-op <see cref="IMemory.SetRequestSdid" /> implementation).
+///     </para>
 /// </summary>
 public sealed class MoesifCache : IMemory {
     private readonly byte[][][] _blocks;
@@ -39,7 +49,8 @@ public sealed class MoesifCache : IMemory {
         int ways,
         int blockSizeBytes,
         int missLatency = 0,
-        int peerSupplyLatency = -1
+        int peerSupplyLatency = -1,
+        int sdid = 0
     ) {
         ArgumentNullException.ThrowIfNull(bus);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacityBytes);
@@ -51,6 +62,7 @@ public sealed class MoesifCache : IMemory {
             throw new ArgumentException("Cache dimensions must be powers of 2.");
 
         _bus = bus;
+        Sdid = sdid;
         Ways = ways;
         BlockBytes = blockSizeBytes;
         int sets = capacityBytes / (ways * blockSizeBytes);
@@ -83,6 +95,9 @@ public sealed class MoesifCache : IMemory {
     }
 
     public int MissLatency { get; }
+
+    /// <summary>This hart's Security-Domain ID — see the class docs.</summary>
+    public int Sdid { get; }
 
     /// <summary>
     ///     Stall cycles charged when a read miss is filled cache-to-cache by a peer
@@ -133,6 +148,7 @@ public sealed class MoesifCache : IMemory {
             // then read backing directly. States and the directory are left untouched.
             ulong end = address + (ulong)bytes;
             for (ulong a = LineBase(address); a < end; a += (ulong)BlockBytes) _bus.BusSyncToBacking(a);
+            _bus.Backing.SetRequestSdid(Sdid);
             return _bus.Backing.Read(address, bytes);
         }
 
@@ -181,6 +197,7 @@ public sealed class MoesifCache : IMemory {
                 LocalInvalidate(a);
             }
 
+            _bus.Backing.SetRequestSdid(Sdid);
             _bus.Backing.Write(address, value, bytes);
             return;
         }
@@ -229,6 +246,7 @@ public sealed class MoesifCache : IMemory {
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
         // Bulk write directly to backing; invalidate all cached copies in every cache.
+        _bus.Backing.SetRequestSdid(Sdid);
         _bus.Backing.Load(address, data);
         ulong end = address + (ulong)data.Length;
         for (ulong a = LineBase(address); a < end; a += (ulong)BlockBytes) _bus.BusLoad(a);
@@ -281,12 +299,14 @@ public sealed class MoesifCache : IMemory {
     // ── Block fill / writeback ───────────────────────────────────────────────
 
     private void FillFromBacking(int set, int way, ulong lineBase) {
+        _bus.Backing.SetRequestSdid(Sdid);
         for (var i = 0; i < BlockBytes; i++) _blocks[set][way][i] = (byte)_bus.Backing.Read(lineBase + (ulong)i, 1);
     }
 
     private void WriteBackBlock(int set, int way) {
         ulong tag = _tags[set][way]!.Value;
         ulong lineBase = ReconstructLineBase(set, tag);
+        _bus.Backing.SetRequestSdid(Sdid);
         _bus.Writeback(lineBase, _blocks[set][way]);
         Writebacks++;
     }
@@ -408,6 +428,7 @@ public sealed class MoesifCache : IMemory {
     ///     state directly (a dirty line otherwise sits uncommitted until evicted).
     /// </summary>
     public void FlushToBacking() {
+        _bus.Backing.SetRequestSdid(Sdid);
         for (var s = 0; s < _tags.Length; s++)
         for (var w = 0; w < Ways; w++) {
             if (!IsDirty(_state[s][w]) || !_tags[s][w].HasValue) continue;

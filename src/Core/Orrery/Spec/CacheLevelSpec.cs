@@ -70,7 +70,8 @@ namespace Orrery.Spec;
 ///         see <see cref="MemoryConfig.L2Variant" /> for the flat-config equivalent. Mutually
 ///         exclusive with <see cref="Compression" />; same inclusion-cascade and ignored-field
 ///         behavior as a compressed level, plus <see cref="CeaserPartitions" />/
-///         <see cref="CeaserAplr" />/<see cref="CeaserSeed" />/<see cref="CeaserEncryptLatency" />.
+///         <see cref="CeaserAplr" />/<see cref="CeaserSeed" />/<see cref="CeaserEncryptLatency" />
+///         (CEASER) or <see cref="ScatterRekeyInterval" />/<see cref="ScatterSeed" /> (ScatterCache).
 ///     </para>
 /// </summary>
 public sealed record CacheLevelSpec(
@@ -106,6 +107,8 @@ public sealed record CacheLevelSpec(
     int CeaserAplr = 100,
     int CeaserSeed = 12345,
     int CeaserEncryptLatency = 2,
+    int ScatterRekeyInterval = 0,
+    int ScatterSeed = 12345,
     Func<int, int, IReplacementPolicy?>? PolicyFactory = null,
     Func<IPrefetcher?>? PrefetcherFactory = null
 ) {

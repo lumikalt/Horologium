@@ -37,18 +37,21 @@ public enum CompressionKind {
 }
 
 /// <summary>
-///     Randomized-index cache variant for a level, backed by <see cref="CeaserCache" /> — see its
-///     docs for why a keyed/periodically-remapped mapping is a wholly separate cache class rather
-///     than an option on <see cref="SetAssociativeCache" />. Only offered on L2/L3 (via
-///     <see cref="MemoryConfig.L2Variant" />/<see cref="MemoryConfig.L3Variant" />), matching both
-///     papers' own scope: they target the LLC. Mutually exclusive with <see cref="CompressionKind" />
-///     at the same level.
+///     Randomized-index cache variant for a level, backed by <see cref="CeaserCache" /> or
+///     <see cref="Orrery.Cache.ScatterCache" /> — see their docs for why a keyed/randomized mapping is
+///     a wholly separate cache class rather than an option on <see cref="SetAssociativeCache" />. Only
+///     offered on L2/L3 (via <see cref="MemoryConfig.L2Variant" />/<see cref="MemoryConfig.L3Variant" />),
+///     matching every paper's own scope: they target the LLC. Mutually exclusive with
+///     <see cref="CompressionKind" /> and with each other at the same level.
 /// </summary>
 public enum CacheVariantKind {
     None,
 
     /// <summary>CEASER (Qureshi, MICRO 2018) with 1 partition, or CEASER-S (Qureshi, ISCA 2019) with more — see <see cref="CeaserCache" />.</summary>
     Ceaser,
+
+    /// <summary>ScatterCache (Werner et al., USENIX Security 2019): independently-indexed ways — see <see cref="Orrery.Cache.ScatterCache" />.</summary>
+    ScatterCache,
 }
 
 public enum ReplacementPolicyKind {
@@ -326,6 +329,10 @@ public sealed record MemoryConfig(
     int L3CeaserSeed = 12345,
     int L2CeaserEncryptLatency = 2,
     int L3CeaserEncryptLatency = 2,
+    int L2ScatterRekeyInterval = 0,
+    int L3ScatterRekeyInterval = 0,
+    int L2ScatterSeed = 12345,
+    int L3ScatterSeed = 12345,
     int CacheCriticalWordLatency = 0,
     int L2CriticalWordLatency = 0,
     int L3CriticalWordLatency = 0,
@@ -375,7 +382,9 @@ public sealed record MemoryLayers(
     BdiCache? L2Bdi = null,
     BdiCache? L3Bdi = null,
     CeaserCache? L2Ceaser = null,
-    CeaserCache? L3Ceaser = null
+    CeaserCache? L3Ceaser = null,
+    ScatterCache? L2Scatter = null,
+    ScatterCache? L3Scatter = null
 ) {
     /// <summary>
     ///     Build a layer stack: backing → [L3] → [L2] → [L1] → [TLB].
@@ -391,6 +400,7 @@ public sealed record MemoryLayers(
         SetAssociativeCache? l3 = null, l2 = null, l1 = null;
         BdiCache? l3Bdi = null, l2Bdi = null;
         CeaserCache? l3Ceaser = null, l2Ceaser = null;
+        ScatterCache? l3Scatter = null, l2Scatter = null;
         Tlb? tlb = null;
 
         if (cfg.L3CapacityBytes > 0) {
@@ -408,6 +418,13 @@ public sealed record MemoryLayers(
                     cfg.L3WritePolicy
                 );
                 current = l3Ceaser;
+            }
+            else if (cfg.L3Variant == CacheVariantKind.ScatterCache) {
+                l3Scatter = new ScatterCache(
+                    current, cfg.L3CapacityBytes, cfg.L3Ways, cfg.L3BlockBytes, cfg.L3MissLatency,
+                    cfg.L3ScatterRekeyInterval, cfg.L3ScatterSeed, cfg.L3WritePolicy
+                );
+                current = l3Scatter;
             }
             else {
                 l3 = new SetAssociativeCache(
@@ -446,6 +463,15 @@ public sealed record MemoryLayers(
                 // SetAssociativeCache-only inclusion cascade.
                 current = l2Ceaser;
             }
+            else if (cfg.L2Variant == CacheVariantKind.ScatterCache) {
+                l2Scatter = new ScatterCache(
+                    current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
+                    cfg.L2ScatterRekeyInterval, cfg.L2ScatterSeed, cfg.L2WritePolicy
+                );
+                // Same rationale as l2Bdi/l2Ceaser above: ScatterCache doesn't participate in the
+                // SetAssociativeCache-only inclusion cascade.
+                current = l2Scatter;
+            }
             else {
                 l2 = new SetAssociativeCache(
                     current, cfg.L2CapacityBytes, cfg.L2Ways, cfg.L2BlockBytes, cfg.L2MissLatency,
@@ -478,11 +504,11 @@ public sealed record MemoryLayers(
                 )
             );
             // Cascade Inclusion across a plain (uncompressed, unvarianted) L2 only. Falling through
-            // to L3 when L2 exists but is compressed/randomized-index (l2Bdi/l2Ceaser set) would
-            // wrongly let L3 invalidate L1 directly, skipping that L2 in the cascade — so only fall
-            // through to L3 when L2 is entirely absent, not merely typed-null.
+            // to L3 when L2 exists but is compressed/randomized-index (l2Bdi/l2Ceaser/l2Scatter set)
+            // would wrongly let L3 invalidate L1 directly, skipping that L2 in the cascade — so only
+            // fall through to L3 when L2 is entirely absent, not merely typed-null.
             if (l2 is not null) l2.AttachInner(l1);
-            else if (l2Bdi is null && l2Ceaser is null) l3?.AttachInner(l1);
+            else if (l2Bdi is null && l2Ceaser is null && l2Scatter is null) l3?.AttachInner(l1);
             current = l1;
         }
 
@@ -494,7 +520,8 @@ public sealed record MemoryLayers(
         // Route a memory-mapped-I/O region straight to the backing, bypassing the
         // cache/TLB chain — only meaningful when something is cached above it.
         if (cfg.UncacheableSize > 0 &&
-            (l1 ?? l2 ?? l3 ?? (IMemory?)l2Bdi ?? l3Bdi ?? (IMemory?)l2Ceaser ?? l3Ceaser) is not null)
+            (l1 ?? l2 ?? l3 ?? (IMemory?)l2Bdi ?? l3Bdi ?? (IMemory?)l2Ceaser ?? l3Ceaser ??
+                (IMemory?)l2Scatter ?? l3Scatter) is not null)
             current = new UncacheableMemory(current, backing, cfg.UncacheableBase, cfg.UncacheableSize);
 
         IPrefetcher? prefetcher = l1 is not null
@@ -508,7 +535,7 @@ public sealed record MemoryLayers(
 
         return new MemoryLayers(
             current, l1, l2, l3, tlb, prefetcher, cfg.UncacheableBase, cfg.UncacheableSize, l2Bdi, l3Bdi,
-            l2Ceaser, l3Ceaser
+            l2Ceaser, l3Ceaser, l2Scatter, l3Scatter
         );
     }
 
@@ -556,12 +583,14 @@ public sealed record MemoryLayers(
         // Build from outermost to innermost so each layer wraps the one below it.
         // Order: shared levels (outermost first) → private levels (outermost-private first).
         IMemory current = backing;
-        // allCaches/allBdi/allCeaser are parallel to allSpecs (innermost-first, see below): exactly
-        // one of allCaches[i]/allBdi[i]/allCeaser[i] is non-null per position, matching a
-        // BΔI-compressed level's own L2Cache-is-null/L2Bdi-is-set convention on MemoryLayers itself.
+        // allCaches/allBdi/allCeaser/allScatter are parallel to allSpecs (innermost-first, see
+        // below): exactly one of allCaches[i]/allBdi[i]/allCeaser[i]/allScatter[i] is non-null per
+        // position, matching a BΔI-compressed level's own L2Cache-is-null/L2Bdi-is-set convention
+        // on MemoryLayers itself.
         var allCaches = new List<SetAssociativeCache?>();
         var allBdi = new List<BdiCache?>();
         var allCeaser = new List<CeaserCache?>();
+        var allScatter = new List<ScatterCache?>();
         var allSpecs = new List<CacheLevelSpec>();
 
         void BuildLevel(CacheLevelSpec s) {
@@ -575,6 +604,7 @@ public sealed record MemoryLayers(
                 allCaches.Insert(0, null);
                 allBdi.Insert(0, bdi);
                 allCeaser.Insert(0, null);
+                allScatter.Insert(0, null);
                 current = bdi;
             }
             else if (s.Variant == CacheVariantKind.Ceaser) {
@@ -585,7 +615,19 @@ public sealed record MemoryLayers(
                 allCaches.Insert(0, null);
                 allBdi.Insert(0, null);
                 allCeaser.Insert(0, ceaser);
+                allScatter.Insert(0, null);
                 current = ceaser;
+            }
+            else if (s.Variant == CacheVariantKind.ScatterCache) {
+                var scatter = new ScatterCache(
+                    current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency,
+                    s.ScatterRekeyInterval, s.ScatterSeed, s.WritePolicy
+                );
+                allCaches.Insert(0, null);
+                allBdi.Insert(0, null);
+                allCeaser.Insert(0, null);
+                allScatter.Insert(0, scatter);
+                current = scatter;
             }
             else {
                 int prefLat = s.Prefetcher != PrefetcherKind.None || s.PrefetcherFactory is not null
@@ -601,6 +643,7 @@ public sealed record MemoryLayers(
                 allCaches.Insert(0, cache);
                 allBdi.Insert(0, null);
                 allCeaser.Insert(0, null);
+                allScatter.Insert(0, null);
                 current = cache;
             }
 
@@ -621,12 +664,16 @@ public sealed record MemoryLayers(
             throw new ArgumentException(
                 "CacheLevelSpec: the innermost (L1) level cannot use the CEASER/CEASER-S variant."
             );
+        if (allSpecs.Count > 0 && allSpecs[0].Variant == CacheVariantKind.ScatterCache)
+            throw new ArgumentException(
+                "CacheLevelSpec: the innermost (L1) level cannot use the ScatterCache variant."
+            );
 
-        // allCaches/allBdi/allCeaser are innermost-first; wire each level's InclusionPolicy toward
-        // its inner neighbor. A compressed or variant level (null in allCaches) neither attaches an
-        // inner cache nor is attached by an outer one — it simply drops out of the
-        // SetAssociativeCache-only inclusion cascade, same as the flat-config path's documented "L3
-        // does not fall through to L1" rule when L2 is compressed.
+        // allCaches/allBdi/allCeaser/allScatter are innermost-first; wire each level's
+        // InclusionPolicy toward its inner neighbor. A compressed or variant level (null in
+        // allCaches) neither attaches an inner cache nor is attached by an outer one — it simply
+        // drops out of the SetAssociativeCache-only inclusion cascade, same as the flat-config
+        // path's documented "L3 does not fall through to L1" rule when L2 is compressed.
         for (var i = 1; i < allCaches.Count; i++)
             if (allCaches[i] is { } outer && allCaches[i - 1] is { } inner)
                 outer.AttachInner(inner);
@@ -660,13 +707,15 @@ public sealed record MemoryLayers(
         BdiCache? b2 = allBdi.Count > 2 ? allBdi[2] : null;
         CeaserCache? ce1 = allCeaser.Count > 1 ? allCeaser[1] : null;
         CeaserCache? ce2 = allCeaser.Count > 2 ? allCeaser[2] : null;
+        ScatterCache? sc1 = allScatter.Count > 1 ? allScatter[1] : null;
+        ScatterCache? sc2 = allScatter.Count > 2 ? allScatter[2] : null;
 
         // Real per-line eviction feedback for PPF's third training trigger (see PpfPrefetcher docs) —
         // wired only for PPF, not threaded through the cache constructor for every prefetcher/config.
         if (prefetcher is PpfPrefetcher ppf0 && c0 is not null) c0.OnEviction = ppf0.OnLineEvicted;
 
         return new MemoryLayers(
-            current, c0, c1, c2, tlb, prefetcher, uncacheableBase, uncacheableSize, b1, b2, ce1, ce2
+            current, c0, c1, c2, tlb, prefetcher, uncacheableBase, uncacheableSize, b1, b2, ce1, ce2, sc1, sc2
         );
     }
 
@@ -679,6 +728,8 @@ public sealed record MemoryLayers(
         (L3Bdi?.ConsumePendingStalls() ?? 0) +
         (L2Ceaser?.ConsumePendingStalls() ?? 0) +
         (L3Ceaser?.ConsumePendingStalls() ?? 0) +
+        (L2Scatter?.ConsumePendingStalls() ?? 0) +
+        (L3Scatter?.ConsumePendingStalls() ?? 0) +
         (Tlb?.ConsumePendingStalls() ?? 0);
 
     /// <summary>Advances write-back buffer drain by one entry across all cache levels.</summary>

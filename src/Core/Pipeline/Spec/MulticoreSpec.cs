@@ -22,12 +22,20 @@ public enum CoherenceBusKind { Snooping, Directory, }
 ///     four, with no cross-pool visibility or invalidation. Defaults to 0, so specs that never set
 ///     this build exactly one pool, unchanged from before this field existed.
 /// </param>
+/// <param name="Sdid">
+///     This hart's Security-Domain ID, forwarded to a shared <see cref="Orrery.Cache.ScatterCache" />
+///     LLC (see <see cref="MoesifCache.Sdid" />). <c>null</c> defaults to the hart's own index within
+///     <see cref="MulticoreSpec.Harts" /> — a sensible per-hart-isolated default — while still letting
+///     a caller explicitly share one SDID across harts (e.g. to model cooperating processes in the
+///     same domain) or test isolation directly. Ignored when the shared LLC isn't a ScatterCache.
+/// </param>
 public sealed record HartSpec(
     PipelineSpec Pipeline,
     Func<IMechanism> MechanismFactory,
     ulong EntryPoint = 0,
     CacheHierarchySpec? Cache = null,
-    int PoolId = 0
+    int PoolId = 0,
+    int? Sdid = null
 );
 
 /// <summary>
@@ -50,11 +58,13 @@ public sealed class MulticoreHandle {
         IReadOnlyDictionary<int, SetAssociativeCache?> sharedLlcs,
         MoesifCache?[] coherentCaches,
         int primaryPoolId,
-        DeferredBus[]? deferredBuses = null
+        DeferredBus[]? deferredBuses = null,
+        IReadOnlyDictionary<int, ScatterCache?>? sharedScatterLlcs = null
     ) {
         Trains = trains;
         Buses = buses;
         SharedLlcs = sharedLlcs;
+        SharedScatterLlcs = sharedScatterLlcs ?? new Dictionary<int, ScatterCache?>();
         CoherentCaches = coherentCaches;
         _primaryPoolId = primaryPoolId;
         _deferredBuses = deferredBuses;
@@ -81,6 +91,16 @@ public sealed class MulticoreHandle {
 
     /// <summary>Convenience accessor for the first hart's pool's shared LLC (see <see cref="Bus" />).</summary>
     public SetAssociativeCache? SharedLlc => SharedLlcs.GetValueOrDefault(_primaryPoolId);
+
+    /// <summary>
+    ///     Shared LLC for each pool id in use, when built as a <see cref="Orrery.Cache.ScatterCache" />
+    ///     via <see cref="CacheLevelSpec.Variant" /> — mirrors <see cref="SharedLlcs" /> for the
+    ///     ScatterCache variant (see <see cref="MulticoreSpec.SharedLlc" />'s docs on that field).
+    /// </summary>
+    public IReadOnlyDictionary<int, ScatterCache?> SharedScatterLlcs { get; }
+
+    /// <summary>Convenience accessor for the first hart's pool's shared ScatterCache LLC (see <see cref="Bus" />).</summary>
+    public ScatterCache? SharedScatterLlc => SharedScatterLlcs.GetValueOrDefault(_primaryPoolId);
 
     /// <summary>
     ///     Outermost coherent (bus-facing) private cache per hart; null means that hart has no private cache.
@@ -123,6 +143,7 @@ public sealed class MulticoreHandle {
     /// </summary>
     public void FlushAllToBacking() {
         foreach (SetAssociativeCache? llc in SharedLlcs.Values) llc?.FlushAllToBacking();
+        foreach (ScatterCache? llc in SharedScatterLlcs.Values) llc?.FlushAllToBacking();
         foreach (MoesifCache? cc in CoherentCaches) cc?.FlushToBacking();
     }
 }
@@ -173,6 +194,7 @@ public sealed record MulticoreSpec(
 
         var busesByPool = new Dictionary<int, IBus>(poolIds.Count);
         var llcsByPool = new Dictionary<int, SetAssociativeCache?>(poolIds.Count);
+        var scatterLlcsByPool = new Dictionary<int, ScatterCache?>(poolIds.Count);
         var moesifBusesByPool = new Dictionary<int, MoesifBus>(poolIds.Count);
 
         foreach (int poolId in poolIds) {
@@ -190,18 +212,47 @@ public sealed record MulticoreSpec(
             ReservationTable? table = TableForPool(poolId);
             IMemory reservationAwareBacking = table is { } t ? new ReservationAwareMemory(backing, t) : backing;
 
-            // 1. Optional shared LLC wrapping raw backing — one fresh instance per pool.
-            SetAssociativeCache? llc = SharedLlc is { } llcSpec
-                ? new SetAssociativeCache(
+            // 1. Optional shared LLC wrapping raw backing — one fresh instance per pool. A
+            // ScatterCache-variant spec is the one place in this class where a hart-varying SDID
+            // (see HartSpec.Sdid / MoesifCache.Sdid) actually means anything — see ScatterCache's
+            // own class docs for why. Other Variant/Compression kinds are not (yet) wired into this
+            // shared-LLC surface; throw rather than silently building a plain SetAssociativeCache
+            // that drops the requested Variant/Compression, since a caller configuring e.g. CEASER
+            // or BΔI here would otherwise get no error and no protection/compression either.
+            SetAssociativeCache? llc = null;
+            ScatterCache? scatterLlc = null;
+            if (SharedLlc is { Variant: CacheVariantKind.ScatterCache, } scatterSpec) {
+                scatterLlc = new ScatterCache(
+                    reservationAwareBacking,
+                    scatterSpec.CapacityBytes, scatterSpec.Ways, scatterSpec.BlockBytes, scatterSpec.MissLatency,
+                    scatterSpec.ScatterRekeyInterval, scatterSpec.ScatterSeed, scatterSpec.WritePolicy
+                );
+            }
+            else if (SharedLlc is { Variant: not CacheVariantKind.None, } unsupportedVariant) {
+                throw new NotSupportedException(
+                    $"MulticoreSpec.SharedLlc does not support Variant={unsupportedVariant.Variant} " +
+                    "at the shared-LLC surface (only None and ScatterCache are wired here)."
+                );
+            }
+            else if (SharedLlc is { Compression: not CompressionKind.None, } unsupportedCompression) {
+                throw new NotSupportedException(
+                    $"MulticoreSpec.SharedLlc does not support Compression={unsupportedCompression.Compression} " +
+                    "at the shared-LLC surface (only Compression.None is wired here)."
+                );
+            }
+            else if (SharedLlc is { } llcSpec) {
+                llc = new SetAssociativeCache(
                     reservationAwareBacking,
                     llcSpec.CapacityBytes, llcSpec.Ways, llcSpec.BlockBytes,
                     llcSpec.MissLatency, 0, llcSpec.ReplacementPolicy,
                     llcSpec.TagLatency, llcSpec.DataLatency,
                     llcSpec.WritePolicy, llcSpec.WriteMissPolicy, llcSpec.WbCapacity
-                )
-                : null;
+                );
+            }
+
             llcsByPool[poolId] = llc;
-            IMemory busBacking = llc ?? reservationAwareBacking;
+            scatterLlcsByPool[poolId] = scatterLlc;
+            IMemory busBacking = llc ?? (IMemory?)scatterLlc ?? reservationAwareBacking;
 
             // 2. Coherence bus behind this pool's per-hart caches — one fresh instance per pool. A
             // write a hart's private cache absorbs (Modified state) never reaches
@@ -237,6 +288,7 @@ public sealed record MulticoreSpec(
         var coherentCaches = new MoesifCache?[Harts.Count];
         for (var i = 0; i < Harts.Count; i++) {
             HartSpec hart = Harts[i];
+            int sdid = hart.Sdid ?? i;
             IBus hartBus = deferredBuses?[i] ?? busesByPool[hart.PoolId];
             IMemory hartMemory;
             if (hart.Cache is { } cacheHierarchy) {
@@ -256,7 +308,8 @@ public sealed record MulticoreSpec(
                     // Outermost level (last in list) → MoesifCache on the hart's (possibly deferred) bus.
                     CacheLevelSpec outerSpec = allLevels[^1];
                     var moesif = new MoesifCache(
-                        hartBus, outerSpec.CapacityBytes, outerSpec.Ways, outerSpec.BlockBytes, outerSpec.MissLatency
+                        hartBus, outerSpec.CapacityBytes, outerSpec.Ways, outerSpec.BlockBytes, outerSpec.MissLatency,
+                        sdid: sdid
                     );
                     coherentCaches[i] = moesif;
                     IMemory current = moesif;
@@ -274,15 +327,17 @@ public sealed record MulticoreSpec(
 
                     hartMemory = current;
                 }
-                else { hartMemory = new BusCoherentMemory(hartBus); }
+                else { hartMemory = new BusCoherentMemory(hartBus, sdid); }
             }
-            else { hartMemory = new BusCoherentMemory(hartBus); }
+            else { hartMemory = new BusCoherentMemory(hartBus, sdid); }
 
             trains[i] = hart.Pipeline.Build(hart.MechanismFactory(), hartMemory, hart.EntryPoint);
         }
 
         int primaryPoolId = Harts.Count > 0 ? Harts[0].PoolId : 0;
-        return new MulticoreHandle(trains, busesByPool, llcsByPool, coherentCaches, primaryPoolId, deferredBuses);
+        return new MulticoreHandle(
+            trains, busesByPool, llcsByPool, coherentCaches, primaryPoolId, deferredBuses, scatterLlcsByPool
+        );
 
         // PoolReservationTables, when set, is the sole source of truth for every pool (including
         // pool 0) — combining it with the singular ReservationTable below would leave two ambiguous

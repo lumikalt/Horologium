@@ -1529,10 +1529,83 @@ classification, and `OooeTrain`'s microarchitectural checkpoint (`IL2CEASER`/`DL
 `IL3CEASER`/`DL3CEASER` sections) all fold `L2Ceaser`/`L3Ceaser` in alongside the typed
 `L2Cache`/`L3Cache` and `L2Bdi`/`L3Bdi`.
 
-ScatterCache (Werner et al., USENIX Security 2019) — way-separate skewed-associative indexing with
-SDID-based security-domain isolation — is deferred to a follow-up pass: structurally distinct from
-CEASER's shared-index-per-set model, it needs its own SDID plumbing (mirroring `IMemory.SetRequestPc`)
-and is large enough to warrant separate implementation.
+`ScatterCache` implements ScatterCache (Werner, Unterluggauer, Giner, Schwarz, Gruss, Mangard,
+USENIX Security 2019) — a cache where each of the `nways` ways is indexed *independently* by a
+keyed, security-domain-aware Index Derivation Function (IDF), rather than CEASER's single shared
+index per set. No fixed "set" of `nways` lines exists for a given address: the lines that happen to
+hold an address's data are usually scattered across `nways` different rows, one per way, computed
+separately. This makes building the full eviction sets Prime+Probe needs (addresses that collide
+across *every* way at once) combinatorially harder than defeating a single shared index, on top of
+the address→index unpredictability CEASER already provides. It's a standalone `IMemory` class, not
+a `CeaserCache` extension: CEASER's shape (one shared set index, all ways of that set considered
+together) has no way to represent "each way has its own independently-computed row" — there's no
+single set for `IReplacementPolicy.ChooseVictim` to operate over, so `ScatterCache` needed its own
+per-way (not per-set) parallel tag/block/dirty arrays.
+
+Same plaintext-line-address-as-tag simplification as `CeaserCache`, same rationale: the papers'
+hardware needs an invertible cipher because it stores the *encrypted* address as the tag; a
+functional simulator storing the plaintext address sidesteps invertibility entirely. This also means
+the paper's SCv1 (hashing) variant is sufficient — SCv2's tag-dependent permutation exists purely to
+avoid *performance*-degrading birthday-bound index collisions in real hardware, not a correctness
+concern here. The IDF is the same murmur3 `fmix64` avalanche mix `CeaserCache.SetIndex` uses, with
+the way index and the Security-Domain ID (SDID, see below) folded in before avalanching alongside
+the key, so each way and each domain get an independent mapping for the same address.
+
+Replacement is uniform-random among the `nways` candidates — hardcoded, not `IReplacementPolicy`-
+pluggable (the paper mandates this specifically to avoid a systematic bias and simplify security
+analysis, and no `IReplacementPolicy` could express the per-way-independent shape anyway). A miss
+first checks whether any of the `nways` candidate slots is empty and fills there; only once every
+candidate is occupied does it draw a uniformly random way to evict. Rekeying is always a full flush,
+not CEASER's incremental sweep: the paper is explicit that a key change means flushing every dirty
+line (write-back mode) then invalidating everything before drawing a fresh key — `Rekey()` does this
+on demand, and an optional `RekeyInterval` (0 = manual only, matching the paper's own stated
+preference for occasional flushes over added remap hardware) triggers it automatically.
+
+**Security-Domain ID (SDID).** `IMemory.SetRequestSdid(int)` is a default-no-op pass-through
+mirroring `IMemory.SetRequestPc`'s "supply extra addressing context before the next access"
+pattern — consulted by every `ScatterCache` lookup. In the single-hart pipeline
+(`MemoryConfig`/`CacheLevelSpec`/`TrainConfig`) SDID always defaults to 0, matching the paper's own
+"still provides protection without software support" fallback; there's no per-hart-varying source
+in that path to plumb it from. The one place a genuinely varying SDID matters is the multi-hart
+coherence topology: `HartSpec.Sdid` (defaults to the hart's own index in `MulticoreSpec.Harts`, so
+each hart is isolated by default while still allowing an explicit shared SDID for cooperating
+harts) flows into `MoesifCache.Sdid` — set once at construction, since a hart's identity doesn't
+change — and every direct `_bus.Backing.*` access `MoesifCache` makes calls
+`SetRequestSdid(Sdid)` immediately first, mirroring how `SetRequestPc` is already threaded through.
+`BusCoherentMemory` (the no-private-cache wrapper) does the same with its own `sdid` constructor
+parameter. A resident line's location depends on which SDID it was written under — a bulk backing
+write (`Load`, used for coherence writebacks and initial program images) only invalidates a
+`ScatterCache` line if it still resolves under the *current* SDID at call time, matching the
+paper's own explicit constraint that software is responsible for not leaving dirty lines behind
+when reassigning a domain, not a bug to work around.
+
+Scope matches `CeaserCache`/`BdiCache`'s fidelity level: no sectoring, MSHR modeling, victim buffer,
+bus banking, or inclusion cascade. `GetSnapshot()` (per-line `(Way, Row, Valid, Address, Dirty)`
+introspection) and `IdfRow(way, address)` (the row an address currently maps to in one way under the
+current SDID, non-mutating) mirror `CeaserCache`'s own introspection surface. Selectable per level
+via `MemoryConfig.L2Variant`/`L3Variant` (`CacheVariantKind.{None,Ceaser,ScatterCache}`, plus
+`L2ScatterRekeyInterval`/`L3ScatterRekeyInterval`/`L2ScatterSeed`/`L3ScatterSeed`), or
+`CacheHardwareConfig.ScatterRekeyInterval`/`ScatterSeed` on the `L2Cache`/`L3Cache` entries of
+`TrainConfig` JSON — mutually exclusive with `Compression` and with CEASER, same L1-exclusion as
+BΔI/CEASER. When a level uses the ScatterCache variant, `MemoryLayers.Build` constructs a
+`ScatterCache` for it instead of a `SetAssociativeCache`; that level's stats live on the new
+`L2Scatter`/`L3Scatter` properties, mirroring `L2Ceaser`/`L3Ceaser` exactly: `ConsumeAllStalls()`,
+every train's dial counters and CPI-stack miss classification, and `OooeTrain`'s microarchitectural
+checkpoint (`IL2SCATTER`/`DL2SCATTER`/`IL3SCATTER`/`DL3SCATTER` sections) all fold `L2Scatter`/
+`L3Scatter` in alongside the typed `L2Cache`/`L3Cache`, `L2Bdi`/`L3Bdi`, and `L2Ceaser`/`L3Ceaser`.
+
+At the multi-hart shared-LLC surface (`MulticoreSpec.SharedLlc`), a ScatterCache-variant
+`CacheLevelSpec` builds a `ScatterCache` instead of a `SetAssociativeCache`, exposed via
+`MulticoreHandle.SharedScatterLlc`/`SharedScatterLlcs` (mirroring `SharedLlc`/`SharedLlcs`) and
+drained by `FlushAllToBacking()`. This is the one surface in `MulticoreSpec` where `HartSpec.Sdid`
+means anything — other `Variant`/`Compression` kinds (CEASER, BΔI) aren't wired into the shared-LLC
+path and a `SharedLlc` spec requesting one throws `NotSupportedException` rather than silently
+falling back to a plain cache with the requested protection/compression dropped.
+
+Purnal & Verbauwhede's ScatterCache-profiling follow-up (arXiv 2019) found that real-world
+eviction-set construction against ScatterCache is faster than the original paper's own threat model
+assumed — a caveat about the defense's real-world strength, not a mechanism this simulator models;
+noted here for reference only.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

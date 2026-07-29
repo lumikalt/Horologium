@@ -357,6 +357,7 @@ public partial class AssemblerViewModel : ObservableObject {
     [ObservableProperty] public partial int L2CacheSegmentBytes { get; set; } = 8;
     [ObservableProperty] public partial string L2CacheVariant { get; set; } = "none";
     [ObservableProperty] public partial int L2CeaserPartitions { get; set; } = 1;
+    [ObservableProperty] public partial int L2ScatterRekeyInterval { get; set; } = 0;
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
     [ObservableProperty] public partial string DCachePrefetcher { get; set; } = "none";
     [ObservableProperty] public partial int DCachePrefetcherTableSize { get; set; } = 64;
@@ -408,7 +409,7 @@ public partial class AssemblerViewModel : ObservableObject {
     public static IReadOnlyList<string> WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
     public static IReadOnlyList<string> InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
     public static IReadOnlyList<string> CompressionOptions { get; } = ["none", "bdi",];
-    public static IReadOnlyList<string> CacheVariantOptions { get; } = ["none", "ceaser",];
+    public static IReadOnlyList<string> CacheVariantOptions { get; } = ["none", "ceaser", "scattercache",];
 
     public string CacheMetadataLabel => CacheReplacementPolicy switch {
         "srrip" or "brrip" or "drrip" or "ship" or "ship_pc" or "hawkeye" => "RRPV",
@@ -1168,8 +1169,11 @@ public partial class AssemblerViewModel : ObservableObject {
     private static CompressionKind ParseCompression(string s) =>
         s == "bdi" ? CompressionKind.Bdi : CompressionKind.None;
 
-    private static CacheVariantKind ParseCacheVariant(string s) =>
-        s == "ceaser" ? CacheVariantKind.Ceaser : CacheVariantKind.None;
+    private static CacheVariantKind ParseCacheVariant(string s) => s switch {
+        "ceaser"       => CacheVariantKind.Ceaser,
+        "scattercache" => CacheVariantKind.ScatterCache,
+        _              => CacheVariantKind.None,
+    };
 
     private static MemoryConfig BuildCacheConfig(
         bool enabled,
@@ -1255,6 +1259,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2SegmentBytes = L2CacheSegmentBytes,
                 L2Variant = l2Variant,
                 L2CeaserPartitions = L2CeaserPartitions,
+                L2ScatterRekeyInterval = L2ScatterRekeyInterval,
             };
             dCfg = dCfg with {
                 L2CapacityBytes = L2CacheCapacityKb * 1024,
@@ -1277,6 +1282,7 @@ public partial class AssemblerViewModel : ObservableObject {
                 L2SegmentBytes = L2CacheSegmentBytes,
                 L2Variant = l2Variant,
                 L2CeaserPartitions = L2CeaserPartitions,
+                L2ScatterRekeyInterval = L2ScatterRekeyInterval,
             };
         }
 

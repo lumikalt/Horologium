@@ -84,13 +84,27 @@ off here until a periodic cleanup removes them; the durable record is git histor
   into a uniformly-random partition. This does not model or claim cryptographic hardness against a
   real attacker — only the mapping-randomization/periodic-remap behavior that affects miss rate,
   latency, and data placement.
-- [ ] ScatterCache: way-separate skewed-associative randomized indexing (an Index Derivation
+- [x] ScatterCache: way-separate skewed-associative randomized indexing (an Index Derivation
   Function maps address+key to a distinct index per way-array) with SDID-based security-domain
-  isolation. — Werner et al., USENIX Security 2019. Deferred from the CEASER/CEASER-S pass above:
-  structurally distinct from CEASER's shared-index-per-set model (needs `IMemory.SetRequestPc`-style
-  SDID plumbing, no per-set replacement policy in the usual sense), large enough to warrant its own
-  pass. Purnal & Verbauwhede's follow-up eviction-set-profiling attack (arXiv 2019) is not a
-  mechanism to implement — note it as a documentation caveat when ScatterCache lands (their
+  isolation. — Werner et al., USENIX Security 2019. New `ScatterCache : IMemory` (L2/L3 only, same
+  restriction as BΔI/CEASER), a from-scratch class rather than a `CeaserCache` extension: CEASER's
+  shared-index-per-set model has no way to represent "each way computes its own independent row",
+  so this needed its own per-way (not per-set) parallel arrays. SCv1 (hashing) is the variant
+  modeled — SCv2's tag-dependent permutation exists purely to avoid birthday-bound index collisions
+  in real hardware, not a correctness concern here. Same plaintext-line-address-as-tag
+  simplification as CEASER (no invertible cipher needed). Random replacement among the `nways`
+  candidates is hardcoded (not `IReplacementPolicy`-pluggable) per the paper's own mandate; fills
+  prefer an empty candidate slot over evicting when one exists. Rekeying is always a full flush
+  (write-back: flush dirty lines, then invalidate everything, then draw a fresh key) rather than
+  CEASER's incremental SPtr/ACtr sweep — the paper is explicit that dynamic remapping's added
+  hardware complexity may not be worth it versus an occasional flush. Security-Domain ID (SDID) is
+  plumbed two ways: `IMemory.SetRequestSdid`, a default-no-op pass-through mirroring
+  `SetRequestPc` (SDID always 0 in the single-hart pipeline, matching the paper's own
+  "still protects without software support" fallback), and — the surface where SDID actually varies
+  per access — `HartSpec.Sdid`/`MoesifCache.Sdid`/`MulticoreSpec`'s shared-LLC construction, so a
+  real multi-hart shared-ScatterCache-LLC scenario gets genuinely different SDIDs per hart
+  (default: hart's own index). Purnal & Verbauwhede's follow-up eviction-set-profiling attack
+  (arXiv 2019) is not implemented as a mechanism — documented as a caveat in `README.md` (their
   profiling technique is faster than the original paper's own threat model assumed).
 
 ## Benchmarks

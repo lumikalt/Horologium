@@ -54,7 +54,13 @@ public sealed record CacheHardwareConfig(
     int CeaserPartitions = 1,
     int CeaserAplr = 100,
     int CeaserSeed = 12345,
-    int CeaserEncryptLatency = 2
+    int CeaserEncryptLatency = 2,
+    // ScatterCache (Werner et al., USENIX Security 2019): only meaningful on L2Cache/L3Cache — a
+    // ScatterCache, not a SetAssociativeCache, backs that level when set. Mutually exclusive with
+    // Compression (and with CEASER, since Variant is a single enum value); ignored on ICache/DCache,
+    // matching the paper's own LLC-scoped evaluation (see MemoryConfig.CacheVariantKind docs).
+    int ScatterRekeyInterval = 0,
+    int ScatterSeed = 12345
 );
 
 /// <summary>
@@ -366,6 +372,10 @@ public sealed record TrainConfig(
             L2CeaserSeed: l2?.CeaserSeed ?? 12345,
             L3CeaserSeed: l3?.CeaserSeed ?? 12345,
             L2CeaserEncryptLatency: l2?.CeaserEncryptLatency ?? 2,
-            L3CeaserEncryptLatency: l3?.CeaserEncryptLatency ?? 2
+            L3CeaserEncryptLatency: l3?.CeaserEncryptLatency ?? 2,
+            L2ScatterRekeyInterval: l2?.ScatterRekeyInterval ?? 0,
+            L3ScatterRekeyInterval: l3?.ScatterRekeyInterval ?? 0,
+            L2ScatterSeed: l2?.ScatterSeed ?? 12345,
+            L3ScatterSeed: l3?.ScatterSeed ?? 12345
         );
 }

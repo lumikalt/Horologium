@@ -26,19 +26,29 @@ namespace Orrery.Cache;
 ///         every hart is uncached) the snoop calls are no-ops and this class behaves exactly like
 ///         wiring straight to <see cref="IBus.Backing" />.
 ///     </para>
+///     <para>
+///         <paramref name="sdid" /> is this hart's Security-Domain ID for a
+///         <see cref="Orrery.Cache.ScatterCache" /> that might sit behind <see cref="IBus.Backing" /> —
+///         set once at construction (mirroring <see cref="MoesifCache.Sdid" />, since a hart's
+///         identity doesn't change) and forwarded via <see cref="IMemory.SetRequestSdid" /> before
+///         every direct backing access.
+///     </para>
 /// </summary>
-public sealed class BusCoherentMemory(IBus bus) : IMemory {
+public sealed class BusCoherentMemory(IBus bus, int sdid = 0) : IMemory {
     public ulong Read(ulong address, int bytes) {
         ForEachLine(address, bytes, bus.BusSyncToBacking);
+        bus.Backing.SetRequestSdid(sdid);
         return bus.Backing.Read(address, bytes);
     }
 
     public void Write(ulong address, ulong value, int bytes) {
         ForEachLine(address, bytes, lineBase => bus.BusReadInvalidate(null, lineBase));
+        bus.Backing.SetRequestSdid(sdid);
         bus.Backing.Write(address, value, bytes);
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
+        bus.Backing.SetRequestSdid(sdid);
         bus.Backing.Load(address, data);
         ForEachLine(address, data.Length, bus.BusLoad);
     }

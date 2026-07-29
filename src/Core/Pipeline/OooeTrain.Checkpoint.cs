@@ -137,6 +137,10 @@ internal sealed partial class OoOPipelineCore {
         if (DLayers.L2Ceaser is not null) sections.Add(("DL2CEASER", DLayers.L2Ceaser.WriteState));
         if (ILayers.L3Ceaser is not null) sections.Add(("IL3CEASER", ILayers.L3Ceaser.WriteState));
         if (DLayers.L3Ceaser is not null) sections.Add(("DL3CEASER", DLayers.L3Ceaser.WriteState));
+        if (ILayers.L2Scatter is not null) sections.Add(("IL2SCATTER", ILayers.L2Scatter.WriteState));
+        if (DLayers.L2Scatter is not null) sections.Add(("DL2SCATTER", DLayers.L2Scatter.WriteState));
+        if (ILayers.L3Scatter is not null) sections.Add(("IL3SCATTER", ILayers.L3Scatter.WriteState));
+        if (DLayers.L3Scatter is not null) sections.Add(("DL3SCATTER", DLayers.L3Scatter.WriteState));
         if (ILayers.Tlb is not null) sections.Add(("ITLB", ILayers.Tlb.WriteState));
         if (DLayers.Tlb is not null) sections.Add(("DTLB", DLayers.Tlb.WriteState));
         // Tagged with the predictor's concrete type so a restore into a differently-configured
@@ -203,6 +207,10 @@ internal sealed partial class OoOPipelineCore {
         if (DLayers.L2Ceaser is not null) chk.TryRestoreSection("DL2CEASER", DLayers.L2Ceaser.ReadState);
         if (ILayers.L3Ceaser is not null) chk.TryRestoreSection("IL3CEASER", ILayers.L3Ceaser.ReadState);
         if (DLayers.L3Ceaser is not null) chk.TryRestoreSection("DL3CEASER", DLayers.L3Ceaser.ReadState);
+        if (ILayers.L2Scatter is not null) chk.TryRestoreSection("IL2SCATTER", ILayers.L2Scatter.ReadState);
+        if (DLayers.L2Scatter is not null) chk.TryRestoreSection("DL2SCATTER", DLayers.L2Scatter.ReadState);
+        if (ILayers.L3Scatter is not null) chk.TryRestoreSection("IL3SCATTER", ILayers.L3Scatter.ReadState);
+        if (DLayers.L3Scatter is not null) chk.TryRestoreSection("DL3SCATTER", DLayers.L3Scatter.ReadState);
         if (ILayers.Tlb is not null) chk.TryRestoreSection("ITLB", ILayers.Tlb.ReadState);
         if (DLayers.Tlb is not null) chk.TryRestoreSection("DTLB", DLayers.Tlb.ReadState);
         string predictorType = _predictor.GetType().FullName ?? "";

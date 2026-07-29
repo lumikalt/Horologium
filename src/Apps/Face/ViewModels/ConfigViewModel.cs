@@ -160,6 +160,8 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial int L2CeaserPartitions { get; set; } = 1;
 
+    [ObservableProperty] public partial int L2ScatterRekeyInterval { get; set; } = 0;
+
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     [ObservableProperty] public partial string DPrefetcher { get; set; } = "none";
@@ -223,7 +225,7 @@ public partial class ConfigViewModel : ObservableObject {
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
     public static string[] InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
     public static string[] CompressionOptions { get; } = ["none", "bdi",];
-    public static string[] CacheVariantOptions { get; } = ["none", "ceaser",];
+    public static string[] CacheVariantOptions { get; } = ["none", "ceaser", "scattercache",];
 
     public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo", "cpr", "dae",];
 
@@ -314,10 +316,17 @@ public partial class ConfigViewModel : ObservableObject {
 
     private static string FormatCompression(CompressionKind k) => k == CompressionKind.Bdi ? "bdi" : "none";
 
-    private static CacheVariantKind ParseCacheVariant(string s) =>
-        s == "ceaser" ? CacheVariantKind.Ceaser : CacheVariantKind.None;
+    private static CacheVariantKind ParseCacheVariant(string s) => s switch {
+        "ceaser"       => CacheVariantKind.Ceaser,
+        "scattercache" => CacheVariantKind.ScatterCache,
+        _              => CacheVariantKind.None,
+    };
 
-    private static string FormatCacheVariant(CacheVariantKind k) => k == CacheVariantKind.Ceaser ? "ceaser" : "none";
+    private static string FormatCacheVariant(CacheVariantKind k) => k switch {
+        CacheVariantKind.Ceaser       => "ceaser",
+        CacheVariantKind.ScatterCache => "scattercache",
+        _                             => "none",
+    };
 
     public NamedConfig ToNamedConfig() {
         BranchPredictorConfig? predictor = PredictorType switch {
@@ -379,7 +388,8 @@ public partial class ConfigViewModel : ObservableObject {
                 L2CacheVictimCacheEntries, L2CacheVictimCacheHitLatency,
                 ParseInclusionPolicy(L2CacheInclusionPolicy),
                 ParseCompression(L2CacheCompression), L2CacheSegmentBytes,
-                ParseCacheVariant(L2CacheVariant), L2CeaserPartitions
+                ParseCacheVariant(L2CacheVariant), L2CeaserPartitions,
+                ScatterRekeyInterval: L2ScatterRekeyInterval
             )
             : null;
 
@@ -562,6 +572,7 @@ public partial class ConfigViewModel : ObservableObject {
             vm.L2CacheSegmentBytes = l2.SegmentBytes;
             vm.L2CacheVariant = FormatCacheVariant(l2.Variant);
             vm.L2CeaserPartitions = l2.CeaserPartitions;
+            vm.L2ScatterRekeyInterval = l2.ScatterRekeyInterval;
         }
 
         return vm;

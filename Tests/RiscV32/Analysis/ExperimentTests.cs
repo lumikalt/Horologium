@@ -171,6 +171,27 @@ public class ExperimentTests {
     }
 
     [Fact]
+    public void TrainConfig_L2VariantScatterCache_ReachesScatterCacheInstance() {
+        // Regression guard for the CacheHardwareConfig.Variant -> MemoryConfig.L2Variant ->
+        // ScatterCache wiring in MemoryLayers.Build: a config-level typo or a dropped field would
+        // silently fall back to a plain SetAssociativeCache, and no ScatterCache-direct unit test
+        // would ever catch it, since none of them go through this config path.
+        var cfg = new TrainConfig(
+            DCache: new CacheHardwareConfig(4096, 2, 32, 8),
+            L2Cache: new CacheHardwareConfig(
+                65536, 8, 32, 20, Variant: CacheVariantKind.ScatterCache, ScatterRekeyInterval: 500
+            )
+        );
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        Assert.Equal(CacheVariantKind.ScatterCache, dMem.L2Variant);
+        Assert.Equal(500, dMem.L2ScatterRekeyInterval);
+
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
+        Assert.Null(dLayers.L2Cache); // a ScatterCache-variant level is not a SetAssociativeCache
+        Assert.IsType<ScatterCache>(dLayers.L2Scatter);
+    }
+
+    [Fact]
     public void TrainConfig_EnableSttExpOnly_ReachesOooTrainSttMachinery() {
         // Regression guard for TrainConfig.EnableSttExpOnly -> OutOfOrderSpec.EnableSttExpOnly ->
         // OooTrain(enableSttExpOnly:) wiring: a dropped parameter anywhere along that chain would

@@ -194,6 +194,127 @@ public class MulticoreSpecTests {
         Assert.Null(handle.SharedLlc);
     }
 
+    // ── Shared ScatterCache LLC + per-hart SDID ───────────────────────────────
+
+    [Fact]
+    public void SharedScatterLlc_IsExposedAndNonNull_WhenConfigured() {
+        // Regression guard for CacheLevelSpec.Variant -> MulticoreSpec.Build's shared-LLC branch: a
+        // dropped/mistyped Variant check would silently fall back to a plain SetAssociativeCache.
+        var llcSpec = new CacheLevelSpec(
+            65536, 8, 64, 30, Variant: CacheVariantKind.ScatterCache, ScatterRekeyInterval: 500
+        );
+        MulticoreHandle handle = new MulticoreSpec(
+            [new HartSpec(new SingleCycleSpec(), Rv32()), new HartSpec(new SingleCycleSpec(), Rv32()),],
+            llcSpec
+        ).Build(new FlatMemory(0x10000));
+
+        Assert.NotNull(handle.SharedScatterLlc);
+        Assert.Null(handle.SharedLlc); // a ScatterCache-variant LLC is not a SetAssociativeCache
+    }
+
+    [Fact]
+    public void SharedLlc_UnsupportedVariant_Throws() {
+        // Ceaser at the shared-LLC surface isn't wired (only None/ScatterCache are); this must throw
+        // rather than silently fall back to a plain SetAssociativeCache that drops the requested CEASER
+        // protection with no error.
+        var llcSpec = new CacheLevelSpec(65536, 8, 64, 30, Variant: CacheVariantKind.Ceaser);
+        Assert.Throws<NotSupportedException>(
+            () => new MulticoreSpec(
+                [new HartSpec(new SingleCycleSpec(), Rv32()), new HartSpec(new SingleCycleSpec(), Rv32()),],
+                llcSpec
+            ).Build(new FlatMemory(0x10000))
+        );
+    }
+
+    [Fact]
+    public void SharedLlc_UnsupportedCompression_Throws() {
+        // BΔI at the shared-LLC surface isn't wired either; same silent-fallback hazard as Variant.
+        var llcSpec = new CacheLevelSpec(65536, 8, 64, 30, Compression: CompressionKind.Bdi);
+        Assert.Throws<NotSupportedException>(
+            () => new MulticoreSpec(
+                [new HartSpec(new SingleCycleSpec(), Rv32()), new HartSpec(new SingleCycleSpec(), Rv32()),],
+                llcSpec
+            ).Build(new FlatMemory(0x10000))
+        );
+    }
+
+    [Fact]
+    public void HartSdid_DefaultsToHartIndex_AndReachesMoesifCache() {
+        // Regression guard for HartSpec.Sdid -> MoesifCache.Sdid wiring: each hart's private cache
+        // must carry that hart's own Security-Domain ID so it can forward it to a shared
+        // ScatterCache LLC via SetRequestSdid before every backing access.
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
+        CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
+        MulticoreHandle handle = new MulticoreSpec(
+            [
+                new HartSpec(new SingleCycleSpec(), Rv32(), Cache: cacheSpec),
+                new HartSpec(new SingleCycleSpec(), Rv32(), Cache: cacheSpec),
+                new HartSpec(new SingleCycleSpec(), Rv32(), Cache: cacheSpec, Sdid: 42),
+            ]
+        ).Build(new FlatMemory(0x1000));
+
+        Assert.Equal(0, handle.CoherentCaches[0]!.Sdid); // defaults to hart index
+        Assert.Equal(1, handle.CoherentCaches[1]!.Sdid);
+        Assert.Equal(42, handle.CoherentCaches[2]!.Sdid); // explicit override
+    }
+
+    [Fact]
+    public void TwoHarts_DistinctSdids_BothLandInSharedScatterLlcAtTheirOwnSdidRow() {
+        // End-to-end close of the SDID-plumbing chain: not just that MoesifCache carries the right
+        // Sdid (HartSdid_DefaultsToHartIndex_AndReachesMoesifCache) and not just that ScatterCache's
+        // Idf varies by SDID (ScatterCacheTests' unit-level check), but that a genuine two-hart RUN
+        // actually forwards each hart's own SetRequestSdid call all the way to the shared LLC before
+        // every backing access, and that both resulting lines survive concurrently instead of one
+        // treading on the other.
+        //
+        // H0: addi x1,x0,42 / lui x3,1    / sw x1,0(x3) / ebreak  -> mem[0x1000] = 42
+        // H1: addi x2,x0,99 / lui x4,2    / sw x2,0(x4) / ebreak  -> mem[0x2000] = 99
+        // Distinct, far-apart, block-aligned addresses so the two harts never share a coherence line.
+        const uint h0Lui = 0x000011B7; // lui x3, 1        (x3 = 0x1000)
+        const uint h0SwIndirect = 0x0011A023; // sw x1, 0(x3)
+        const uint h1Lui = 0x00002237; // lui x4, 2        (x4 = 0x2000)
+        const uint h1SwIndirect = 0x00222023; // sw x2, 0(x4)
+
+        var mem = new FlatMemory(0x4000);
+        mem.Load(0x00, Encode(MulticoreSpecTests.H0Addi, h0Lui, h0SwIndirect, MulticoreSpecTests.Ebreak));
+        mem.Load(0x40, Encode(MulticoreSpecTests.H1Addi, h1Lui, h1SwIndirect, MulticoreSpecTests.Ebreak));
+
+        var l1Spec = new CacheLevelSpec(4096, 4, 64);
+        CacheHierarchySpec cacheSpec = CacheHierarchySpec.Unified(new CachePathSpec([l1Spec,]));
+        var llcSpec = new CacheLevelSpec(4096, 4, 64, Variant: CacheVariantKind.ScatterCache);
+        MulticoreHandle handle = new MulticoreSpec(
+            [
+                new HartSpec(new SingleCycleSpec(), Rv32(), Cache: cacheSpec),
+                new HartSpec(new SingleCycleSpec(), Rv32(), 0x40, cacheSpec),
+            ],
+            llcSpec
+        ).Build(mem);
+        handle.Run(10_000);
+
+        // Check LLC residency and per-SDID placement now, before any flush: each hart's write-miss
+        // fetch (RFO/fill-from-backing) populates the shared LLC as a side effect, under that hart's
+        // own SDID. FlushAllToBacking would go through ScatterCache.Load (see its class docs, §3.4
+        // correctness note), which invalidates on flush — not what this assertion is after.
+        ScatterCache llc = handle.SharedScatterLlc!;
+        ScatterCacheLine[] snapshot = llc.GetSnapshot();
+        ScatterCacheLine? line0 = snapshot.FirstOrDefault(l => l.Valid && l.Address == 0x1000);
+        ScatterCacheLine? line1 = snapshot.FirstOrDefault(l => l.Valid && l.Address == 0x2000);
+        Assert.NotNull(line0); // both lines resident simultaneously, not evicting each other
+        Assert.NotNull(line1);
+
+        llc.SetRequestSdid(0); // hart 0's default SDID
+        Assert.Equal(line0!.Row, llc.IdfRow(line0.Way, 0x1000));
+        llc.SetRequestSdid(1); // hart 1's default SDID
+        Assert.Equal(line1!.Row, llc.IdfRow(line1.Way, 0x2000));
+
+        // MoesifCache is write-back only; sequential Run (unlike RunConcurrent's per-tick bus drain)
+        // never auto-flushes dirty private-cache lines down to backing, so an explicit flush is needed
+        // before inspecting mem directly.
+        handle.FlushAllToBacking();
+        Assert.Equal(42uL, mem.Read(0x1000, 4));
+        Assert.Equal(99uL, mem.Read(0x2000, 4));
+    }
+
     // ── Mixed pipeline specs ──────────────────────────────────────────────────
 
     [Fact]
