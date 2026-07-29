@@ -330,4 +330,61 @@ public class InvisiSpecTests {
           + $"baseline ({Counter(offResult, "cycles")} cycles) on a dependent load chain"
         );
     }
+
+    /// <summary>
+    ///     The optional Per-Core LLC-SB extension (Yan et al., MICRO 2018, §VI-C): reuses
+    ///     <see cref="RealAccessDeferredPastVisibilityPointCostsMoreThanBaseline" />'s own program (a
+    ///     single cold USL held pending by a slow, never-mispredicting branch) to isolate the SB's one
+    ///     effect — its speculative peek already recorded address 512's line in the buffer well before
+    ///     the branch clears; without the SB, the deferred real access that finally fires at
+    ///     retirement is a genuine second miss (the base design's own accepted double payment, see
+    ///     <see cref="SetAssociativeCache.PeekRead" />'s docs); with it enabled, that same deferred
+    ///     access finds its own peek-time entry still resident (nothing evicted or squashed it) and is
+    ///     charged the cheap buffer-hit latency instead. Confirmed to fail (no cycle difference, zero
+    ///     <c>invisispec_llc_sb_hits</c>) if the LLC-SB's line-base lookup in <c>StepUslResolution</c>
+    ///     is disabled.
+    /// </summary>
+    [Fact]
+    public void LlcSbAvoidsPayingMissLatencyTwiceForTheSameUsl() {
+        uint[] program = [
+            Addi(5, 0, 1), // x5 = 1
+            Mul(6, 5, 5), // x6 = 1
+            Mul(6, 6, 6), // still 1 (3x chained mul: ~9-cycle resolution window for the branch below)
+            Mul(6, 6, 6), // still 1
+            Bne(6, 0, 4), // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only,
+            // never mispredicts, but stays unresolved in the visibility tracker for the mul chain's
+            // full latency, holding the USL below pending for that whole window.
+            Lw(1, 0, 512), // USL: cold miss at peek; its deferred real access is the SB's one chance
+            // to avoid paying a second miss for the exact same line.
+            Ebreak,
+        ];
+
+        var memNoSb = new FlatMemory(4096);
+        var memSb = new FlatMemory(4096);
+        var dMemConfig = new MemoryConfig(1024);
+        var noSb = new OooTrain(
+            new Rv32Mechanism(), memNoSb, dMemConfig: dMemConfig,
+            enableInvisiSpec: true, enableInvisiSpecLlcSb: false
+        );
+        var sb = new OooTrain(
+            new Rv32Mechanism(), memSb, dMemConfig: dMemConfig,
+            enableInvisiSpec: true, enableInvisiSpecLlcSb: true
+        );
+        LoadWords(memNoSb, 0, program);
+        LoadWords(memSb, 0, program);
+        LoadWords(memNoSb, 512, 1);
+        LoadWords(memSb, 512, 1);
+
+        RevolutionResult noSbResult = noSb.Run();
+        RevolutionResult sbResult = sb.Run();
+
+        AssertIdenticalArchState(noSb, sb);
+        Assert.Equal(0L, Counter(noSbResult, "invisispec_llc_sb_hits"));
+        Assert.Equal(1L, Counter(sbResult, "invisispec_llc_sb_hits"));
+        Assert.True(
+            Counter(sbResult, "cycles") < Counter(noSbResult, "cycles"),
+            $"expected the LLC-SB ({Counter(sbResult, "cycles")} cycles) to cost less than without it "
+          + $"({Counter(noSbResult, "cycles")} cycles) by avoiding a second miss on the same line"
+        );
+    }
 }

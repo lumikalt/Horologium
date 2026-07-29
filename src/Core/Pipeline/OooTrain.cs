@@ -61,7 +61,10 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableSttExpOnly = false,
         bool enableInvisiSpec = false,
         bool enableSttImplicitBranches = false,
-        bool enableSttMemDepGating = false
+        bool enableSttMemDepGating = false,
+        bool enableInvisiSpecLlcSb = false,
+        int llcSbCapacity = 16,
+        int llcSbHitLatency = 1
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -101,7 +104,10 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableSttExpOnly: enableSttExpOnly,
                 enableInvisiSpec: enableInvisiSpec,
                 enableSttImplicitBranches: enableSttImplicitBranches,
-                enableSttMemDepGating: enableSttMemDepGating
+                enableSttMemDepGating: enableSttMemDepGating,
+                enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
+                llcSbCapacity: llcSbCapacity,
+                llcSbHitLatency: llcSbHitLatency
             )
         );
         _train.Build();
@@ -137,7 +143,10 @@ public sealed partial class OooTrain : ISteppableTrain {
         bool enableSttExpOnly = false,
         bool enableInvisiSpec = false,
         bool enableSttImplicitBranches = false,
-        bool enableSttMemDepGating = false
+        bool enableSttMemDepGating = false,
+        bool enableInvisiSpecLlcSb = false,
+        int llcSbCapacity = 16,
+        int llcSbHitLatency = 1
     ) {
         var esc = new Escapement();
         _train = new Train("ooo", esc);
@@ -167,7 +176,10 @@ public sealed partial class OooTrain : ISteppableTrain {
                 enableSttExpOnly: enableSttExpOnly,
                 enableInvisiSpec: enableInvisiSpec,
                 enableSttImplicitBranches: enableSttImplicitBranches,
-                enableSttMemDepGating: enableSttMemDepGating
+                enableSttMemDepGating: enableSttMemDepGating,
+                enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
+                llcSbCapacity: llcSbCapacity,
+                llcSbHitLatency: llcSbHitLatency
             )
         );
         _train.Build();
@@ -295,6 +307,29 @@ internal sealed partial class OoOPipelineCore : Gear {
     // invalidate an entry already in this list, only a full flush (e.g. an older trap; traps aren't
     // yet a tracked squash source, see TODO.md's Futuristic-model item) discards it.
     private readonly List<(int RobIdx, int Countdown)> _pendingUslLatency = [];
+
+    // InvisiSpec's optional Per-Core Speculative Buffer in the LLC (Yan et al., MICRO 2018, §VI-C):
+    // when enabled, a USL's speculative peek records the LLC-level line it touched here; if that
+    // USL's own later deferred access (or a different USL's) lands on the same line while the
+    // record is still resident, the deferred access is charged a cheap buffer-hit latency instead
+    // of paying the full miss-and-refetch cost again — avoiding the double payment the base design
+    // (see StepUslResolution's own docs) accepts as its cost of doing nothing extra. This is a
+    // cost-only model: the real access below always still fires for real (so hit/miss stats and
+    // cache-line installation stay correct); only the *charged stall* is overridden on a hit. The
+    // paper's LLC-SB additionally has to enforce a security rule (§VII) that a squashed USL's
+    // buffered *data* is never allowed to serve a later, unrelated request — that rule doesn't
+    // apply here, because this model never serves data out of the buffer at all (the real
+    // DLayers.Accessor.Read always runs and returns the true bytes); the buffer only ever
+    // influences timing. Squash cleanup (StepFlush/StepPartialSquash) still discards entries for
+    // instructions that never actually reach their deferred access, matching a real squash
+    // cancelling the outstanding speculative fetch.
+    private readonly bool _enableInvisiSpecLlcSb;
+    private readonly int _llcSbCapacity;
+    private readonly int _llcSbHitLatency;
+    private readonly List<(ulong LineBase, ulong InstrId)> _llcSb = [];
+    private Counter? _llcSbHitsCounter;
+
+    private int? LlcBlockBytes => DLayers.L3Cache?.BlockBytes ?? DLayers.L2Cache?.BlockBytes ?? DLayers.Cache?.BlockBytes;
 
     // STT full DelayExecute+STT, explicit-branch slice only (Yu et al., MICRO 2019, Section 6.4.1):
     // closes the resolution-based implicit channel through explicit branches. Predictor training
@@ -618,7 +653,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         bool enableSttExpOnly = false,
         bool enableInvisiSpec = false,
         bool enableSttImplicitBranches = false,
-        bool enableSttMemDepGating = false
+        bool enableSttMemDepGating = false,
+        bool enableInvisiSpecLlcSb = false,
+        int llcSbCapacity = 16,
+        int llcSbHitLatency = 1
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
         _commitObserver = commitObserver;
@@ -671,6 +709,9 @@ internal sealed partial class OoOPipelineCore : Gear {
         _vpTracker = enableSttExpOnly || enableInvisiSpec || enableSttImplicitBranches || enableSttMemDepGating
             ? new SpectreVisibilityTracker()
             : null;
+        _enableInvisiSpecLlcSb = enableInvisiSpec && enableInvisiSpecLlcSb;
+        _llcSbCapacity = llcSbCapacity;
+        _llcSbHitLatency = llcSbHitLatency;
 
         int archRegs = State.IntegerRegisters.Count;
         int physRegs = archRegs + extraPhysRegs;
@@ -771,6 +812,12 @@ internal sealed partial class OoOPipelineCore : Gear {
                 "invisispec_validations", "USLs resolved via validation (an older load/fence was in the ROB)"
             );
         }
+
+        if (_enableInvisiSpecLlcSb)
+            _llcSbHitsCounter = Dials.AddCounter(
+                "invisispec_llc_sb_hits",
+                "USL deferred accesses served from the Per-Core LLC-SB instead of paying a fresh miss (§VI-C)"
+            );
 
         if (_enableSttImplicitBranches)
             _sttMispredictDeferralsCounter = Dials.AddCounter(
@@ -1309,7 +1356,9 @@ internal sealed partial class OoOPipelineCore : Gear {
     ///     <see cref="_pendingUslLatency" />'s own per-entry countdown (see that field's docs), the same
     ///     MLP-overlapped shape ordinary load misses get from <see cref="_inFlight" /> in
     ///     <see cref="StepExecute" />, instead of the cache's lump-sum stall accumulator that store-commit
-    ///     misses use.
+    ///     misses use. When the optional LLC-SB (§VI-C) is enabled and this line is still recorded from
+    ///     an earlier speculative peek, the miss latency the real access would otherwise pay is capped
+    ///     at the buffer-hit latency instead — see the field docs next to <c>_llcSb</c>.
     /// </summary>
     private void StepUslResolution() {
         // Drain previously-fired USLs' own miss-latency countdowns first (mirrors StepExecute's
@@ -1329,12 +1378,24 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (_flushPending || (_squashPending && p.InstrId > _squashInstrId)) continue;
             if (!_vpTracker!.IsSafe(p.InstrId)) continue;
 
+            bool sbHit = false;
+            if (_enableInvisiSpecLlcSb && LlcBlockBytes is { } bb) {
+                ulong lineBase = p.Address & ~(ulong)(bb - 1);
+                sbHit = _llcSb.Exists(e => e.LineBase == lineBase);
+            }
+
             _ = DLayers.Accessor.Read(p.Address, p.Bytes);
             if (p.NeedsValidation) _invisispecValidationsCounter?.Increment();
             else _invisispecExposuresCounter?.Increment();
             _pendingUsls.RemoveAt(i);
+            if (_enableInvisiSpecLlcSb) _llcSb.RemoveAll(e => e.InstrId == p.InstrId);
 
             long stalls = _anyCache ? DLayers.ConsumeAllStalls() : 0;
+            if (sbHit) {
+                _llcSbHitsCounter?.Increment();
+                stalls = Math.Min(stalls, _llcSbHitLatency);
+            }
+
             if (stalls > 0) _pendingUslLatency.Add((p.RobIdx, (int)stalls));
             else _rob.At(p.RobIdx).PendingUslAccess = false;
         }
@@ -3542,6 +3603,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         _vpTracker?.Clear();
         _pendingUsls.Clear();
         _pendingUslLatency.Clear();
+        _llcSb.Clear();
         _pendingTaintedMispredicts.Clear();
         foreach (IssueQueue iq in _iqs) iq.Flush();
         _lq.Flush();
@@ -3654,6 +3716,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         // visibility point already cleared, and once safe an instruction stays safe (every branch
         // older than it is resolved for good) — so a partial squash can never retroactively catch
         // an entry already draining its post-fire miss latency (see that field's docs).
+        _llcSb.RemoveAll(e => e.InstrId > bId);
         _pendingTaintedMispredicts.RemoveAll(id => id > bId);
         foreach (IssueQueue iq in _iqs) iq.SquashYoungerThan(bId);
         _lq.TruncateYoungerThan(bId);
@@ -3911,6 +3974,14 @@ internal sealed partial class OoOPipelineCore : Gear {
                 new PendingUsl(issued.RobIdx, issued.InstrId, _capMem.ReadAddress, _capMem.ReadBytes, needsValidation)
             );
             _rob.At(issued.RobIdx).PendingUslAccess = true;
+
+            // LLC-SB (§VI-C): record the line this USL's speculative peek touched, so its own or a
+            // later USL's deferred access to the same line can hit the buffer instead of missing.
+            if (_enableInvisiSpecLlcSb && _llcSbCapacity > 0 && LlcBlockBytes is { } bb) {
+                ulong lineBase = _capMem.ReadAddress & ~(ulong)(bb - 1);
+                if (_llcSb.Count >= _llcSbCapacity) _llcSb.RemoveAt(0);
+                _llcSb.Add((lineBase, issued.InstrId));
+            }
         }
 
         // Notify value-aware predictor of the register value this instruction produced.

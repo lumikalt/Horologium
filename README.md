@@ -725,14 +725,23 @@ assembly. When used with RISC-V they pair with `Rv32Mechanism` (RV32IMAFCV) or `
   instead of letting it fire. Counted by the `invisispec_exposures`/`invisispec_validations` dials. A wrong-path
   (squashed) load never installs anything in the real cache under InvisiSpec, unlike this simulator's undefended
   baseline — proven directly by a test comparing the same program on/off, not merely asserted.
-  A USL that misses now pays its miss latency **twice** — once at the speculative peek, once again at the
+  A USL that misses pays its miss latency **twice** by default — once at the speculative peek, once again at the
   deferred validation/exposure access, since the peek never installs anything for the later access to hit. This
   is not a bug: Yan et al. state (§VI-C) that their optional Per-Core LLC-SB extension exists specifically "to
   avoid a second access to main memory," confirming the paper's own *base* design (without that extension) pays
-  main memory twice per non-forwarded USL — the dual-access cost this section's own name refers to. This
-  simulator does not implement the LLC-SB extension (see TODO.md), so today's cost model matches the paper's
-  base design, not the LLC-SB-optimized one. No coherence/multi-hart squash plumbing (`OooTrain` has no
-  coherence-invalidation-triggered load-squash hook today).
+  main memory twice per non-forwarded USL — the dual-access cost this section's own name refers to.
+  The optional **Per-Core Speculative Buffer in the LLC** (§VI-C) closes that gap: `enableInvisiSpecLlcSb: true`
+  (default off, so the base-design cost model above stays the selectable default) records the line each USL's
+  peek touched in a small per-core buffer (`llcSbCapacity`, default 16, FIFO eviction); if that USL's own
+  deferred access — or a different USL's — later lands on a line still resident there, the access is charged a
+  cheap buffer-hit latency (`llcSbHitLatency`, default 1) instead of paying the full miss again. This is a
+  cost-only model: the real access always still fires for real (hit/miss stats and line installation stay
+  correct; only the *charged stall* is capped on a hit), so the paper's §VII rule against ever serving a squashed
+  USL's buffered *data* to a later, unrelated request doesn't apply — this buffer never serves data, only shapes
+  timing. Squash cleanup (`StepFlush`/`StepPartialSquash`) discards entries for instructions that never reach
+  their deferred access, matching a real squash cancelling the outstanding speculative fetch. Counted by
+  `invisispec_llc_sb_hits`. No coherence/multi-hart squash plumbing (`OooTrain` has no coherence-invalidation-
+  triggered load-squash hook today).
 
   `BdiCache` now has a `PeekRead` override (non-mutating: a hit reads the resident compressed block with no
   LRU/segment update, a miss recurses to backing rather than decompressing/filling), and

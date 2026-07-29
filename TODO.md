@@ -141,11 +141,15 @@ off here until a periodic cleanup removes them; the durable record is git histor
   Per-Core LLC-SB extension exists specifically "to avoid a second access to main memory," confirming vanilla
   InvisiSpec (without that extension) pays main memory twice per non-forwarded USL. See the new TODO item below
   for that extension, which this simulator does not implement.
-- [ ] InvisiSpec follow-up: Per-Core Speculative Buffer in the LLC (Yan et al., MICRO 2018, §VI-C) — an optional
-  optimization, not yet implemented, that caches a USL's speculatively-fetched line in a small buffer next to the
-  LLC so the later validation/exposure access hits there instead of paying a second full main-memory round trip.
-  Without it (today's state), every non-forwarded USL pays its full miss latency twice, per the paper's own
-  documented baseline cost — see the item above.
+- [x] InvisiSpec follow-up: Per-Core Speculative Buffer in the LLC (Yan et al., MICRO 2018, §VI-C) — a small
+  per-core buffer (`enableInvisiSpecLlcSb`, default off; capacity/hit-latency configurable) recording the line a
+  USL's speculative peek touched; if that USL's own deferred access (or a different USL's) later lands on the
+  same line while still resident, the access is charged a cheap buffer-hit latency instead of paying the base
+  design's second full miss — closing the double-payment gap documented above. Cost-only model: the real access
+  always still fires (hit/miss stats and line installation stay correct, only the charged stall is capped), so
+  the paper's §VII rule against serving a squashed USL's buffered *data* to a later request doesn't apply here —
+  this buffer never serves data, only influences timing. Squash cleanup still discards entries for instructions
+  that never reach their deferred access, matching a real squash cancelling the outstanding fetch.
 - [x] InvisiSpec follow-up: `BdiCache` has no `PeekRead` override, so it falls through to `IMemory`'s default
   (`=> Read(...)`), which mutates BΔI's compressed-cache segment/eviction state on a USL peek — defeats the
   non-mutation guarantee if InvisiSpec is ever combined with `L2Compression: CompressionKind.Bdi` on the same
