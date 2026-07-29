@@ -67,7 +67,7 @@ public sealed class LvpVp : IValuePredictor {
     ///     <see cref="_fpc" />'s internal RNG state — it is not exposed for serialization, and
     ///     re-seeding fresh only causes a benign statistical divergence in confidence-transition
     ///     timing, the same accepted tradeoff as every other RNG-backed component this checkpoint
-    ///     format skips (see README.md).
+    ///     format skips (see docs/scripting-and-checkpointing.md).
     /// </summary>
     public void WriteState(BinaryWriter w) {
         w.Write(_value.Length);

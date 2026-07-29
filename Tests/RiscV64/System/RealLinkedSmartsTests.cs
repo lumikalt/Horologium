@@ -23,7 +23,7 @@ namespace Tests.RiscV64.System;
 ///     are scattered starting from instruction 0, so this deliberately runs straight through
 ///     musl's startup syscalls inside a detailed <c>OooTrain</c> window — exactly the OoO+ECALL
 ///     interaction that surfaced real bugs when this codebase first ran <c>LinuxSyscallEmulator</c>
-///     through <c>OooTrain</c> (see README.md).
+///     through <c>OooTrain</c> (see docs/scripting-and-checkpointing.md).
 /// </summary>
 public class RealLinkedSmartsTests {
     private const int WordSize = 8;

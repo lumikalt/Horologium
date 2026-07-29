@@ -22,8 +22,8 @@ namespace Mechanism.BranchPred;
 ///         (IF/ID/EX can each hold an unresolved branch simultaneously) or <c>OooeTrain</c>/
 ///         <c>CprTrain</c> (many outstanding predictions). Use
 ///         <see cref="CbpNgCommitDrivenBp" /> for any pipeline that overlaps fetch with
-///         commit — see README.md "CBP2025/CBP-NG predictor integration" for why a generic
-///         snapshot/restore isn't possible instead.
+///         commit — see docs/pipeline-trains.md for why a generic snapshot/restore isn't
+///         possible instead.
 ///     </para>
 ///     <para>
 ///         The shim's C ABI has no target field — cbp-ng predictors only report taken/not-taken.

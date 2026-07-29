@@ -13,7 +13,7 @@ namespace Pipeline;
 // decode-rename latches/exec-CDB buffers/in-flight-MSHR-wait list are all empty by
 // construction, so the only state worth carrying across a checkpoint is the trained
 // steady-state tables: caches, TLBs, the branch predictor, and the RAS. See
-// MicroarchitecturalCheckpoint's doc comment and README.md for the rationale.
+// MicroarchitecturalCheckpoint's doc comment and docs/scripting-and-checkpointing.md for the rationale.
 
 public sealed partial class OooTrain {
     /// <summary>

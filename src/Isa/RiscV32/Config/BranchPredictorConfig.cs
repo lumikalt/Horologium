@@ -280,7 +280,7 @@ public sealed record CbpNgPluginConfig(string LibraryPath) : BranchPredictorConf
 ///     Loads a CBP2025/CBP-NG predictor the same way as <see cref="CbpNgPluginConfig" />, but
 ///     wrapped in <see cref="CbpNgCommitDrivenBp" /> so it is safe with pipelines that keep
 ///     multiple unresolved predictions in flight (<c>FiveStageTrain</c>, <c>OooTrain</c>) — see
-///     README.md "CBP2025/CBP-NG predictor integration". Not suitable for <c>CprTrain</c> (trains
+///     docs/pipeline-trains.md. Not suitable for <c>CprTrain</c> (trains
 ///     predictors out of program order at execution).
 /// </summary>
 public sealed record CbpNgOoOePluginConfig(string LibraryPath) : BranchPredictorConfig {

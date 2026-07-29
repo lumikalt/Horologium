@@ -28,33 +28,9 @@ the active thread.
   execution view. https://github.com/champ-hub/carm-paraver
 - [ ] DRAM timing model: integrate Ramulator2 or DRAMSim3 behind `IMemory` so off-chip latency reflects DDR4/5 timing.
 - [ ] Power and area estimation: emit gem5-compatible stat dumps consumable by McPAT. — Li et al., MICRO 2009
-- [ ] Cache-Aware Roofline Model (CARM) output: compute per-cache-level bandwidth and arithmetic-intensity ceilings from
-  simulation statistics and render a roofline plot. — Ilic, Pratas & Sousa, IEEE CAL 2013; Williams, Waterman &
-  Patterson, CACM 2009 (base Roofline)
-- [ ] Mansard Roofline extension: split each cache-level roof into a read roof and a write roof for more accurate
-  mixed-access characterization. — Marques, Ilic & Sousa, ACM TOMPECS 2021
-
-## µops
-
-- [ ] Loop stream detector: detect short loops and replay µops from a small buffer, bypassing fetch and decode.
-- [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through
-  the Tooth interface.
-
-## Front-End
-
-- [ ] Boomerang / Shotgun: metadata-free front-end prefetching that unifies BTB prefill and I-cache prefetch under the
-  branch predictor. — Kumar et al., HPCA 2017 / ASPLOS 2018
-- [ ] EIP (entangling instruction prefetcher): links the instruction that gives timely coverage ("entangler") to the
-  miss it hides. — Ros & Jimborean, ISCA 2021
 
 ## Cache Prefetching
 
-- [ ] ISB (irregular stream buffer): linearizes PC-localized correlated irregular streams into a structural address
-  space for temporal prefetching. — Jain & Lin, MICRO 2013
-- [ ] Temporal memory streaming: record long miss sequences in off-chip metadata and replay them on a matching miss
-  (STMS; Domino). — Wenisch et al., ISCA 2005 / HPCA 2009; Bakhshalipour et al., HPCA 2018
-- [ ] Hermes: off-chip load prediction — a perceptron predicts which loads will miss the entire hierarchy and starts
-  the DRAM access early, in parallel with cache lookup. — Bera et al., MICRO 2022
 - [ ] Voyager: hierarchical neural data prefetcher (offline-trained LSTM over page and offset vocabularies). — Shi et
   al., ASPLOS 2021
 
@@ -64,8 +40,6 @@ the active thread.
   Ramulator2/DRAMSim3 integration. — Rixner et al., ISCA 2000; Kim et al., MICRO 2010; Subramanian et al., ICCD 2014
 - [ ] Die-stacked DRAM cache: Alloy cache — direct-mapped tag-and-data alloying for latency-optimized giga-scale
   caches; concrete design for the memory-side-cache item. — Qureshi & Loh, MICRO 2012
-- [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB prefetching;
-  builds on the Sv32 walker. — Barr, Cox & Rixner, ISCA 2010; Kandiraju & Sivasubramaniam, ISCA 2002
 
 ## Multicore & Fabric
 

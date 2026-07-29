@@ -23,89 +23,43 @@ off here until a periodic cleanup removes them; the durable record is git histor
   has fewer pipe stages than build-mode) rather than the ~0-cycle-impact story everywhere else.
   **Blocked for now**: user wants to confirm first whether the actually-intended follow-up is
   something bigger that also touches `OooTrain`, before scoping this.
-- [x] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
-  Analyzed and scoped honestly before building: load+ALU fusion (`RvMacroFuser`'s second
-  pattern, `RvFusedLoadAlu`) on `OooTrain`/`CprTrain`/`SuperscalarTrain` collapses the
-  load-to-use scheduling round-trip for the `lw t0,...; alu t0,t0,...` read-modify idiom —
-  occupancy/critical-path relief like macro-fusion, not a throughput win, and structurally
-  weaker than macro-fusion's own effect since it can't legitimately collapse execute latency
-  the way compare+branch does. Store-address+store-data turned out to be a dead end as
-  literal fusion — stores are already one indivisible unit, so fusing a split back to one
-  slot just recreates today's model with zero effect. The real, separately-scoped feature
-  actually built is a store address/data *split*: `SqEntry.DataKnown` alongside
-  `AddressKnown`, plus `StepEarlyStoreAddressResolution`/`IExecutor.TryComputeStoreAddress`
-  letting a store's address release address-only dependents (`HasUnresolvedPrecedingStore`/
-  `ConservativeLoads`, Store Sets) as soon as it's known, independent of a slower data
-  operand — a genuine, measured cycle-count win on `OooTrain` when a store's address is
-  ready before its data (`enableEarlyStoreAddress`, default off). Porting to `CprTrain`
-  caught a real bug: its Store Sets release check used `AddressKnown` as a "store fully
-  resolved" proxy, which the split invalidates — fixed to check `DataKnown` instead. A
-  post-implementation review caught the identical bug already latent on `OooTrain`'s own
-  `StoreSetStallLoad` (same `AddressKnown`-as-"resolved" proxy) — confirmed live with a
-  same-address load under `enableStoreSets` + `enableEarlyStoreAddress` (a guaranteed
-  memory-order violation on every loop iteration instead of a clean stall) and fixed the
-  same way.
+- [ ] Loop stream detector: detect short loops and replay µops from a small buffer, bypassing fetch
+  and decode.
+- [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit
+  multi-µop sequences through `ITooth`.
+
+## Front-End
+
+- [ ] Boomerang / Shotgun: metadata-free front-end prefetching that unifies BTB prefill and I-cache
+  prefetch under the branch predictor. — Kumar et al., HPCA 2017 / ASPLOS 2018
+- [ ] EIP (entangling instruction prefetcher): links the instruction that gives timely coverage
+  ("entangler") to the miss it hides. — Ros & Jimborean, ISCA 2021
 
 ## Cache Prefetching
 
-- [x] Bingo: spatial prefetcher associating footprints with multiple event signatures in a single table. —
-  Bakhshalipour et al., HPCA 2019. `BingoPrefetcher` reuses SMS's Active Generation
-  Table (32-entry filter / 64-entry accumulation FIFO, same 2 KB region and footprint
-  bitmask) unchanged, replacing SMS's single-event Pattern History Table with a
-  TAGE-like dual-event history table: one physical 16K-entry/16-way table, indexed
-  once by the short event (PC+Offset), looked up twice — first a precise match
-  against the long event (PC+exact trigger address), falling back on a miss to an
-  aggregate of every entry matching just the short event, combined per the paper's
-  literal ≥20%-of-matching-entries threshold. Modeling simplification: entries store
-  `Pc`/`RegionBase`/`Offset` as literal fields rather than a bit-packed tag+index
-  split — behaviorally identical (the index is still computed from `(Pc, Offset)`
-  alone) but avoids a hardware bit-decomposition trick irrelevant to a functional
-  model. Like SMS/STeMS (and unlike PPF), relies on AGT capacity pressure rather
-  than a real per-line eviction callback to terminate a page generation — a
-  deliberate consistency choice, since Bingo's own contribution is the history-table
-  lookup scheme, not the AGT/termination model it inherits from SMS.
+- [ ] ISB (irregular stream buffer): linearizes PC-localized correlated irregular streams into a
+  structural address space for temporal prefetching. — Jain & Lin, MICRO 2013
+- [ ] Temporal memory streaming: record long miss sequences in off-chip metadata and replay them on
+  a matching miss (STMS; Domino). — Wenisch et al., ISCA 2005 / HPCA 2009; Bakhshalipour et al.,
+  HPCA 2018
+- [ ] Hermes: off-chip load prediction — a perceptron predicts which loads will miss the entire
+  hierarchy and starts the DRAM access early, in parallel with cache lookup. — Bera et al., MICRO
+  2022
 
-## Security
+## Memory System
 
-- [x] Randomized cache side-channel defense: CEASER encrypted-address remapping and CEASER-S
-  P-way partitioning. — Qureshi, MICRO 2018 / ISCA 2019. New `CeaserCache : IMemory` (L2/L3 only,
-  same restriction as BΔI), a from-scratch class following `BdiCache`'s "structurally different
-  cache variant" precedent rather than a `SetAssociativeCache` fork — `SetAssociativeCache`'s
-  `(tag, set) → address` concatenation reconstruction, used at 8+ call sites, is incompatible with
-  a keyed/randomized index. Modeling simplification: stores the plaintext line address directly as
-  the tag instead of the paper's encrypted-line-address (ELA) tag — behaviorally equivalent (same
-  hit/miss/eviction/remap behavior; nothing about tag storage format is observable) and eliminates
-  the need for the paper's invertible 4-stage Feistel cipher entirely, since nothing ever needs to
-  be decrypted. The index function is accordingly a keyed avalanche hash (murmur3's `fmix64`
-  finalizer over `address XOR key`) rather than a literal S-box/P-box block cipher, and no per-line
-  EpochID bit is needed (full-address tag comparison is never ambiguous). CEASER-S is the same
-  class with a `Partitions` parameter (P=1 is plain CEASER, matching the paper's own "CEASER-S1 ==
-  CEASER"), each partition with independent keys/SPtr/ACtr and its own way-range; a miss installs
-  into a uniformly-random partition. This does not model or claim cryptographic hardness against a
-  real attacker — only the mapping-randomization/periodic-remap behavior that affects miss rate,
-  latency, and data placement.
-- [x] ScatterCache: way-separate skewed-associative randomized indexing (an Index Derivation
-  Function maps address+key to a distinct index per way-array) with SDID-based security-domain
-  isolation. — Werner et al., USENIX Security 2019. New `ScatterCache : IMemory` (L2/L3 only, same
-  restriction as BΔI/CEASER), a from-scratch class rather than a `CeaserCache` extension: CEASER's
-  shared-index-per-set model has no way to represent "each way computes its own independent row",
-  so this needed its own per-way (not per-set) parallel arrays. SCv1 (hashing) is the variant
-  modeled — SCv2's tag-dependent permutation exists purely to avoid birthday-bound index collisions
-  in real hardware, not a correctness concern here. Same plaintext-line-address-as-tag
-  simplification as CEASER (no invertible cipher needed). Random replacement among the `nways`
-  candidates is hardcoded (not `IReplacementPolicy`-pluggable) per the paper's own mandate; fills
-  prefer an empty candidate slot over evicting when one exists. Rekeying is always a full flush
-  (write-back: flush dirty lines, then invalidate everything, then draw a fresh key) rather than
-  CEASER's incremental SPtr/ACtr sweep — the paper is explicit that dynamic remapping's added
-  hardware complexity may not be worth it versus an occasional flush. Security-Domain ID (SDID) is
-  plumbed two ways: `IMemory.SetRequestSdid`, a default-no-op pass-through mirroring
-  `SetRequestPc` (SDID always 0 in the single-hart pipeline, matching the paper's own
-  "still protects without software support" fallback), and — the surface where SDID actually varies
-  per access — `HartSpec.Sdid`/`MoesifCache.Sdid`/`MulticoreSpec`'s shared-LLC construction, so a
-  real multi-hart shared-ScatterCache-LLC scenario gets genuinely different SDIDs per hart
-  (default: hart's own index). Purnal & Verbauwhede's follow-up eviction-set-profiling attack
-  (arXiv 2019) is not implemented as a mechanism — documented as a caveat in `README.md` (their
-  profiling technique is faster than the original paper's own threat model assumed).
+- [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB
+  prefetching; builds on the existing Sv32 walker. — Barr, Cox & Rixner, ISCA 2010; Kandiraju &
+  Sivasubramaniam, ISCA 2002
+
+## Analysis
+
+- [ ] Cache-Aware Roofline Model (CARM) output: compute per-cache-level bandwidth and
+  arithmetic-intensity ceilings from simulation statistics and render a roofline plot. — Ilic,
+  Pratas & Sousa, IEEE CAL 2013; Williams, Waterman & Patterson, CACM 2009 (base Roofline)
+- [ ] Mansard Roofline extension: split each cache-level roof into a read roof and a write roof for
+  more accurate mixed-access characterization — builds on the CARM item above. — Marques, Ilic &
+  Sousa, ACM TOMPECS 2021
 
 ## Benchmarks
 

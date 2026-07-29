@@ -1214,7 +1214,7 @@ static void PrintUsage() {
           --checkpoint-save-micro <path>  After run completes, drain the pipeline and save a
                                     microarchitectural checkpoint (architectural state plus
                                     trained caches/TLBs/branch-predictor/RAS/OoO-predictor
-                                    tables — see README.md "Option B") to <path>.
+                                    tables — see docs/scripting-and-checkpointing.md) to <path>.
                                     Requires --script and an OoOE pipeline train; skipped
                                     with a warning otherwise. Combinable with
                                     --checkpoint-save (independent files).

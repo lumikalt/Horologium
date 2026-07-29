@@ -3,8 +3,8 @@ namespace Mechanism.BranchPred;
 /// <summary>
 ///     Wraps <see cref="CbpNgFfiBp" /> so a harcom-based CBP2025/CBP-NG submission can be
 ///     driven safely from a pipeline with many concurrently outstanding, unresolved predictions
-///     (<c>OooeTrain</c>'s ROB window, or <c>FiveStageTrain</c>'s IF/ID/EX overlap) — see README.md
-///     "Extend CBP2025/CBP-NG integration to OoOE".
+///     (<c>OooeTrain</c>'s ROB window, or <c>FiveStageTrain</c>'s IF/ID/EX overlap) — see
+///     docs/pipeline-trains.md.
 ///     <para>
 ///         Harcom's <c>reg</c>/<c>ram</c> primitives (<c>vendor/harcom.hpp</c>) are a genuinely
 ///         cycle-accurate hardware model, not just a couple of scratch fields: every register/RAM
