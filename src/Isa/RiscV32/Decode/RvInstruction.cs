@@ -215,7 +215,13 @@ public sealed class RvInstruction(
         RvLb => 1,
         RvLh => 2,
         RvLw => 4,
-        _    => 0,
+        RvFusedLoadAlu(var load, _) => load switch {
+            RvLb => 1,
+            RvLh => 2,
+            RvLw => 4,
+            _    => 0,
+        },
+        _ => 0,
     };
 
     public bool NanBoxLoadResult { get; } = payload is RvFlw;
@@ -225,7 +231,13 @@ public sealed class RvInstruction(
         RvLh or RvLhu or RvSh or RvFlh or RvFsh => 2,
         RvLw or RvSw or RvLwu or RvFlw or RvFsw => 4,
         RvLd or RvSd or RvFld or RvFsd          => 8,
-        _                                       => 0,
+        RvFusedLoadAlu(var load, _) => load switch {
+            RvLb or RvLbu => 1,
+            RvLh or RvLhu => 2,
+            RvLw          => 4,
+            _             => 0,
+        },
+        _ => 0,
     };
 
     public bool IsDiv { get; } = payload is RvDiv or RvDivu or RvRem or RvRemu;
@@ -541,6 +553,17 @@ public record RvBgeu(int Rs1, int Rs2, int Imm) : RvOp;
 ///     compare's PC).
 /// </summary>
 public record RvFusedCompareBranch(RvOp Compare, bool TakenWhenNonZero, ulong BranchPc, int BranchImm) : RvOp;
+
+/// <summary>
+///     Micro-fusion: a load whose destination is immediately overwritten by an ALU op
+///     reading that same register (e.g. <c>lw t0,0(a0); addi t0,t0,4</c>), built by
+///     <see cref="RvMacroFuser" />. Safe without a general liveness analysis because
+///     <c>AluOp</c>'s destination is provably the same architectural register as
+///     <c>Load</c>'s — nothing downstream can observe the intermediate loaded value,
+///     since fusion only ever triggers on the actual adjacent decoded/dispatched
+///     stream (never a static scan), so no other control path can land between them.
+/// </summary>
+public record RvFusedLoadAlu(RvOp Load, RvOp AluOp) : RvOp;
 
 // ── Jumps ─────────────────────────────────────────────────────────────────────
 public record RvJal(int Rd, int Imm) : RvOp;

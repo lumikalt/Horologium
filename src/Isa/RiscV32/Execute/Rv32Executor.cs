@@ -174,6 +174,10 @@ public partial class Rv32Executor : IExecutor {
             RvFusedCompareBranch(var cmpOp, var takenWhenNonZero, var branchPc, var branchImm) =>
                 FusedCompareBranch(cmpOp, takenWhenNonZero, branchPc, branchImm, regs, pc, instruction.SizeBytes),
 
+            // ── Micro-fused load+ALU ─────────────────────────────────────────────
+            RvFusedLoadAlu(var loadOp, var aluOp) =>
+                FusedLoadAlu(loadOp, aluOp, memory, state, pc, regs),
+
             // ── Jumps ─────────────────────────────────────────────────────────
             RvJal (_, var imm) =>
                 new ExecuteResult {
@@ -1403,6 +1407,58 @@ public partial class Rv32Executor : IExecutor {
             BranchTaken = taken,
             BranchTarget = target,
         };
+    }
+
+    // Instance (not static) method: routes through the virtual Load()/Reg() so RV64Executor's
+    // overrides (no 32-bit truncation, RV64 sign-extension) apply correctly when inherited.
+    // If the load traps, the ALU half never runs — same as the unfused pair would behave,
+    // since a trapped load's destination is never written.
+    private ExecuteResult FusedLoadAlu(
+        RvOp load, RvOp aluOp, IMemory memory, IArchState state, ulong pc, IRegisterFile regs
+    ) {
+        (int rdLoad, int rs1, int imm, int bytes, bool signExtend, int bits) = load switch {
+            RvLw(var rd, var r, var i)  => (rd, r, i, 4, false, 32),
+            RvLh(var rd, var r, var i)  => (rd, r, i, 2, true, 16),
+            RvLhu(var rd, var r, var i) => (rd, r, i, 2, false, 16),
+            RvLb(var rd, var r, var i)  => (rd, r, i, 1, true, 8),
+            RvLbu(var rd, var r, var i) => (rd, r, i, 1, false, 8),
+            _ => throw new InvalidOperationException(
+                $"RvFusedLoadAlu.Load held an unexpected payload type: {load.GetType().Name}"
+            ),
+        };
+
+        ExecuteResult loadResult = Load(memory, state, pc, regs.Read(rs1), imm, bytes, signExtend, bits);
+        if (loadResult.HasTrap) return loadResult;
+        ulong loadedValue = loadResult.RegisterResult.Value;
+
+        ulong ReadSub(int reg) => reg == rdLoad ? loadedValue : regs.Read(reg);
+
+        ulong result = aluOp switch {
+            RvAdd(_, var a, var b)  => ReadSub(a) + ReadSub(b),
+            RvSub(_, var a, var b)  => ReadSub(a) - ReadSub(b),
+            RvXor(_, var a, var b)  => ReadSub(a) ^ ReadSub(b),
+            RvOr(_, var a, var b)   => ReadSub(a) | ReadSub(b),
+            RvAnd(_, var a, var b)  => ReadSub(a) & ReadSub(b),
+            RvSll(_, var a, var b)  => ReadSub(a) << (int)(ReadSub(b) & 0x1F),
+            RvSrl(_, var a, var b)  => (uint)ReadSub(a) >> (int)(ReadSub(b) & 0x1F),
+            RvSra(_, var a, var b)  => (ulong)((int)ReadSub(a) >> (int)(ReadSub(b) & 0x1F)),
+            RvSlt(_, var a, var b)  => (int)ReadSub(a) < (int)ReadSub(b) ? 1UL : 0UL,
+            RvSltu(_, var a, var b) => ReadSub(a) < ReadSub(b) ? 1UL : 0UL,
+            RvAddi(_, var a, var i)  => ReadSub(a) + (ulong)i,
+            RvXori(_, var a, var i)  => ReadSub(a) ^ (ulong)i,
+            RvOri(_, var a, var i)   => ReadSub(a) | unchecked((uint)i),
+            RvAndi(_, var a, var i)  => ReadSub(a) & (ulong)i,
+            RvSlli(_, var a, var sh) => ReadSub(a) << sh,
+            RvSrli(_, var a, var sh) => (uint)ReadSub(a) >> sh,
+            RvSrai(_, var a, var sh) => (ulong)((int)ReadSub(a) >> sh),
+            RvSlti(_, var a, var i)  => (int)ReadSub(a) < i ? 1UL : 0UL,
+            RvSltiu(_, var a, var i) => (uint)ReadSub(a) < (uint)i ? 1UL : 0UL,
+            _ => throw new InvalidOperationException(
+                $"RvFusedLoadAlu.AluOp held an unexpected payload type: {aluOp.GetType().Name}"
+            ),
+        };
+
+        return Reg(result);
     }
 
     private static ExecuteResult ExecuteCsr(

@@ -1,5 +1,6 @@
 #region
 
+using System.Collections.Generic;
 using Mechanism;
 
 #endregion
@@ -19,7 +20,10 @@ namespace RiscV32.Decode;
 ///     </para>
 /// </summary>
 public sealed class RvMacroFuser : IMacroFuser {
-    public ITooth? TryFuse(ITooth first, ITooth second) {
+    public ITooth? TryFuse(ITooth first, ITooth second) =>
+        TryFuseCompareBranch(first, second) ?? TryFuseLoadAlu(first, second);
+
+    private static ITooth? TryFuseCompareBranch(ITooth first, ITooth second) {
         if (first.Payload is not RvOp cmp) return null;
         if (second.Payload is not RvOp br) return null;
 
@@ -49,6 +53,57 @@ public sealed class RvMacroFuser : IMacroFuser {
             cmpRd,
             first.SourceRegisters,
             ToothClass.ConditionalBranch,
+            fused,
+            first.SizeBytes + second.SizeBytes,
+            archInstructionCount: 2,
+            branchComponent: second
+        );
+    }
+
+    /// <summary>
+    ///     Micro-fusion: a load immediately followed by an ALU op that both reads and
+    ///     overwrites the load's own destination register (a common compiler
+    ///     read-modify idiom, e.g. <c>lw t0,0(a0); addi t0,t0,4</c>). Safe without a
+    ///     general liveness analysis — see <see cref="RvFusedLoadAlu" />'s doc comment.
+    /// </summary>
+    private static ITooth? TryFuseLoadAlu(ITooth first, ITooth second) {
+        if (first.Payload is not RvOp load) return null;
+        if (second.Payload is not RvOp aluOp) return null;
+
+        int rdLoad = load switch {
+            RvLw(var rd, _, _)  => rd,
+            RvLh(var rd, _, _)  => rd,
+            RvLhu(var rd, _, _) => rd,
+            RvLb(var rd, _, _)  => rd,
+            RvLbu(var rd, _, _) => rd,
+            _                   => -1,
+        };
+        if (rdLoad <= 0) return null; // not a load, or writes x0 — dead, nothing to fuse toward
+
+        if (second.Class != ToothClass.IntegerAlu) return null;
+        if (second.DestinationRegister != rdLoad) return null;
+        if (!second.SourceRegisters.Contains(rdLoad)) return null; // must actually consume the loaded value
+
+        // The ALU op may read a second, independent register (register-register form,
+        // e.g. `add t0,t0,t1`) that the load's own SourceRegisters knows nothing about —
+        // the fused entry must still list it so the issue queue waits for/wakes on it.
+        List<int>? extraSources = null;
+        foreach (int src in second.SourceRegisters) {
+            if (src == rdLoad) continue;
+            (extraSources ??= []).Add(src);
+        }
+
+        IReadOnlyList<int> sources = extraSources is null
+            ? first.SourceRegisters
+            : [..first.SourceRegisters, ..extraSources,];
+
+        var fused = new RvFusedLoadAlu(load, aluOp);
+        return new RvInstruction(
+            first.Pc,
+            first.RawEncoding,
+            rdLoad,
+            sources,
+            ToothClass.Load,
             fused,
             first.SizeBytes + second.SizeBytes,
             archInstructionCount: 2,
