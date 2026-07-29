@@ -1,5 +1,6 @@
 #region
 
+using System.Diagnostics;
 using Mechanism;
 using Mechanism.BranchPred;
 using Orrery.Cache;
@@ -81,6 +82,7 @@ public sealed class CprTrain : ISteppableTrain {
         int cfpMissThresholdCycles = 8,
         int sdbCapacity = 256,
         int cfpReservedRegs = 8,
+        bool enableEarlyStoreAddress = false,
         PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
@@ -98,6 +100,7 @@ public sealed class CprTrain : ISteppableTrain {
                 fuLatency ?? FuLatencyConfig.Default,
                 enableStoreSets,
                 enableCfp, cfpMissThresholdCycles, sdbCapacity, cfpReservedRegs,
+                enableEarlyStoreAddress,
                 pEventLog
             )
         );
@@ -127,6 +130,7 @@ public sealed class CprTrain : ISteppableTrain {
         int cfpMissThresholdCycles = 8,
         int sdbCapacity = 256,
         int cfpReservedRegs = 8,
+        bool enableEarlyStoreAddress = false,
         PEventLog? pEventLog = null
     ) {
         var esc = new Escapement();
@@ -142,6 +146,7 @@ public sealed class CprTrain : ISteppableTrain {
                 fuLatency ?? FuLatencyConfig.Default,
                 enableStoreSets,
                 enableCfp, cfpMissThresholdCycles, sdbCapacity, cfpReservedRegs,
+                enableEarlyStoreAddress,
                 pEventLog
             )
         );
@@ -213,6 +218,7 @@ internal sealed class CprPipelineCore : Gear {
     private readonly Queue<FetchedInstr> _decodeQueue = new();
     private readonly IDecoder _decoder;
     private readonly bool _enableCfp;
+    private readonly bool _enableEarlyStoreAddress;
 
     /// <summary>In-flight (renamed, not yet committed or squashed) instructions by InstrId.</summary>
     private readonly Dictionary<ulong, CheckpointEntry> _entryByInstrId = [];
@@ -388,6 +394,7 @@ internal sealed class CprPipelineCore : Gear {
         int cfpMissThresholdCycles,
         int sdbCapacity,
         int cfpReservedRegs,
+        bool enableEarlyStoreAddress = false,
         PEventLog? pEventLog = null
     ) : base(name, parent, esc) {
         PEventLog = pEventLog;
@@ -408,6 +415,7 @@ internal sealed class CprPipelineCore : Gear {
         _enableCfp = enableCfp;
         _cfpMissThreshold = cfpMissThresholdCycles;
         _cfpReservedRegs = cfpReservedRegs;
+        _enableEarlyStoreAddress = enableEarlyStoreAddress;
 
         State = mechanism.CreateArchState();
         State.Pc = entryPoint;
@@ -668,6 +676,7 @@ internal sealed class CprPipelineCore : Gear {
         }
 
         StepExecute();
+        if (_enableEarlyStoreAddress) StepEarlyStoreAddressResolution();
         StepIssue();
         StepSliceReinsert();
         StepDispatch();
@@ -711,6 +720,7 @@ internal sealed class CprPipelineCore : Gear {
             if (r.HasStoreCapture) {
                 SqEntry sq = _hsq.At(entry.SqIdx);
                 _hsq.RecordAddressKnown(entry.SqIdx, r.StoreAddr); // sets AddressKnown + MTB count
+                sq.DataKnown = true;
                 sq.Value = r.StoreVal;
                 sq.Width = r.StoreBytes;
                 // The store's address just resolved: flag younger already-executed overlapping
@@ -855,6 +865,13 @@ internal sealed class CprPipelineCore : Gear {
                 if (e.SqIdx >= 0) {
                     SqEntry sq = _hsq.At(e.SqIdx);
                     if (sq.AddressKnown) {
+                        Debug.Assert(
+                            sq.DataKnown,
+                            "A store reached commit with its address known but data still unknown — " +
+                            "retirement is gated on CheckpointEntry.IsComplete, which only follows the " +
+                            "store's own full Execute (the same event that sets DataKnown), so this " +
+                            "should be unreachable regardless of early address resolution."
+                        );
                         if (dcachePortUsed) {
                             stoppedForPort = true;
                             break;
@@ -1236,7 +1253,9 @@ internal sealed class CprPipelineCore : Gear {
         var anyL2 = false;
         foreach ((int idx, SqEntry sq) in _hsq.InOrderIndexed()) {
             if (sq.SeqNo >= loadSeqNo) break;
-            if (!sq.AddressKnown) continue;
+            // DataKnown, not just AddressKnown: an early-resolved address (see
+            // StepEarlyStoreAddressResolution) has no valid Value/Width yet.
+            if (!sq.AddressKnown || !sq.DataKnown) continue;
             ulong sqEnd = sq.Address + (ulong)sq.Width;
             ulong loadEnd = loadAddr + (ulong)loadBytes;
             if (sq.Address >= loadEnd || loadAddr >= sqEnd) continue;
@@ -1492,6 +1511,46 @@ internal sealed class CprPipelineCore : Gear {
         }
     }
 
+    /// <summary>
+    ///     For every in-flight store whose address operand (rs1) is ready but whose SQ entry
+    ///     doesn't yet have an address — regardless of whether its data operand (rs2) is also
+    ///     ready — resolve and record its effective address early. Mirrors
+    ///     <c>OoOPipelineCore.StepEarlyStoreAddressResolution</c>: never touches
+    ///     <c>CheckpointEntry.IsComplete</c>, the PRF, or the CDB, only
+    ///     <see cref="SqEntry.Address" />/<see cref="SqEntry.AddressKnown" />, a side channel
+    ///     consumed solely by address-only aliasing/forwarding-candidate checks.
+    /// </summary>
+    private void StepEarlyStoreAddressResolution() {
+        IRegisterFile regs = State.IntegerRegisters;
+        foreach (IssueQueue iq in _iqs) {
+            for (var slot = 0; slot < iq.Capacity; slot++) {
+                RsEntry rs = iq.At(slot);
+                if (!rs.Busy || rs.Instruction?.Class != ToothClass.Store || !rs.Src1Ready) continue;
+                if (!_entryByInstrId.TryGetValue(rs.InstrId, out CheckpointEntry? entry)) continue; // squashed
+                if (entry.SqIdx < 0) continue;
+                SqEntry sq = _hsq.At(entry.SqIdx);
+                if (sq.AddressKnown) continue;
+
+                IReadOnlyList<int> srcs = rs.Instruction.SourceRegisters;
+                if (srcs.Count == 0) continue;
+                int archRs1 = srcs[0];
+
+                // Save/inject/restore, same technique the real Execute path uses: the executor
+                // reads operands through IArchState.IntegerRegisters by architectural index, so
+                // the renamed physical register's captured value must be visible there temporarily.
+                ulong saved = archRs1 >= 0 ? regs.Read(archRs1) : 0;
+                if (archRs1 >= 0) regs.Write(archRs1, rs.Src1Value);
+                ulong? addr = _executor.TryComputeStoreAddress(rs.Instruction, State, DLayers.Accessor);
+                if (archRs1 >= 0) regs.Write(archRs1, saved);
+
+                if (addr.HasValue) {
+                    sq.AddressKnown = true;
+                    sq.Address = addr.Value;
+                }
+            }
+        }
+    }
+
     // ── Issue ──────────────────────────────────────────────────────────────────
 
     private void StepIssue() {
@@ -1563,15 +1622,20 @@ internal sealed class CprPipelineCore : Gear {
             if (HasPrecedingStoreLoadFence(rs.InstrId)) return false;
 
             // Memory dependence prediction (store sets — the CFP paper's own CPR baseline):
-            // stall behind the predicted producing store until its address resolves. If that
-            // store is itself NAV, the load joins the slice instead of stalling (ASPLOS 2004
-            // §4.2.1: NAV flows from stores to dependent loads through the predictor).
+            // stall behind the predicted producing store until it fully resolves (DataKnown,
+            // not just AddressKnown — the store may have an early-resolved address, see
+            // StepEarlyStoreAddressResolution, well before its data is actually known; releasing
+            // on AddressKnown alone would let the predicted-dependent load race the store's real
+            // write and read stale memory, since MergeForwardFromStores also requires
+            // DataKnown and would just miss forwarding). If that store is itself NAV, the load
+            // joins the slice instead of stalling (ASPLOS 2004 §4.2.1: NAV flows from stores to
+            // dependent loads through the predictor).
             if (entry.LqIdx >= 0) {
                 LqEntry lq = _lq.At(entry.LqIdx);
                 if (lq.PredStoreSeqNo != 0 && lq.PredStoreSeqNo < lq.SeqNo)
                     foreach (SqEntry sq in _hsq.InOrder()) {
                         if (sq.SeqNo > lq.PredStoreSeqNo) break;
-                        if (sq.SeqNo != lq.PredStoreSeqNo || sq.AddressKnown) continue;
+                        if (sq.SeqNo != lq.PredStoreSeqNo || sq.DataKnown) continue;
                         if (_enableCfp && sq.IsNav && _sdb is { IsFull: false, }) {
                             DrainRsEntryToSlice(iq, slot);
                             return true; // drained: consumes issue bandwidth
