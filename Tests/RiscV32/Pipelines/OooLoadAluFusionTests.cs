@@ -94,7 +94,46 @@ public class OooLoadAluFusionTests {
     [Fact]
     public void LoadAluFusion_ActuallyFiresOnTheLoadUseIdiom() {
         RunWithSeededData(LoadUseProgram(), true, out OooTrain train);
-        Assert.True(train.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the load+addi pair to fuse");
+        Assert.True(train.SnapshotPipeline().Counters["micro_fusions"] > 0, "expected the load+addi pair to fuse");
+    }
+
+    // Register-register form (lw x5,0(x2); add x5,x5,x6): the fused entry's SourceRegisters
+    // must include x6 — an independent register the ALU half reads but the load itself never
+    // touches — or the issue queue would let the pair issue as soon as the load's own address
+    // is ready, reading whatever stale/uninitialized value happens to sit behind x6's physical
+    // register instead of waiting for its real producer. x6 comes from a deliberately slow,
+    // separately-missing load so its value genuinely isn't ready when the fused pair's own load
+    // resolves; a wrong final result would mean the wakeup wait was skipped.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LoadThenAdd_RegisterRegisterForm_WaitsForIndependentLongLatencySource(bool fusion) {
+        // Only 2 instructions precede the fusible pair (base-register loads read straight off
+        // x0, no separate address-setup ADDI needed) — StepRename's TryPeekSecondDecoded only
+        // ever considers two instructions it can see together in the decode queue at once, so
+        // an extra preceding instruction here can shift fetch-window alignment and make this
+        // specific pair miss fusion for a cycle-timing reason unrelated to what's being tested
+        // (same fetch-window-dependent characteristic OooMacroFusionTests documents for
+        // compare+branch); this shape is empirically verified to fuse reliably.
+        uint[] program = [
+            Addi(1, 0, 200),
+            Lw(6, 1, 0), // x6 = mem[200] — cold D-cache miss, resolves late
+            Lw(5, 0, 2000), // x5 = mem[2000] (base x0) — fused with the add below
+            Add(5, 5, 6), // x5 = x5 + x6 — must wait for x6's real value, not a stale one
+            OooLoadAluFusionTests.Ebreak,
+        ];
+        var mem = new FlatMemory(65536);
+        Load(mem, program);
+        mem.Write(200, 7, 4);
+        mem.Write(2000, 3, 4);
+        var dMemConfig = new MemoryConfig(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
+        var train = new OooTrain(
+            new Rv32Mechanism(enableMacroFusion: fusion), mem, issueWidth: 4, dMemConfig: dMemConfig
+        );
+        train.Run();
+
+        Assert.Equal(10UL, train.ArchState.IntegerRegisters.Read(5)); // 3 + 7, regardless of arrival order
+        if (fusion) Assert.True(train.SnapshotPipeline().Counters["micro_fusions"] > 0, "expected the pair to fuse");
     }
 
     [Fact]
@@ -111,7 +150,7 @@ public class OooLoadAluFusionTests {
         var fused = new OooTrain(new Rv32Mechanism(enableMacroFusion: true), fusedMem, issueWidth: 4);
         fused.Run();
 
-        Assert.True(fused.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the pair to fuse");
+        Assert.True(fused.SnapshotPipeline().Counters["micro_fusions"] > 0, "expected the pair to fuse");
         Assert.Equal(
             unfused.SnapshotPipeline().Counters["retired"],
             fused.SnapshotPipeline().Counters["retired"]
@@ -129,7 +168,7 @@ public class OooLoadAluFusionTests {
             OooLoadAluFusionTests.Ebreak,
         ];
         RunWithSeededData(program, true, out OooTrain train);
-        Assert.Equal(0, train.SnapshotPipeline().Counters["macro_fusions"]);
+        Assert.Equal(0, train.SnapshotPipeline().Counters["micro_fusions"]);
         Assert.Equal(10UL, train.ArchState.IntegerRegisters.Read(5));
         Assert.Equal(14UL, train.ArchState.IntegerRegisters.Read(6));
     }
@@ -144,7 +183,7 @@ public class OooLoadAluFusionTests {
             OooLoadAluFusionTests.Ebreak,
         ];
         RunWithSeededData(program, true, out OooTrain train);
-        Assert.Equal(0, train.SnapshotPipeline().Counters["macro_fusions"]);
+        Assert.Equal(0, train.SnapshotPipeline().Counters["micro_fusions"]);
         Assert.Equal(14UL, train.ArchState.IntegerRegisters.Read(5));
     }
 
@@ -178,8 +217,8 @@ public class OooLoadAluFusionTests {
         DialBoardSnapshot unfused = Run(program, false, robCapacity, robCapacity * 2, dMemConfig).SnapshotPipeline();
         DialBoardSnapshot fused = Run(program, true, robCapacity, robCapacity * 2, dMemConfig).SnapshotPipeline();
 
-        Assert.True(fused.Counters["macro_fusions"] > 0, "expected at least one load+ALU fusion");
-        Assert.Equal(0, unfused.Counters["macro_fusions"]);
+        Assert.True(fused.Counters["micro_fusions"] > 0, "expected at least one load+ALU fusion");
+        Assert.Equal(0, unfused.Counters["micro_fusions"]);
 
         Assert.Equal(unfused.Counters["retired"], fused.Counters["retired"]);
         Assert.True(

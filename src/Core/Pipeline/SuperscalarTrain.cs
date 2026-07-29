@@ -199,6 +199,7 @@ internal sealed class SuperscalarCore(
     private IFetchTranslator? _fetchTranslator;
     private Counter _flushesCounter = null!;
     private Counter _macroFusionsCounter = null!;
+    private Counter _microFusionsCounter = null!;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
@@ -258,7 +259,10 @@ internal sealed class SuperscalarCore(
             "flushes", "Frontend flushes (mispredict + trap + interrupt + mret redirects)"
         );
         _macroFusionsCounter = Dials.AddCounter(
-            "macro_fusions", "Instruction pairs issued as a single macro-fused issue slot"
+            "macro_fusions", "Instruction pairs issued as a single macro-fused issue slot (compare+branch)"
+        );
+        _microFusionsCounter = Dials.AddCounter(
+            "micro_fusions", "Instruction pairs issued as a single micro-fused issue slot (load+ALU)"
         );
 
         if (_uopCache is not null) {
@@ -488,7 +492,8 @@ internal sealed class SuperscalarCore(
                 // Counted here, past every RAW/WAW/structural/RequestBlock break above: those
                 // breaks re-peek the same still-undequeued pair next cycle without issuing it,
                 // so incrementing at detection time would double-count every stalled cycle.
-                _macroFusionsCounter.Increment();
+                if (instr.Class == ToothClass.Load) _microFusionsCounter.Increment();
+                else _macroFusionsCounter.Increment();
             }
 
             classIssued[fuSlot]++;

@@ -585,6 +585,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     private int _pendingRollbackPrevPhys = -1;
     private Counter _retiredCounter = null!;
     private Counter _macroFusionsCounter = null!;
+    private Counter _microFusionsCounter = null!;
     private bool _runaheadActive;
     private bool _runaheadChainActive;
     private ulong _runaheadChainOrigin;
@@ -785,7 +786,10 @@ internal sealed partial class OoOPipelineCore : Gear {
         _cyclesCounter = Dials.AddCounter("cycles", "Total cycles");
         _retiredCounter = Dials.AddCounter("retired", "Instructions retired");
         _macroFusionsCounter = Dials.AddCounter(
-            "macro_fusions", "Instruction pairs renamed as a single macro-fused ROB/IQ entry"
+            "macro_fusions", "Instruction pairs renamed as a single macro-fused ROB/IQ entry (compare+branch)"
+        );
+        _microFusionsCounter = Dials.AddCounter(
+            "micro_fusions", "Instruction pairs renamed as a single micro-fused ROB/IQ entry (load+ALU)"
         );
         _flushesCounter = Dials.AddCounter("flushes", "Pipeline flushes (branch + trap)");
         _branchMissCounter = Dials.AddCounter("branch_misses", "Branch mispredictions");
@@ -2971,7 +2975,8 @@ internal sealed partial class OoOPipelineCore : Gear {
                 // Counted here, past every RAT-full/secondary-dest break above: those breaks
                 // re-peek the same still-undequeued pair next cycle without renaming it, so
                 // incrementing at detection time would double-count every stalled cycle.
-                _macroFusionsCounter.Increment();
+                if (instr.Class == ToothClass.Load) _microFusionsCounter.Increment();
+                else _macroFusionsCounter.Increment();
             }
         }
     }

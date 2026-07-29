@@ -83,7 +83,7 @@ public class CprLoadAluFusionTests {
     [Fact]
     public void LoadAluFusion_ActuallyFiresOnTheLoadUseIdiom() {
         RunWithSeededData(LoadUseProgram(), true, out CprTrain train);
-        Assert.True(train.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the load+addi pair to fuse");
+        Assert.True(train.SnapshotPipeline().Counters["micro_fusions"] > 0, "expected the load+addi pair to fuse");
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class CprLoadAluFusionTests {
         RunWithSeededData(LoadUseProgram(), false, out CprTrain unfused);
         RunWithSeededData(LoadUseProgram(), true, out CprTrain fused);
 
-        Assert.True(fused.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the pair to fuse");
+        Assert.True(fused.SnapshotPipeline().Counters["micro_fusions"] > 0, "expected the pair to fuse");
         Assert.Equal(
             unfused.SnapshotPipeline().Counters["retired"],
             fused.SnapshotPipeline().Counters["retired"]
@@ -107,7 +107,7 @@ public class CprLoadAluFusionTests {
             CprLoadAluFusionTests.Ebreak,
         ];
         RunWithSeededData(program, true, out CprTrain train);
-        Assert.Equal(0, train.SnapshotPipeline().Counters["macro_fusions"]);
+        Assert.Equal(0, train.SnapshotPipeline().Counters["micro_fusions"]);
         Assert.Equal(10UL, train.ArchState.IntegerRegisters.Read(5));
         Assert.Equal(14UL, train.ArchState.IntegerRegisters.Read(6));
     }
@@ -144,8 +144,8 @@ public class CprLoadAluFusionTests {
         DialBoardSnapshot fused =
             Run(program, true, checkpointCount, checkpointMaxInstructions, dMemConfig).SnapshotPipeline();
 
-        Assert.True(fused.Counters["macro_fusions"] > 0, "expected at least one load+ALU fusion");
-        Assert.Equal(0, unfused.Counters["macro_fusions"]);
+        Assert.True(fused.Counters["micro_fusions"] > 0, "expected at least one load+ALU fusion");
+        Assert.Equal(0, unfused.Counters["micro_fusions"]);
 
         Assert.Equal(unfused.Counters["retired"], fused.Counters["retired"]);
         Assert.True(

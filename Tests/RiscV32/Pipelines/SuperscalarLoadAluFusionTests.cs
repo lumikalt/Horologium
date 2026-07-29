@@ -69,7 +69,7 @@ public class SuperscalarLoadAluFusionTests {
         RunWithSeededData(LoadUseProgram(), false, out SuperscalarTrain unfused);
         RunWithSeededData(LoadUseProgram(), true, out SuperscalarTrain fused);
 
-        Assert.True(fused.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the pair to fuse");
+        Assert.True(fused.SnapshotPipeline().Counters["micro_fusions"] > 0, "expected the pair to fuse");
         Assert.Equal(
             unfused.SnapshotPipeline().Counters["retired"],
             fused.SnapshotPipeline().Counters["retired"]
@@ -85,7 +85,7 @@ public class SuperscalarLoadAluFusionTests {
             SuperscalarLoadAluFusionTests.Ebreak,
         ];
         RunWithSeededData(program, true, out SuperscalarTrain train);
-        Assert.Equal(0, train.SnapshotPipeline().Counters["macro_fusions"]);
+        Assert.Equal(0, train.SnapshotPipeline().Counters["micro_fusions"]);
     }
 
     // `copies` independent (across copies) lw+addi read-modify pairs, each reading from the
@@ -124,8 +124,8 @@ public class SuperscalarLoadAluFusionTests {
         DialBoardSnapshot unfused = Run(program, false).SnapshotPipeline();
         DialBoardSnapshot fused = Run(program, true).SnapshotPipeline();
 
-        Assert.Equal(0, unfused.Counters["macro_fusions"]);
-        Assert.True(fused.Counters["macro_fusions"] > 0, "expected at least one load+ALU fusion");
+        Assert.Equal(0, unfused.Counters["micro_fusions"]);
+        Assert.True(fused.Counters["micro_fusions"] > 0, "expected at least one load+ALU fusion");
 
         Assert.Equal(unfused.Counters["retired"], fused.Counters["retired"]);
         Assert.True(

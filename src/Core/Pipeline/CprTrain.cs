@@ -309,6 +309,7 @@ internal sealed class CprPipelineCore : Gear {
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
     private Counter _macroFusionsCounter = null!;
+    private Counter _microFusionsCounter = null!;
     private Counter _memViolationsCounter = null!;
     private ulong _nextCheckpointSeq = 1;
     private ulong _nextInstrId = 1;
@@ -462,7 +463,10 @@ internal sealed class CprPipelineCore : Gear {
         _checkpointsCreatedCounter = Dials.AddCounter("checkpoints_created", "Map-table checkpoints opened");
         _checkpointsRetiredCounter = Dials.AddCounter("checkpoints_retired", "Checkpoints bulk-committed");
         _macroFusionsCounter = Dials.AddCounter(
-            "macro_fusions", "Instruction pairs renamed as a single macro-fused checkpoint/IQ entry"
+            "macro_fusions", "Instruction pairs renamed as a single macro-fused checkpoint/IQ entry (compare+branch)"
+        );
+        _microFusionsCounter = Dials.AddCounter(
+            "micro_fusions", "Instruction pairs renamed as a single micro-fused checkpoint/IQ entry (load+ALU)"
         );
         _covhdCounter = Dials.AddCounter(
             "covhd_squashed", "Good instructions squashed for re-execution by checkpoint rollback (COVHD)"
@@ -1862,7 +1866,8 @@ internal sealed class CprPipelineCore : Gear {
             _decodeQueue.Dequeue();
             if (fused) {
                 _decodeQueue.Dequeue();
-                _macroFusionsCounter.Increment();
+                if (instr.Class == ToothClass.Load) _microFusionsCounter.Increment();
+                else _macroFusionsCounter.Increment();
             }
         }
 
