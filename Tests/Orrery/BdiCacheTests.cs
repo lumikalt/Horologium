@@ -1,5 +1,7 @@
 #region
 
+using System.Text;
+using Mechanism;
 using Orrery.Cache;
 using RiscV32.Memory;
 
@@ -234,5 +236,86 @@ public sealed class BdiCacheTests {
         Assert.Equal(hitsBefore, cache.Hits); // peek must not count as a hit
         Assert.Equal(residentBefore, cache.ResidentLineCount);
         Assert.Equal(0, cache.ConsumePendingStalls());
+    }
+
+    // ── Checkpoint (WriteState/ReadState) ─────────────────────────────────────
+
+    [Fact]
+    public void ReadState_GeometryMismatch_Throws() {
+        var backing = new FlatMemory(4096);
+        var cache = new BdiCache(backing, 1024, 4, 32, 10);
+        cache.Write(0x100, 0xDEADBEEF, 4);
+        cache.Read(0x100, 4);
+
+        using var ms = new MemoryStream();
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) cache.WriteState(w);
+
+        var differentGeometry = new BdiCache(new FlatMemory(4096), 1024, 4, 16, 10); // half blockBytes
+        ms.Position = 0;
+        using var r = new BinaryReader(ms);
+        Assert.Throws<CheckpointException>(() => differentGeometry.ReadState(r));
+    }
+
+    // Three-leg check (a checkpoint round-trip test that only compares "warm" against "restored"
+    // can pass even when ReadState is a total no-op, if the cold-start state happens to coincide
+    // with the checkpointed state). This test proves restore actually moves data by diverging all
+    // three: A (checkpoint-time value), B (same cache mutated further after the checkpoint), and
+    // C (a fresh cold cache that never saw a restore). Asserts restored == A, restored != B, and
+    // restored != C.
+    [Fact]
+    public void ReadState_RestoresCheckpointedValue_NotColdStartAndNotLaterMutation() {
+        var backing = new FlatMemory(4096);
+        var cache = new BdiCache(backing, 1024, 4, 32, 10, writePolicy: WritePolicyKind.WriteBack);
+        cache.Write(0x100, 0xAAAAAAAA, 4); // miss -> installs dirty line (write-back allocates)
+        cache.ConsumePendingStalls();
+
+        using var ms = new MemoryStream();
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) cache.WriteState(w);
+
+        // B: mutate the SAME cache after the checkpoint was taken.
+        cache.Write(0x100, 0xBBBBBBBB, 4);
+        Assert.Equal(0xBBBBBBBBUL, cache.Read(0x100, 4));
+
+        // Restore the checkpoint into the same (now-mutated) cache instance.
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) cache.ReadState(r);
+
+        long hitsBeforeRestoredRead = cache.Hits;
+        Assert.Equal(0xAAAAAAAAUL, cache.Read(0x100, 4)); // == A, proving restore overwrote B
+        Assert.Equal(hitsBeforeRestoredRead + 1, cache.Hits); // resident -> hit, not a miss
+
+        // C: an independent, never-restored cache stays cold — proves A != C, so the assertion
+        // above isn't accidentally passing because cold-start already equals the checkpointed value.
+        var cold = new BdiCache(new FlatMemory(4096), 1024, 4, 32, 10, writePolicy: WritePolicyKind.WriteBack);
+        Assert.Equal(0, cold.ResidentLineCount);
+    }
+
+    [Fact]
+    public void WriteState_ReadState_RoundTrip_PreservesSegmentFootprintAndEvictionOrder() {
+        // Single set, 2 physical ways (4 tag ways): fill 3 distinct compressible lines so the
+        // segment/eviction bookkeeping (not just tag/data) has real content to round-trip.
+        var backing = new FlatMemory(4096);
+        var cache = new BdiCache(backing, 64, 2, 32, 10);
+        for (var i = 0; i < 3; i++) {
+            backing.Load((ulong)(i * 32), BdiCacheTests.CompressibleLine(i * 8));
+            cache.Read((ulong)(i * 32), 4);
+        }
+
+        cache.ConsumePendingStalls();
+        double ratioBefore = cache.EffectiveCompressionRatio;
+        int residentBefore = cache.ResidentLineCount;
+
+        using var ms = new MemoryStream();
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) cache.WriteState(w);
+
+        var restored = new BdiCache(new FlatMemory(4096), 64, 2, 32, 10);
+        ms.Position = 0;
+        using (var r = new BinaryReader(ms)) restored.ReadState(r);
+
+        Assert.Equal(residentBefore, restored.ResidentLineCount);
+        Assert.Equal(ratioBefore, restored.EffectiveCompressionRatio, 3);
+        for (var i = 0; i < 3; i++) {
+            Assert.Equal(cache.Read((ulong)(i * 32), 4), restored.Read((ulong)(i * 32), 4));
+        }
     }
 }

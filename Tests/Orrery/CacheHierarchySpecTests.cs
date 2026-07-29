@@ -219,6 +219,61 @@ public class CacheHierarchySpecTests {
         Assert.True(l1HitsAfter > l1HitsBefore, "Expected L1 hit after L0 eviction.");
     }
 
+    // ── BΔI compression (CacheLevelSpec.Compression) ──────────────────────────
+
+    [Fact]
+    public void Build_L1CompressionBdi_ProducesBdiCacheAtL2Slot() {
+        // Reachability check (see project memory on BΔI compression: "standalone doesn't mean
+        // done" — this proves a BdiCache actually comes out of the spec-driven Build overload,
+        // not just the flat MemoryConfig path).
+        FlatMemory backing = MakeBacking();
+        var l0 = new CacheLevelSpec(16, 1, 16, 2); // L1, plain
+        var l1 = new CacheLevelSpec(128, 2, 16, 8, Compression: CompressionKind.Bdi); // L2, compressed
+        var path = new CachePathSpec([l0, l1,]);
+        var layers = MemoryLayers.Build(backing, path);
+
+        Assert.NotNull(layers.Cache); // L1 unaffected
+        Assert.Null(layers.L2Cache); // compressed slot leaves the typed SetAssociativeCache field null
+        Assert.NotNull(layers.L2Bdi); // ...and surfaces on L2Bdi instead
+
+        layers.Accessor.Read(0, 1);
+        Assert.Equal(1L, layers.Cache!.Misses);
+        Assert.Equal(1L, layers.L2Bdi!.Misses);
+        Assert.Equal(10, layers.ConsumeAllStalls()); // 2 + 8, proving L2Bdi's stall latency is charged
+    }
+
+    [Fact]
+    public void Build_L0Eviction_FallsBackToCompressedL2() {
+        // Same eviction scenario as Build_L0Eviction_FallsBackToL1ThenL2, but L1 (the L2 slot) is
+        // BΔI-compressed — proves the compressed level still serves as a real fallback on an L0
+        // eviction, not just an inert reachable-but-unused object.
+        FlatMemory backing = MakeBacking();
+        var l0 = new CacheLevelSpec(16, 1, 16, 2);
+        var l1 = new CacheLevelSpec(128, 4, 16, 8, Compression: CompressionKind.Bdi);
+        var path = new CachePathSpec([l0, l1,]);
+        var layers = MemoryLayers.Build(backing, path);
+
+        layers.Accessor.Read(0, 1);  // A: L0 miss, L2Bdi miss
+        layers.Accessor.Read(16, 1); // B: L0 miss, L2Bdi miss; A evicted from L0
+        layers.ConsumeAllStalls();
+
+        long bdiHitsBefore = layers.L2Bdi!.Hits;
+        layers.Accessor.Read(0, 1); // A: L0 miss, L2Bdi hit
+        long bdiHitsAfter = layers.L2Bdi.Hits;
+
+        Assert.True(bdiHitsAfter > bdiHitsBefore, "Expected an L2Bdi hit after L0 eviction.");
+    }
+
+    [Fact]
+    public void Build_InnermostLevelCompressionBdi_Throws() {
+        // Matches MemoryConfig's flat-config path, which has no CacheCompression field at all:
+        // L1 hit latency is too critical for decompression (Pekhimenko et al., PACT 2012, Section 1).
+        FlatMemory backing = MakeBacking();
+        var l0 = new CacheLevelSpec(16, 1, 16, 2, Compression: CompressionKind.Bdi);
+        var path = new CachePathSpec([l0,]);
+        Assert.Throws<ArgumentException>(() => MemoryLayers.Build(backing, path));
+    }
+
     // ── SharedAcross annotation ───────────────────────────────────────────────
 
     [Fact]

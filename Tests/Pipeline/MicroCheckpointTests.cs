@@ -760,6 +760,133 @@ public class MicroCheckpointTests {
         Assert.True(result.TotalTicks > 0);
     }
 
+    // ── BΔI-compressed L2 (BdiCache) ─────────────────────────────────────────
+    //
+    // addi x1,x0,0; addi x3,x0,20; loop: lw x4,0(x1); lw x5,64(x1); addi x3,x3,-1;
+    // bne x3,x0,loop; ebreak
+    // Alternates reads between two lines 64 bytes apart. Paired with a direct-mapped
+    // (1 way, 1 line) D-L1, every iteration evicts the other address from L1 — every access is
+    // an L1 miss, so L2 (with room for both lines) is touched every iteration too, giving the
+    // L2Bdi section real hit/miss/segment state to checkpoint (not just a single one-off miss).
+    private static readonly uint[] BdiL2LoopProgram = [
+        0x00000093, // addi x1, x0, 0
+        0x01400193, // addi x3, x0, 20
+        0x0000A203, // loop: lw x4, 0(x1)
+        0x400A283, //       lw x5, 64(x1)
+        0xFFF18193, //      addi x3, x3, -1
+        MicroCheckpointTests.EncodeBne(3, 0, -12),
+        0x00100073, // ebreak
+    ];
+
+    private static readonly MemoryConfig BdiL2DCacheCfg = new(
+        32, 1, 32, 4,
+        L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
+        L2Compression: CompressionKind.Bdi,
+        TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
+    );
+
+    private static OooTrain MakeBdiL2Train(FlatMemory mem, ulong entryPoint = 0, bool withL2Bdi = true) =>
+        new(
+            new Rv32Mechanism(), mem, entryPoint,
+            robCapacity: 16, iqCapacity: 8,
+            iMemConfig: MicroCheckpointTests.ICacheCfg,
+            dMemConfig: withL2Bdi ? MicroCheckpointTests.BdiL2DCacheCfg : MicroCheckpointTests.CacheCfg
+        );
+
+    /// <summary>
+    ///     Same drain/save/continue-vs-reload structure as
+    ///     <see cref="Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation" />, but for a
+    ///     BΔI-compressed L2 (<see cref="BdiCache" />) instead of a plain <see cref="SetAssociativeCache" />
+    ///     L2 — proves <see cref="BdiCache.WriteState" />/<see cref="BdiCache.ReadState" /> round-trip
+    ///     through a full pipeline checkpoint, not just the standalone unit-level test in
+    ///     BdiCacheTests.
+    /// </summary>
+    [Fact]
+    public void L2Bdi_Equivalence_DrainSaveRestoreReload_MatchesDrainedContinuation() {
+        var memA = new FlatMemory(4096);
+        Load(memA, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainA = MakeBdiL2Train(memA);
+
+        trainA.BeginStepping();
+        for (var i = 0; i < 30; i++) trainA.StepCycle(); // partway through the loop
+        trainA.Drain();
+
+        ulong checkpointPc = trainA.ArchState.Pc;
+        IReadOnlyList<DialBoardSnapshot> baseline = trainA.SnapshotDials();
+
+        using var ms = new MemoryStream();
+        trainA.SaveMicroCheckpoint(ms, memA);
+
+        while (trainA.StepCycle()) { }
+
+        RevolutionResult refResult = trainA.FinishStepping(baseline);
+
+        var memB = new FlatMemory(4096);
+        Load(memB, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainB = MakeBdiL2Train(memB, checkpointPc);
+        ms.Position = 0;
+        trainB.RestoreMicroCheckpoint(ms, memB);
+
+        trainB.BeginStepping();
+        while (trainB.StepCycle()) { }
+
+        RevolutionResult reloadResult = trainB.FinishStepping();
+
+        Assert.Equal(refResult.TotalTicks, reloadResult.TotalTicks);
+        Assert.Equal(Counter(refResult, "retired"), Counter(reloadResult, "retired"));
+        Assert.Equal(Counter(refResult, "l2_dcache_misses"), Counter(reloadResult, "l2_dcache_misses"));
+        Assert.Equal(Counter(refResult, "l2_dcache_hits"), Counter(reloadResult, "l2_dcache_hits"));
+
+        // Sanity: the workload actually exercised L2Bdi, so a broken WriteState/ReadState would
+        // have had something to diverge on.
+        Assert.True(Counter(refResult, "l2_dcache_hits") > 0);
+    }
+
+    /// <summary>
+    ///     The other half of the round-trip theater guard (see feedback memory
+    ///     "Checkpoint round-trip theater"): the equivalence test above alone could pass even if
+    ///     <see cref="BdiCache.ReadState" /> were a silent no-op, if a cold L2Bdi happened to reach
+    ///     the same steady-state miss count by the time the run ends. This test proves the restore
+    ///     is load-bearing by diverging a third leg: a train that reaches the identical checkpoint
+    ///     PC but is never restored (cold L2Bdi) must incur strictly more L2 misses than the
+    ///     properly restored train over the identical remaining window, since it has to refill both
+    ///     lines from scratch instead of finding them already resident.
+    /// </summary>
+    [Fact]
+    public void L2Bdi_RestoredTrain_HasFewerL2MissesThanColdStartOverSameRemainingWindow() {
+        var memA = new FlatMemory(4096);
+        Load(memA, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainA = MakeBdiL2Train(memA);
+
+        trainA.BeginStepping();
+        for (var i = 0; i < 30; i++) trainA.StepCycle();
+        trainA.Drain();
+        ulong checkpointPc = trainA.ArchState.Pc;
+
+        using var ms = new MemoryStream();
+        trainA.SaveMicroCheckpoint(ms, memA);
+
+        var memRestored = new FlatMemory(4096);
+        Load(memRestored, MicroCheckpointTests.BdiL2LoopProgram);
+        OooTrain trainRestored = MakeBdiL2Train(memRestored, checkpointPc);
+        ms.Position = 0;
+        trainRestored.RestoreMicroCheckpoint(ms, memRestored);
+        RevolutionResult restoredResult = trainRestored.Run();
+
+        var memCold = new FlatMemory(4096);
+        Load(memCold, MicroCheckpointTests.BdiL2LoopProgram);
+        // Same checkpoint PC, same remaining program — but never restored, so L2Bdi starts empty.
+        OooTrain trainCold = MakeBdiL2Train(memCold, checkpointPc);
+        RevolutionResult coldResult = trainCold.Run();
+
+        Assert.True(
+            Counter(coldResult, "l2_dcache_misses") > Counter(restoredResult, "l2_dcache_misses"),
+            $"cold-start L2 misses ({Counter(coldResult, "l2_dcache_misses")}) should exceed " +
+            $"restored L2 misses ({Counter(restoredResult, "l2_dcache_misses")}) — otherwise " +
+            "ReadState isn't actually restoring resident state."
+        );
+    }
+
     // ── Optional OoO predictor/prefetcher tables ─────────────────────────────
     //
     // StoreSetPredictor and SmbPredictor are `internal`, so a direct unit-level round trip isn't

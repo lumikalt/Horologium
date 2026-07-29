@@ -1414,10 +1414,14 @@ scope trims, not oversights. Verified end to end, not just type-checked, in
 pipeline train calls each cycle to charge miss latency — now drains `L2Bdi`/`L3Bdi` alongside the typed
 `L2Cache`/`L3Cache`; without that, a compressed level's miss latency never reached cycle accounting at all (verified
 directly in `ExperimentTests.CompressedL2_MissStallsAreActuallyDrainedIntoCycleAccounting`, which fails at 0 instead
-of the expected miss latency if that drain line is removed). Not yet integrated: `OooeTrain`'s microarchitectural
-checkpoint and the `SingleCycleTrain`/`FiveStageTrain`/`CprTrain` PEventLog L2/L3 hit/miss counters don't cover a
-compressed level, and the `CacheLevelSpec`/`CachePathSpec`-driven `MemoryLayers.Build` overload and the Face UI don't
-expose the option yet — tracked in TODO.md.
+of the expected miss latency if that drain line is removed). A compressed level also has its own `WriteState`/
+`ReadState` (mirroring `SetAssociativeCache`'s, with a geometry check on restore) and participates in `OooeTrain`'s
+microarchitectural checkpoint (`IL2BDI`/`DL2BDI`/`IL3BDI`/`DL3BDI` sections), and every train's
+(SingleCycle/FiveStage/Superscalar/Ooo/Cpr) PEventLog L2/L3 hit/miss dial counters and (Cpr/Ooo) CPI-stack miss
+classification now fold `L2Bdi`/`L3Bdi` in alongside the typed `L2Cache`/`L3Cache`. The `CacheLevelSpec`/
+`CachePathSpec`-driven `MemoryLayers.Build` overload also supports `Compression`/`SegmentBytes` per level (rejecting
+it on the innermost/L1 level, matching the flat-config path's L1 exclusion), and the Face cache-config UI exposes a
+compression selector and segment-size control alongside the other L2 fields.
 
 ### MOESIF cache coherence (src/Core/Orrery/Cache)
 

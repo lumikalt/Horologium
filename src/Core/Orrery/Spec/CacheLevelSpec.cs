@@ -55,6 +55,15 @@ namespace Orrery.Spec;
 ///         Exclusive-inclusion-policy hand-off). Not currently combinable with
 ///         <see cref="SectorBytes" /> &gt; 0.
 ///     </para>
+///     <para>
+///         <see cref="Compression" /> (default <see cref="CompressionKind.None" />) builds this
+///         level as a BΔI-compressed <see cref="BdiCache" /> instead of a plain
+///         <see cref="SetAssociativeCache" /> — see <see cref="MemoryConfig.L2Compression" /> for
+///         the flat-config equivalent. A compressed level does not participate in the inclusion
+///         cascade toward the level directly inside it (matching the flat-config path), does not
+///         accept <see cref="PolicyFactory" />, and ignores every field not meaningful to
+///         <see cref="BdiCache" /> (sectoring, victim cache, MSHR, write-back buffer, banking/ports).
+///     </para>
 /// </summary>
 public sealed record CacheLevelSpec(
     int CapacityBytes,
@@ -82,6 +91,8 @@ public sealed record CacheLevelSpec(
     int SectorBytes = 0,
     int VictimCacheEntries = 0,
     int VictimCacheHitLatency = 1,
+    CompressionKind Compression = CompressionKind.None,
+    int SegmentBytes = 8,
     Func<int, int, IReplacementPolicy?>? PolicyFactory = null,
     Func<IPrefetcher?>? PrefetcherFactory = null
 ) {

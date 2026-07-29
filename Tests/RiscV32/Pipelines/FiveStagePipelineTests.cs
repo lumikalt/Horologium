@@ -500,6 +500,52 @@ public class FiveStagePipelineTests {
         Assert.True(train.DCache!.Misses > 0, "D-cache should record a miss for the load");
     }
 
+    // De-risks the shared BΔI counter-wiring pattern hand-edited into all five trains
+    // (SingleCycle/FiveStage/Superscalar/Ooo/Cpr): the guard-widen + BdiCache? UpdateCacheStat
+    // overload + call was only exercised end to end by an OoO-specific test
+    // (MicroCheckpointTests.L2Bdi_Equivalence...) before this — a green suite otherwise doesn't
+    // prove the identical edit works on the other four trains too.
+    [Fact]
+    public void WithCompressedL2_LoadInstructions_RecordL2BdiDialCounters() {
+        var mem = new FlatMemory(4096);
+        // 1 way, 1 line D-L1 so alternating between two lines forces every access to be an L1
+        // miss, keeping L2Bdi genuinely exercised (not just touched once on a cold fill).
+        MemoryConfig dCfg = new(
+            32, 1, 32, 4,
+            L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
+            L2Compression: CompressionKind.Bdi
+        );
+        // Configure both I and D paths (matching the "unified" convention the L2Cache/L2Bdi
+        // properties assume — see their doc comments) so the D-specific L2Bdi is reachable
+        // through the train's own accessor rather than needing a D-only one.
+        var train = new FiveStageTrain(new Rv32Mechanism(), mem, iMemConfig: dCfg, dMemConfig: dCfg);
+        Load(
+            mem,
+            0x00000093, // addi x1, x0, 0
+            0x0000a203, // lw x4, 0(x1)
+            0x400a283, // lw x5, 64(x1)
+            0x0000a303, // lw x6, 0(x1)
+            0x00100073  // ebreak
+        );
+        RevolutionResult result = train.Run();
+
+        Assert.NotNull(train.L2Bdi);
+        Assert.True(train.L2Bdi!.Misses > 0, "L2Bdi should record misses for the cold lines");
+        Assert.True(train.L2Bdi.Hits > 0, "L2Bdi should record a hit on the re-accessed line");
+        Assert.Null(train.L2Cache); // compressed slot leaves the typed field null
+
+        DialBoardSnapshot? snap = result.Find("five_stage.pipeline");
+        Assert.NotNull(snap);
+        Assert.True(
+            snap.Counters.GetValueOrDefault("l2_dcache_misses") > 0,
+            "l2_dcache_misses dial counter should reflect L2Bdi activity"
+        );
+        Assert.True(
+            snap.Counters.GetValueOrDefault("l2_dcache_hits") > 0,
+            "l2_dcache_hits dial counter should reflect L2Bdi activity"
+        );
+    }
+
     [Fact]
     public void WithTlb_IdentityMapping_CorrectResult() {
         var mem = new FlatMemory(4096);

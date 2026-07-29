@@ -314,7 +314,7 @@
                         <CheckBox IsChecked="{Binding L2CacheEnabled}" Content="L2 cache (unified)" />
                         <Grid ColumnDefinitions="110,*" ColumnSpacing="8" Margin="12,0,0,0"
                               IsVisible="{Binding L2CacheEnabled}"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="4">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Capacity (KiB)" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding L2CacheCapacityKb}"
@@ -370,6 +370,14 @@
                                       ItemsSource="{x:Static vm:ConfigViewModel.InclusionPolicyOptions}"
                                       SelectedItem="{Binding L2CacheInclusionPolicy}"
                                       HorizontalAlignment="Stretch" />
+                            <TextBlock Grid.Row="16" Grid.Column="0" Text="Compression" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="16" Grid.Column="1"
+                                      ItemsSource="{x:Static vm:ConfigViewModel.CompressionOptions}"
+                                      SelectedItem="{Binding L2CacheCompression}"
+                                      HorizontalAlignment="Stretch" />
+                            <TextBlock Grid.Row="17" Grid.Column="0" Text="Segment (bytes)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="17" Grid.Column="1" Value="{Binding L2CacheSegmentBytes}"
+                                           Minimum="1" Maximum="64" />
                         </Grid>
                     </StackPanel>
 
@@ -1525,6 +1533,27 @@
                                                   HorizontalAlignment="Stretch" />
                                         <TextBlock Grid.Column="2" Text="  "
                                                    VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Compress"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding Assembler.CompressionOptions}"
+                                                  SelectedItem="{Binding Assembler.L2CacheCompression}"
+                                                  HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="  "
+                                                   VerticalAlignment="Center" FontSize="11" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="60,*,Auto" ColumnSpacing="4">
+                                        <TextBlock Grid.Column="0" Text="Segment"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.7" />
+                                        <NumericUpDown Grid.Column="1"
+                                                       Value="{Binding Assembler.L2CacheSegmentBytes}"
+                                                       Minimum="1" Maximum="64" Increment="1"
+                                                       FormatString="N0"
+                                                       HorizontalAlignment="Stretch" />
+                                        <TextBlock Grid.Column="2" Text="B"
+                                                   VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
                                     </Grid>
                                 </StackPanel>
 

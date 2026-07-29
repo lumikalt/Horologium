@@ -152,6 +152,10 @@ public partial class ConfigViewModel : ObservableObject {
 
     [ObservableProperty] public partial string L2CacheInclusionPolicy { get; set; } = "nine";
 
+    [ObservableProperty] public partial string L2CacheCompression { get; set; } = "none";
+
+    [ObservableProperty] public partial int L2CacheSegmentBytes { get; set; } = 8;
+
     [ObservableProperty] public partial string CacheReplacementPolicy { get; set; } = "lru";
 
     [ObservableProperty] public partial string DPrefetcher { get; set; } = "none";
@@ -212,6 +216,7 @@ public partial class ConfigViewModel : ObservableObject {
     public static string[] WritePolicyOptions { get; } = ["write_through", "write_back",];
     public static string[] WriteMissPolicyOptions { get; } = ["no_write_allocate", "write_allocate",];
     public static string[] InclusionPolicyOptions { get; } = ["nine", "inclusive", "exclusive",];
+    public static string[] CompressionOptions { get; } = ["none", "bdi",];
 
     public string[] PipelineOptions { get; } = ["single_cycle", "five_stage", "superscalar", "ooo", "cpr", "dae",];
 
@@ -297,6 +302,11 @@ public partial class ConfigViewModel : ObservableObject {
         _                             => "nine",
     };
 
+    private static CompressionKind ParseCompression(string s) =>
+        s == "bdi" ? CompressionKind.Bdi : CompressionKind.None;
+
+    private static string FormatCompression(CompressionKind k) => k == CompressionKind.Bdi ? "bdi" : "none";
+
     public NamedConfig ToNamedConfig() {
         BranchPredictorConfig? predictor = PredictorType switch {
             "always_not_taken" => BranchPredictorConfig.AlwaysNotTaken(),
@@ -355,7 +365,8 @@ public partial class ConfigViewModel : ObservableObject {
                 ParseWritePolicy(L2CacheWritePolicy), ParseWriteMissPolicy(L2CacheWriteMissPolicy),
                 L2CacheWbCapacity, L2CacheBankCount, L2CacheReadPorts, L2CacheWritePorts, L2CacheSectorBytes,
                 L2CacheVictimCacheEntries, L2CacheVictimCacheHitLatency,
-                ParseInclusionPolicy(L2CacheInclusionPolicy)
+                ParseInclusionPolicy(L2CacheInclusionPolicy),
+                ParseCompression(L2CacheCompression), L2CacheSegmentBytes
             )
             : null;
 
@@ -534,6 +545,8 @@ public partial class ConfigViewModel : ObservableObject {
             vm.L2CacheVictimCacheEntries = l2.VictimCacheEntries;
             vm.L2CacheVictimCacheHitLatency = l2.VictimCacheHitLatency;
             vm.L2CacheInclusionPolicy = FormatInclusionPolicy(l2.InclusionPolicy);
+            vm.L2CacheCompression = FormatCompression(l2.Compression);
+            vm.L2CacheSegmentBytes = l2.SegmentBytes;
         }
 
         return vm;

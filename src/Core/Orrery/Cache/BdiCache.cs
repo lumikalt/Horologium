@@ -1,6 +1,7 @@
 #region
 
 using System.Numerics;
+using System.Text;
 using Mechanism;
 
 #endregion
@@ -282,6 +283,88 @@ public sealed class BdiCache : IMemory {
         long s = _pendingStalls;
         _pendingStalls = 0;
         return s;
+    }
+
+    /// <summary>
+    ///     Serializes tag/block/segment/dirty state for a microarchitectural checkpoint (see
+    ///     <see cref="Mechanism.MicroarchitecturalCheckpoint" />), mirroring
+    ///     <see cref="SetAssociativeCache.WriteState" />. Unlike that class, <see cref="BdiCache" />
+    ///     has no MSHR, write-back buffer, victim cache, or in-flight prefetch state (it implements
+    ///     none of those by design — see the class docs), so there is no drained-boundary guard to
+    ///     check first.
+    /// </summary>
+    public void WriteState(BinaryWriter w) {
+        int sets = _tags.Length;
+        w.Write(sets);
+        w.Write(_tagWays);
+        w.Write(_blockBytes);
+        w.Write(_segmentBytes);
+
+        for (var s = 0; s < sets; s++)
+        for (var wy = 0; wy < _tagWays; wy++) {
+            ulong? tag = _tags[s][wy];
+            w.Write(tag.HasValue);
+            if (tag.HasValue) w.Write(tag.Value);
+            w.Write(_blocks[s][wy]);
+            w.Write(_segments[s][wy]);
+            w.Write(_dirty?[s][wy] ?? false);
+        }
+
+        using var policyMs = new MemoryStream();
+        using (var policyW = new BinaryWriter(policyMs, Encoding.UTF8, true)) {
+            // Tag with the concrete policy type so a restore into a differently-configured cache
+            // skips this sub-blob instead of feeding foreign bytes into an unrelated policy's ReadState.
+            policyW.Write(_policy.GetType().FullName ?? "");
+            _policy.WriteState(policyW);
+        }
+
+        byte[] policyBlob = policyMs.ToArray();
+        w.Write(policyBlob.Length);
+        if (policyBlob.Length > 0) w.Write(policyBlob);
+    }
+
+    /// <summary>
+    ///     Restores state written by <see cref="WriteState" />. Sets/tag-ways/block size/segment
+    ///     size must match this cache's own configuration exactly — a mismatch throws rather than
+    ///     silently restoring a partial or misaligned array.
+    /// </summary>
+    /// <exception cref="CheckpointException">Cache geometry does not match.</exception>
+    public void ReadState(BinaryReader r) {
+        int sets = r.ReadInt32();
+        int tagWays = r.ReadInt32();
+        int blockBytes = r.ReadInt32();
+        int segmentBytes = r.ReadInt32();
+        if (sets != _tags.Length || tagWays != _tagWays || blockBytes != _blockBytes ||
+            segmentBytes != _segmentBytes)
+            throw new CheckpointException(
+                $"BdiCache.ReadState: geometry mismatch — checkpoint has " +
+                $"sets={sets} tagWays={tagWays} blockBytes={blockBytes} segmentBytes={segmentBytes}, " +
+                $"but this cache has sets={_tags.Length} tagWays={_tagWays} blockBytes={_blockBytes} " +
+                $"segmentBytes={_segmentBytes}."
+            );
+
+        for (var s = 0; s < sets; s++)
+        for (var wy = 0; wy < tagWays; wy++) {
+            bool hasTag = r.ReadBoolean();
+            ulong tag = hasTag ? r.ReadUInt64() : 0;
+            _tags[s][wy] = hasTag ? tag : null;
+            byte[] block = r.ReadBytes(blockBytes);
+            Buffer.BlockCopy(block, 0, _blocks[s][wy], 0, blockBytes);
+            _segments[s][wy] = r.ReadInt32();
+            bool dirty = r.ReadBoolean();
+            if (_dirty != null) _dirty[s][wy] = dirty;
+        }
+
+        int policyBlobLen = r.ReadInt32();
+        if (policyBlobLen > 0) {
+            byte[] policyBlob = r.ReadBytes(policyBlobLen);
+            using var policyMs = new MemoryStream(policyBlob);
+            using var policyR = new BinaryReader(policyMs);
+            string policyType = policyR.ReadString();
+            // Only apply if the checkpoint's policy type matches this cache's live policy —
+            // otherwise leave it cold-started rather than feeding it a foreign policy's bytes.
+            if (policyType == (_policy.GetType().FullName ?? "")) _policy.ReadState(policyR);
+        }
     }
 
     // ── Address decomposition ────────────────────────────────────────────────

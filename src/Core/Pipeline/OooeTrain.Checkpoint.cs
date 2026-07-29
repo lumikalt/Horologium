@@ -129,6 +129,10 @@ internal sealed partial class OoOPipelineCore {
         if (DLayers.L2Cache is not null) sections.Add(("DL2CACHE", DLayers.L2Cache.WriteState));
         if (ILayers.L3Cache is not null) sections.Add(("IL3CACHE", ILayers.L3Cache.WriteState));
         if (DLayers.L3Cache is not null) sections.Add(("DL3CACHE", DLayers.L3Cache.WriteState));
+        if (ILayers.L2Bdi is not null) sections.Add(("IL2BDI", ILayers.L2Bdi.WriteState));
+        if (DLayers.L2Bdi is not null) sections.Add(("DL2BDI", DLayers.L2Bdi.WriteState));
+        if (ILayers.L3Bdi is not null) sections.Add(("IL3BDI", ILayers.L3Bdi.WriteState));
+        if (DLayers.L3Bdi is not null) sections.Add(("DL3BDI", DLayers.L3Bdi.WriteState));
         if (ILayers.Tlb is not null) sections.Add(("ITLB", ILayers.Tlb.WriteState));
         if (DLayers.Tlb is not null) sections.Add(("DTLB", DLayers.Tlb.WriteState));
         // Tagged with the predictor's concrete type so a restore into a differently-configured
@@ -187,6 +191,10 @@ internal sealed partial class OoOPipelineCore {
         if (DLayers.L2Cache is not null) chk.TryRestoreSection("DL2CACHE", DLayers.L2Cache.ReadState);
         if (ILayers.L3Cache is not null) chk.TryRestoreSection("IL3CACHE", ILayers.L3Cache.ReadState);
         if (DLayers.L3Cache is not null) chk.TryRestoreSection("DL3CACHE", DLayers.L3Cache.ReadState);
+        if (ILayers.L2Bdi is not null) chk.TryRestoreSection("IL2BDI", ILayers.L2Bdi.ReadState);
+        if (DLayers.L2Bdi is not null) chk.TryRestoreSection("DL2BDI", DLayers.L2Bdi.ReadState);
+        if (ILayers.L3Bdi is not null) chk.TryRestoreSection("IL3BDI", ILayers.L3Bdi.ReadState);
+        if (DLayers.L3Bdi is not null) chk.TryRestoreSection("DL3BDI", DLayers.L3Bdi.ReadState);
         if (ILayers.Tlb is not null) chk.TryRestoreSection("ITLB", ILayers.Tlb.ReadState);
         if (DLayers.Tlb is not null) chk.TryRestoreSection("DTLB", DLayers.Tlb.ReadState);
         string predictorType = _predictor.GetType().FullName ?? "";

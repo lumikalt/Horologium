@@ -36,7 +36,6 @@ the active thread.
 
 ## µops
 
-- [ ] Micro-fusion: fuse load+ALU or store-address+store-data into a single dispatch slot.
 - [ ] Loop stream detector: detect short loops and replay µops from a small buffer, bypassing fetch and decode.
 - [ ] µop decomposition for complex instructions: atomics, vector ops, and CSR accesses emit multi-µop sequences through
   the Tooth interface.
@@ -54,8 +53,6 @@ the active thread.
   space for temporal prefetching. — Jain & Lin, MICRO 2013
 - [ ] Temporal memory streaming: record long miss sequences in off-chip metadata and replay them on a matching miss
   (STMS; Domino). — Wenisch et al., ISCA 2005 / HPCA 2009; Bakhshalipour et al., HPCA 2018
-- [ ] Bingo: spatial prefetcher associating footprints with multiple event signatures in a single table. —
-  Bakhshalipour et al., HPCA 2019
 - [ ] Hermes: off-chip load prediction — a perceptron predicts which loads will miss the entire hierarchy and starts
   the DRAM access early, in parallel with cache lookup. — Bera et al., MICRO 2022
 - [ ] Voyager: hierarchical neural data prefetcher (offline-trained LSTM over page and offset vocabularies). — Shi et
@@ -69,11 +66,6 @@ the active thread.
   caches; concrete design for the memory-side-cache item. — Qureshi & Loh, MICRO 2012
 - [ ] MMU translation research: page-walk caches / translation caching ("skip, don't walk") and TLB prefetching;
   builds on the Sv32 walker. — Barr, Cox & Rixner, ISCA 2010; Kandiraju & Sivasubramaniam, ISCA 2002
-
-## Security
-
-- [ ] Randomized/partitioned cache side-channel defenses: CEASER(-S) encrypted-address remapping and ScatterCache
-  skewed randomization. — Qureshi, MICRO 2018 / ISCA 2019; Werner et al., USENIX Security 2019
 
 ## Multicore & Fabric
 

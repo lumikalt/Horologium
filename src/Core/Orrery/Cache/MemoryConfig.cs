@@ -501,45 +501,59 @@ public sealed record MemoryLayers(
         // Build from outermost to innermost so each layer wraps the one below it.
         // Order: shared levels (outermost first) → private levels (outermost-private first).
         IMemory current = backing;
-        var allCaches = new List<SetAssociativeCache>();
+        // allCaches/allBdi are parallel to allSpecs (innermost-first, see below): exactly one of
+        // allCaches[i]/allBdi[i] is non-null per position, matching a BΔI-compressed level's own
+        // L2Cache-is-null/L2Bdi-is-set convention on MemoryLayers itself.
+        var allCaches = new List<SetAssociativeCache?>();
+        var allBdi = new List<BdiCache?>();
         var allSpecs = new List<CacheLevelSpec>();
 
-        for (int i = sharedList.Count - 1; i >= 0; i--) {
-            CacheLevelSpec s = sharedList[i];
-            int prefLat = s.Prefetcher != PrefetcherKind.None || s.PrefetcherFactory is not null
-                ? s.PrefetchLatency
-                : 0;
-            var cache = new SetAssociativeCache(
-                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
-                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
-                s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
-                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
-                s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
-            );
-            allCaches.Insert(0, cache);
+        void BuildLevel(CacheLevelSpec s) {
+            if (s.Compression == CompressionKind.Bdi) {
+                var bdi = new BdiCache(
+                    current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, s.SegmentBytes, s.WritePolicy
+                );
+                allCaches.Insert(0, null);
+                allBdi.Insert(0, bdi);
+                current = bdi;
+            }
+            else {
+                int prefLat = s.Prefetcher != PrefetcherKind.None || s.PrefetcherFactory is not null
+                    ? s.PrefetchLatency
+                    : 0;
+                var cache = new SetAssociativeCache(
+                    current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
+                    s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
+                    s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
+                    s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
+                    s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
+                );
+                allCaches.Insert(0, cache);
+                allBdi.Insert(0, null);
+                current = cache;
+            }
+
             allSpecs.Insert(0, s);
-            current = cache;
         }
 
-        for (int i = privLevels.Count - 1; i >= 0; i--) {
-            CacheLevelSpec s = privLevels[i];
-            int prefLat = s.Prefetcher != PrefetcherKind.None || s.PrefetcherFactory is not null
-                ? s.PrefetchLatency
-                : 0;
-            var cache = new SetAssociativeCache(
-                current, s.CapacityBytes, s.Ways, s.BlockBytes, s.MissLatency, prefLat, s.ReplacementPolicy,
-                s.TagLatency, s.DataLatency, s.WritePolicy, s.WriteMissPolicy, s.WbCapacity, s.MshrCount,
-                s.AccessMode, s.InclusionPolicy, s.CriticalWordLatency, s.BankCount, s.ReadPorts, s.WritePorts,
-                s.SectorBytes, s.VictimCacheEntries, s.VictimCacheHitLatency,
-                s.PolicyFactory?.Invoke(s.CapacityBytes / (s.Ways * s.BlockBytes), s.Ways)
-            );
-            allCaches.Insert(0, cache);
-            allSpecs.Insert(0, s);
-            current = cache;
-        }
+        for (int i = sharedList.Count - 1; i >= 0; i--) BuildLevel(sharedList[i]);
+        for (int i = privLevels.Count - 1; i >= 0; i--) BuildLevel(privLevels[i]);
 
-        // allCaches is innermost-first; wire each level's InclusionPolicy toward its inner neighbor.
-        for (var i = 1; i < allCaches.Count; i++) allCaches[i].AttachInner(allCaches[i - 1]);
+        // Matches MemoryConfig's flat-config path, which has no CacheCompression field at all —
+        // L1 hit latency is too critical for decompression (Pekhimenko et al., PACT 2012, Section 1).
+        if (allSpecs.Count > 0 && allSpecs[0].Compression == CompressionKind.Bdi)
+            throw new ArgumentException(
+                "CacheLevelSpec: the innermost (L1) level cannot use BΔI compression."
+            );
+
+        // allCaches/allBdi are innermost-first; wire each level's InclusionPolicy toward its inner
+        // neighbor. A compressed level (null in allCaches) neither attaches an inner cache nor is
+        // attached by an outer one — it simply drops out of the SetAssociativeCache-only inclusion
+        // cascade, same as the flat-config path's documented "L3 does not fall through to L1" rule
+        // when L2 is compressed.
+        for (var i = 1; i < allCaches.Count; i++)
+            if (allCaches[i] is { } outer && allCaches[i - 1] is { } inner)
+                outer.AttachInner(inner);
 
         // TLB wraps the innermost cache; UncacheableMemory wraps TLB (matching MemoryConfig build order).
         Tlb? tlb = null;
@@ -548,7 +562,7 @@ public sealed record MemoryLayers(
             current = tlb;
         }
 
-        if (uncacheableSize > 0 && allCaches.Count > 0)
+        if (uncacheableSize > 0 && allSpecs.Count > 0)
             current = new UncacheableMemory(current, backing, uncacheableBase, uncacheableSize);
 
         // MemoryLayers.Prefetcher corresponds to allCaches[0] (the innermost cache = Cache).
@@ -560,16 +574,20 @@ public sealed record MemoryLayers(
             )
             : null;
 
-        // Map the first three caches to the named MemoryLayers stat fields (innermost first).
+        // Map the first three levels to the named MemoryLayers stat fields (innermost first). L1
+        // (index 0) is always a plain SetAssociativeCache (compression is rejected above), so c0 is
+        // never null when a level exists there.
         SetAssociativeCache? c0 = allCaches.Count > 0 ? allCaches[0] : null;
         SetAssociativeCache? c1 = allCaches.Count > 1 ? allCaches[1] : null;
         SetAssociativeCache? c2 = allCaches.Count > 2 ? allCaches[2] : null;
+        BdiCache? b1 = allBdi.Count > 1 ? allBdi[1] : null;
+        BdiCache? b2 = allBdi.Count > 2 ? allBdi[2] : null;
 
         // Real per-line eviction feedback for PPF's third training trigger (see PpfPrefetcher docs) —
         // wired only for PPF, not threaded through the cache constructor for every prefetcher/config.
         if (prefetcher is PpfPrefetcher ppf0 && c0 is not null) c0.OnEviction = ppf0.OnLineEvicted;
 
-        return new MemoryLayers(current, c0, c1, c2, tlb, prefetcher, uncacheableBase, uncacheableSize);
+        return new MemoryLayers(current, c0, c1, c2, tlb, prefetcher, uncacheableBase, uncacheableSize, b1, b2);
     }
 
     /// <summary>Drains and sums pending stall cycles from all cache and TLB levels.</summary>
