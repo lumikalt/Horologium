@@ -117,6 +117,20 @@ public class ExperimentTests {
     }
 
     [Fact]
+    public void TrainConfig_DPrefetcherBingoString_ReachesBingoPrefetcherInstance() {
+        // Regression guard for the "bingo" string → PrefetcherKind.Bingo → BingoPrefetcher wiring
+        // added across TrainConfig/MemoryConfig/AssemblerViewModel — a typo in any of those three
+        // hand-edited switches would silently fall through to PrefetcherKind.None and no unit test
+        // on BingoPrefetcher itself would ever catch it, since none of them go through this string path.
+        var cfg = new TrainConfig(DCache: new CacheHardwareConfig(4096, 2, 32, 8), DPrefetcher: "bingo");
+        MemoryConfig dMem = cfg.ToDMemoryConfig();
+        Assert.Equal(PrefetcherKind.Bingo, dMem.Prefetcher);
+
+        var dLayers = MemoryLayers.Build(new FlatMemory(0x10000), dMem);
+        Assert.IsType<BingoPrefetcher>(dLayers.Prefetcher);
+    }
+
+    [Fact]
     public void TrainConfig_L2CompressionBdi_ReachesBdiCacheInstance() {
         // Regression guard for the CacheHardwareConfig.Compression -> MemoryConfig.L2Compression ->
         // BdiCache wiring in MemoryLayers.Build: a config-level typo or a dropped field would

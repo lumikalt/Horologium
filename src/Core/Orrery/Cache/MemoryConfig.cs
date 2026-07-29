@@ -21,6 +21,7 @@ public enum PrefetcherKind {
     Ppf,
     Stems,
     Mlop,
+    Bingo,
 }
 
 /// <summary>
@@ -478,6 +479,7 @@ public sealed record MemoryLayers(
         PrefetcherKind.Ppf      => new PpfPrefetcher(blockBytes),
         PrefetcherKind.Stems    => new StemsPrefetcher(blockBytes),
         PrefetcherKind.Mlop     => new MlopPrefetcher(blockBytes),
+        PrefetcherKind.Bingo    => new BingoPrefetcher(blockBytes),
         _                       => null,
     };
 

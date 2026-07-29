@@ -1268,7 +1268,7 @@ lookahead translation).
 
 `IPrefetcher.OnAccess(pc, address, wasHit, Span<ulong> targets)` writes zero or more prefetch addresses into the
 caller-provided span and returns the count; the `OooeTrain` execute stage drives it once per demand load and calls
-`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Twelve prefetchers are implemented: **NextLine** —
+`MemoryLayers.TryPrefetch` for each result, subject to MSHR capacity. Thirteen prefetchers are implemented: **NextLine** —
 always prefetches the cache line immediately following the access; bandwidth-greedy but effective for sequential
 workloads. **Stride / RPT** — Reference Prediction Table (per-PC stride tracking with a 0–3 saturating confidence
 counter); issues a prefetch at `address + stride` once the stride is confirmed (confidence ≥ 2). **Stream** — multi-way
@@ -1371,6 +1371,25 @@ occurrence, this reconstruction runs synchronously and returns the whole predict
 throttling the same way SPP/PPF's lookahead walks replace theirs), with ±2-position collision resolution matching the
 paper's own (§4.2). Verified directly against the paper's own worked example (Fig. 3/5): training on the observed
 order A, A+4, B, A+2, B+6, A−1, C, D, D+1, D+2 and re-triggering A reconstructs the exact original continuation.
+**Bingo** — Bingo Spatial Data Prefetcher (Bakhshalipour, Shakerinava, Lotfi-Kamran &amp; Sarbazi-Azad, HPCA 2019):
+reuses SMS's AGT unchanged (same 32-entry filter/64-entry accumulation FIFO tables, same 2 KB region, same footprint
+bitmask accumulation) but replaces SMS's single-event Pattern History Table with a TAGE-like *dual-event* history
+table (16K entries, 16-way, same sizing as SMS's PHT): each footprint is associated with a *long* event (trigger PC +
+the exact trigger address) and, implicitly, a *short* event (trigger PC + trigger block offset, always derivable from
+the long one) — so the table is indexed once, using only the short event, and looked up up to twice against the same
+set: first for a precise match against the full long event (high accuracy, low match probability), and — only on a
+miss — a fallback match against just the short event, generalizing the learned footprint across every page ever
+touched at that PC+offset (lower accuracy, much higher match probability). One physical table instead of two cascaded
+TAGE-style tables, because a footprint is only ever written once (under its long event) yet stays reachable via the
+short event too. When a short-event fallback lookup matches more than one entry (several different pages sharing the
+same trigger PC+offset), conflicting footprints are combined by majority: a block is prefetched only if present in the
+footprint of at least 20% of matching entries, the paper's own literal threshold (§IV). Entries store `Pc`/
+`RegionBase`/`Offset` as literal fields rather than a bit-packed tag+index split — behaviorally identical to the
+paper's hardware design (the index is still computed from `(Pc, Offset)` alone, so a write and a lookup sharing the
+same short event always land in the same set) but avoids a tag-decomposition trick that only matters for real silicon
+bit width. Like SMS/STeMS (and unlike PPF), relies on AGT capacity pressure rather than a real per-line eviction
+callback to terminate a page generation — Bingo's own contribution is the history-table lookup scheme, not the
+AGT/termination model it inherits unchanged from SMS.
 **MLOP** — Multi-Lookahead Offset Prefetcher (Shakerinava, Bakhshalipour, Lotfi-Kamran &amp; Sarbazi-Azad, DPC-3 2019):
 generalizes BOP by scoring candidate offsets at 16 independent lookahead levels instead of committing to one. A
 256-entry direct-mapped Access Map Table (AMT), keyed by a 64-line-aligned region, holds a 64-bit spatial bitvector per
@@ -1384,9 +1403,10 @@ level's selected offset, level 1 (soonest-needed) through level 16 (most lead ti
 clamped to a page boundary. Candidate offsets are 1..63 (positive-only, matching this codebase's BOP simplification —
 nothing larger could ever score against a 64-line region anyway). For a dense stride-k demand-miss stream this
 converges deterministically to `bestOffset[L] = k·L` for every level — the property a unit test verifies directly.
-Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf,Stems,Mlop}` on
+Select with `Prefetcher = PrefetcherKind.{NextLine,Stride,Stream,Ipcp,Berti,Pythia,Sms,Bop,Spp,Ppf,Stems,Mlop,Bingo}` on
 `MemoryConfig`/`CacheLevelSpec`, or `d_prefetcher:
-"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"/"stems"/"mlop"` in `TrainConfig` JSON.
+"next_line"/"stride"/"stream"/"ipcp"/"berti"/"pythia"/"sms"/"bop"/"spp"/"ppf"/"stems"/"mlop"/"bingo"` in `TrainConfig`
+JSON.
 
 ### Cache compression (src/Core/Orrery/Cache)
 

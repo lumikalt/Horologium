@@ -153,6 +153,7 @@ public sealed record TrainConfig(
             "ppf"       => PrefetcherKind.Ppf,
             "stems"     => PrefetcherKind.Stems,
             "mlop"      => PrefetcherKind.Mlop,
+            "bingo"     => PrefetcherKind.Bingo,
             _           => PrefetcherKind.None,
         };
         return mc with {

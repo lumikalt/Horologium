@@ -48,8 +48,22 @@ off here until a periodic cleanup removes them; the durable record is git histor
 
 ## Cache Prefetching
 
-- [ ] Bingo: spatial prefetcher associating footprints with multiple event signatures in a single table. —
-  Bakhshalipour et al., HPCA 2019
+- [x] Bingo: spatial prefetcher associating footprints with multiple event signatures in a single table. —
+  Bakhshalipour et al., HPCA 2019. `BingoPrefetcher` reuses SMS's Active Generation
+  Table (32-entry filter / 64-entry accumulation FIFO, same 2 KB region and footprint
+  bitmask) unchanged, replacing SMS's single-event Pattern History Table with a
+  TAGE-like dual-event history table: one physical 16K-entry/16-way table, indexed
+  once by the short event (PC+Offset), looked up twice — first a precise match
+  against the long event (PC+exact trigger address), falling back on a miss to an
+  aggregate of every entry matching just the short event, combined per the paper's
+  literal ≥20%-of-matching-entries threshold. Modeling simplification: entries store
+  `Pc`/`RegionBase`/`Offset` as literal fields rather than a bit-packed tag+index
+  split — behaviorally identical (the index is still computed from `(Pc, Offset)`
+  alone) but avoids a hardware bit-decomposition trick irrelevant to a functional
+  model. Like SMS/STeMS (and unlike PPF), relies on AGT capacity pressure rather
+  than a real per-line eviction callback to terminate a page generation — a
+  deliberate consistency choice, since Bingo's own contribution is the history-table
+  lookup scheme, not the AGT/termination model it inherits from SMS.
 
 ## Security
 
