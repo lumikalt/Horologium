@@ -4910,7 +4910,7 @@ public class UveTests {
         var train = new OooTrain(new Rv32Mechanism(), mem, code, robCapacity: 64, iqCapacity: 32);
         train.Run(2000);
 
-        Assert.Equal(Rub(expectedSum), (uint)train.ArchState!.IntegerRegisters.Read(4));
+        Assert.Equal(Rub(expectedSum), (uint)train.ArchState.IntegerRegisters.Read(4));
         return;
 
         uint Lui(int rd, int imm20) => (uint)(((imm20 & 0xFFFFF) << 12) | ((rd & 0x1F) << 7) | 0x37);

@@ -512,7 +512,7 @@ public class FiveStagePipelineTests {
         // miss, keeping L2Bdi genuinely exercised (not just touched once on a cold fill).
         MemoryConfig dCfg = new(
             32, 1, 32, 4,
-            L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
+            128, 2, 32, 8,
             L2Compression: CompressionKind.Bdi
         );
         // Configure both I and D paths (matching the "unified" convention the L2Cache/L2Bdi
@@ -523,7 +523,7 @@ public class FiveStagePipelineTests {
             mem,
             0x00000093, // addi x1, x0, 0
             0x0000a203, // lw x4, 0(x1)
-            0x400a283, // lw x5, 64(x1)
+            0x400a283,  // lw x5, 64(x1)
             0x0000a303, // lw x6, 0(x1)
             0x00100073  // ebreak
         );
@@ -553,7 +553,7 @@ public class FiveStagePipelineTests {
         var mem = new FlatMemory(4096);
         MemoryConfig dCfg = new(
             32, 1, 32, 4,
-            L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
+            128, 2, 32, 8,
             L2Variant: CacheVariantKind.Ceaser
         );
         var train = new FiveStageTrain(new Rv32Mechanism(), mem, iMemConfig: dCfg, dMemConfig: dCfg);
@@ -561,7 +561,7 @@ public class FiveStagePipelineTests {
             mem,
             0x00000093, // addi x1, x0, 0
             0x0000a203, // lw x4, 0(x1)
-            0x400a283, // lw x5, 64(x1)
+            0x400a283,  // lw x5, 64(x1)
             0x0000a303, // lw x6, 0(x1)
             0x00100073  // ebreak
         );

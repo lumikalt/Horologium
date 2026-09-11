@@ -203,7 +203,9 @@ public sealed class BingoPrefetcher : IPrefetcher {
         }
 
         if (_accum[slot].Valid)
-            HistWrite(_accum[slot].TriggerPc, _accum[slot].RegionBase, _accum[slot].TriggerOffset, _accum[slot].Pattern);
+            HistWrite(
+                _accum[slot].TriggerPc, _accum[slot].RegionBase, _accum[slot].TriggerOffset, _accum[slot].Pattern
+            );
         _accum[slot] = new AccumEntry {
             RegionBase = regionBase,
             TriggerPc = triggerPc,

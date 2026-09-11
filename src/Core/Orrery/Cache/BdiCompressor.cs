@@ -124,7 +124,7 @@ public static class BdiCompressor {
         BdiEncoding.Base4Delta1 => (4, 1),
         BdiEncoding.Base4Delta2 => (4, 2),
         BdiEncoding.Base2Delta1 => (2, 1),
-        _ => throw new ArgumentOutOfRangeException(nameof(encoding)),
+        _                       => throw new ArgumentOutOfRangeException(nameof(encoding)),
     };
 
     // ── Base+Delta with an implicit zero base (BΔI's two-base refinement, Section 4.2) ─────────

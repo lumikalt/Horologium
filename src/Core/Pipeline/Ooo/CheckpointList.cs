@@ -1,6 +1,7 @@
 #region
 
 using Mechanism;
+using Orrery.Observation;
 
 #endregion
 

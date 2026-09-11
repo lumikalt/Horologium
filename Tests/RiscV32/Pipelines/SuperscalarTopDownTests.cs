@@ -44,10 +44,10 @@ public class SuperscalarTopDownTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static (TopDownBreakdown Td, DialBoardSnapshot Snap) RunAndAnalyze(
@@ -75,7 +75,9 @@ public class SuperscalarTopDownTests {
         // ITooth.ArchInstructionCount (2 per macro-fused pair), while a slot is a pipeline-width
         // unit that a fused pair still only occupies once.
         Assert.Equal(snap.Counters["cycles"] * issueWidth, snap.Counters[TopDownBreakdown.TotalSlotsCounter]);
-        Assert.Equal(snap.Counters[TopDownBreakdown.SlotsRetiredCounter], snap.Counters[TopDownBreakdown.SlotsIssuedCounter]);
+        Assert.Equal(
+            snap.Counters[TopDownBreakdown.SlotsRetiredCounter], snap.Counters[TopDownBreakdown.SlotsIssuedCounter]
+        );
         double sum = td.FrontendBound + td.BadSpeculation + td.Retiring + td.BackendBound;
         Assert.InRange(sum, 1.0 - 1e-9, 1.0 + 1e-9); // issued ≡ retired → never overshoots
         return (td, snap);
@@ -101,15 +103,15 @@ public class SuperscalarTopDownTests {
             int b = i * blockWords;
             program[b + 0] = Addi(1, 0, 5);
             program[b + 1] = Addi(2, 0, 3);
-            program[b + 2] = Slt(5, 2, 1); // x5 = (3 < 5) = 1
-            program[b + 3] = Bne(5, 0, 12); // taken: skip the next 2 addis, land on the next block
+            program[b + 2] = Slt(5, 2, 1);    // x5 = (3 < 5) = 1
+            program[b + 3] = Bne(5, 0, 12);   // taken: skip the next 2 addis, land on the next block
             program[b + 4] = Addi(3, 0, 111); // skipped
             program[b + 5] = Addi(3, 0, 222); // skipped
         }
 
         program[blockWords * 20] = SuperscalarTopDownTests.Ebreak;
 
-        (TopDownBreakdown td, DialBoardSnapshot snap) = RunAndAnalyze(program, issueWidth: 2, enableMacroFusion: true);
+        (TopDownBreakdown td, DialBoardSnapshot snap) = RunAndAnalyze(program, 2, enableMacroFusion: true);
         Assert.True(snap.Counters["macro_fusions"] > 0, "expected the SLT+BNE idiom to fuse");
         // The architectural "retired" count is provably inflated past SlotsIssued here — exactly
         // the condition that broke the SlotsIssued == SlotsRetired invariant (checked inside

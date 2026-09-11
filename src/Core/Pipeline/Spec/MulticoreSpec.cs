@@ -221,26 +221,23 @@ public sealed record MulticoreSpec(
             // or BΔI here would otherwise get no error and no protection/compression either.
             SetAssociativeCache? llc = null;
             ScatterCache? scatterLlc = null;
-            if (SharedLlc is { Variant: CacheVariantKind.ScatterCache, } scatterSpec) {
+            if (SharedLlc is { Variant: CacheVariantKind.ScatterCache, } scatterSpec)
                 scatterLlc = new ScatterCache(
                     reservationAwareBacking,
                     scatterSpec.CapacityBytes, scatterSpec.Ways, scatterSpec.BlockBytes, scatterSpec.MissLatency,
                     scatterSpec.ScatterRekeyInterval, scatterSpec.ScatterSeed, scatterSpec.WritePolicy
                 );
-            }
-            else if (SharedLlc is { Variant: not CacheVariantKind.None, } unsupportedVariant) {
+            else if (SharedLlc is { Variant: not CacheVariantKind.None, } unsupportedVariant)
                 throw new NotSupportedException(
                     $"MulticoreSpec.SharedLlc does not support Variant={unsupportedVariant.Variant} " +
                     "at the shared-LLC surface (only None and ScatterCache are wired here)."
                 );
-            }
-            else if (SharedLlc is { Compression: not CompressionKind.None, } unsupportedCompression) {
+            else if (SharedLlc is { Compression: not CompressionKind.None, } unsupportedCompression)
                 throw new NotSupportedException(
                     $"MulticoreSpec.SharedLlc does not support Compression={unsupportedCompression.Compression} " +
                     "at the shared-LLC surface (only Compression.None is wired here)."
                 );
-            }
-            else if (SharedLlc is { } llcSpec) {
+            else if (SharedLlc is { } llcSpec)
                 llc = new SetAssociativeCache(
                     reservationAwareBacking,
                     llcSpec.CapacityBytes, llcSpec.Ways, llcSpec.BlockBytes,
@@ -248,7 +245,6 @@ public sealed record MulticoreSpec(
                     llcSpec.TagLatency, llcSpec.DataLatency,
                     llcSpec.WritePolicy, llcSpec.WriteMissPolicy, llcSpec.WbCapacity
                 );
-            }
 
             llcsByPool[poolId] = llc;
             scatterLlcsByPool[poolId] = scatterLlc;

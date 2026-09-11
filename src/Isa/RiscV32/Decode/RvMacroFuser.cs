@@ -1,6 +1,5 @@
 #region
 
-using System.Collections.Generic;
 using Mechanism;
 
 #endregion
@@ -55,8 +54,8 @@ public sealed class RvMacroFuser : IMacroFuser {
             ToothClass.ConditionalBranch,
             fused,
             first.SizeBytes + second.SizeBytes,
-            archInstructionCount: 2,
-            branchComponent: second
+            2,
+            second
         );
     }
 
@@ -106,8 +105,8 @@ public sealed class RvMacroFuser : IMacroFuser {
             ToothClass.Load,
             fused,
             first.SizeBytes + second.SizeBytes,
-            archInstructionCount: 2,
-            branchComponent: second
+            2,
+            second
         );
     }
 }

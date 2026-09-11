@@ -65,7 +65,8 @@ namespace Orrery.Cache;
 ///         third trigger, an L2 eviction of a still-unused prefetched line, is fed the real
 ///         signal via <see cref="OnLineEvicted" /> whenever the caller wires
 ///         <see cref="SetAssociativeCache.OnEviction" /> to it (done automatically by
-///         <see cref="MemoryLayers.Build" /> whenever PPF is the configured prefetcher). When no
+///         <see cref="MemoryLayers.Build(IMemory, CachePathSpec, IReadOnlyList{CacheLevelSpec}, ulong, ulong)" />
+///         whenever PPF is the configured prefetcher). When no
 ///         cache wires that callback (e.g. this class used standalone, as in most of this file's
 ///         own unit tests), the same signal is still approximated the way the direct-mapped
 ///         Prefetch Table itself already behaves in hardware: when a new admitted candidate's

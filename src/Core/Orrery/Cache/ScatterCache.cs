@@ -1,7 +1,6 @@
 #region
 
 using System.Numerics;
-using System.Text;
 using Mechanism;
 
 #endregion
@@ -54,7 +53,7 @@ public sealed record ScatterCacheLine(int Way, int Row, bool Valid, ulong Addres
 ///         sweeping remap, the paper is explicit that a key change always accompanies a full cache
 ///         flush (write-back: flush every dirty line first; then invalidate everything) — no
 ///         incremental relocation machinery. <see cref="Rekey" /> does this on demand;
-///         <see cref="RekeyInterval" /> (0 = disabled, matching the paper's own "it is unclear if
+///         <c>rekeyInterval</c> (0 = disabled, matching the paper's own "it is unclear if
 ///         adding the additional hardware complexity [of dynamic remapping] is worthwhile...
 ///         performing an occasional cache flush... can be the better choice") triggers it
 ///         automatically every N accesses.
@@ -71,33 +70,37 @@ public sealed record ScatterCacheLine(int Way, int Row, bool Valid, ulong Addres
 ///     <para>
 ///         Scope matches <see cref="CeaserCache" />/<see cref="BdiCache" />'s fidelity level: no
 ///         sectoring, MSHR modeling, victim buffer, bus banking, or inclusion cascade.
-///         <see cref="InvalidateLine" />/<see cref="CleanLine" />/<see cref="FlushLine" /> are left at
+///         <see cref="IMemory.InvalidateLine" />/<see cref="IMemory.CleanLine" />/
+///         <see cref="IMemory.FlushLine" /> are left at
 ///         their <see cref="IMemory" /> no-op defaults, same deliberate scope match.
 ///     </para>
 /// </summary>
 public sealed class ScatterCache : IMemory {
-    private long _accessesSinceRekey;
     private readonly IMemory _backing;
     private readonly int _blockBytes;
     private readonly byte[][][] _blocks; // [way][row][blockBytes]
-    private readonly bool[][]? _dirty; // [way][row], non-null only in WriteBack mode
-    private ulong _key;
+    private readonly bool[][]? _dirty;   // [way][row], non-null only in WriteBack mode
     private readonly int _offsetMask;
-    private long _pendingStalls;
     private readonly int _rekeyInterval;
-    private ulong _rngState; // xorshift64 — see class docs for why not System.Random
     private readonly int _rowsPerWay;
-    private int _sdid;
     private readonly ulong?[][] _tags; // [way][row]: null = invalid
     private readonly int _ways;
     private readonly WritePolicyKind _writePolicy;
+    private long _accessesSinceRekey;
+    private ulong _key;
+    private long _pendingStalls;
+    private ulong _rngState; // xorshift64 — see class docs for why not System.Random
+    private int _sdid;
 
     /// <param name="backing">Backing memory.</param>
     /// <param name="capacityBytes">Total cache size in bytes. Must be a power of 2.</param>
     /// <param name="ways">Associativity (nways). Must be a power of 2.</param>
     /// <param name="blockBytes">Cache line size in bytes. Must be a power of 2.</param>
     /// <param name="missLatency">Extra cycles charged per miss.</param>
-    /// <param name="rekeyInterval">Accesses between automatic <see cref="Rekey" /> calls (0 = manual/external only, matching the paper's own default preference).</param>
+    /// <param name="rekeyInterval">
+    ///     Accesses between automatic <see cref="Rekey" /> calls (0 = manual/external only, matching
+    ///     the paper's own default preference).
+    /// </param>
     /// <param name="seed">Seed for the key/replacement PRNG, for reproducible runs.</param>
     /// <param name="writePolicy">Write-hit policy — write-back always allocates on a write miss; write-through never does.</param>
     public ScatterCache(
@@ -224,9 +227,7 @@ public sealed class ScatterCache : IMemory {
             WriteBytes(_blocks[way][row], offset, value, bytes);
             _dirty![way][row] = true;
         }
-        else {
-            _pendingStalls += MissLatency;
-        }
+        else { _pendingStalls += MissLatency; }
 
         OnAccess();
     }
@@ -287,7 +288,10 @@ public sealed class ScatterCache : IMemory {
         return s;
     }
 
-    /// <summary>Per-line introspection across every way — for tooling and tests; mirrors <see cref="SetAssociativeCache.GetSnapshot" />.</summary>
+    /// <summary>
+    ///     Per-line introspection across every way — for tooling and tests; mirrors
+    ///     <see cref="SetAssociativeCache.GetSnapshot" />.
+    /// </summary>
     public ScatterCacheLine[] GetSnapshot() {
         var lines = new List<ScatterCacheLine>(_ways * _rowsPerWay);
         for (var w = 0; w < _ways; w++)
@@ -308,7 +312,10 @@ public sealed class ScatterCache : IMemory {
     /// </summary>
     public int IdfRow(int way, ulong address) => Idf(address & ~(ulong)_offsetMask, _sdid, _key, way);
 
-    /// <summary>Serializes tag/block/dirty/key/rekey state for a microarchitectural checkpoint, mirroring <see cref="CeaserCache.WriteState" />.</summary>
+    /// <summary>
+    ///     Serializes tag/block/dirty/key/rekey state for a microarchitectural checkpoint, mirroring
+    ///     <see cref="CeaserCache.WriteState" />.
+    /// </summary>
     public void WriteState(BinaryWriter w) {
         w.Write(_ways);
         w.Write(_rowsPerWay);

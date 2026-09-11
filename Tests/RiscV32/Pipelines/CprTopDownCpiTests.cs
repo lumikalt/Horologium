@@ -76,10 +76,10 @@ public class CprTopDownCpiTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public class CprTopDownCpiTests {
             int b = i * blockWords;
             program[b + 0] = Addi(1, 0, 3);
             program[b + 1] = Addi(2, 0, 5);
-            program[b + 2] = Slt(5, 2, 1); // x5 = (5 < 3) = 0
+            program[b + 2] = Slt(5, 2, 1);  // x5 = (5 < 3) = 0
             program[b + 3] = Bne(5, 0, 12); // not taken: falls through, as predicted
             program[b + 4] = Addi(3, 0, 111);
             program[b + 5] = Addi(3, 0, 222);
@@ -128,7 +128,8 @@ public class CprTopDownCpiTests {
         // this is what would actually fail if ComputeTopDown/FromSnapshot ever regressed to
         // reading "retired" again.
         Assert.Equal(
-            snap.Counters[TopDownBreakdown.SlotsRetiredCounter] / (double)snap.Counters[TopDownBreakdown.TotalSlotsCounter],
+            snap.Counters[TopDownBreakdown.SlotsRetiredCounter]
+          / (double)snap.Counters[TopDownBreakdown.TotalSlotsCounter],
             td.Retiring, 12
         );
         // Ties the live train dial (backed by ComputeTopDown, not FromSnapshot) to the same

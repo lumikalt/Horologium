@@ -178,8 +178,8 @@ public sealed class PpfPrefetcherTests {
         // de-throttled SPP core predicts many lines ahead at once (buf holds up to 8 candidates
         // per access), so an untrained filter admits most of them every call; real per-line
         // eviction feedback must suppress a large share of that relative to no feedback at all.
-        int withFeedback = PpfPrefetcherTests.RunSequentialAndCountIssued(evictImmediately: true);
-        int withoutFeedback = PpfPrefetcherTests.RunSequentialAndCountIssued(evictImmediately: false);
+        int withFeedback = RunSequentialAndCountIssued(true);
+        int withoutFeedback = RunSequentialAndCountIssued(false);
 
         Assert.True(
             withFeedback < withoutFeedback / 2,

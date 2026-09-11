@@ -25,6 +25,9 @@ public sealed class SpectreVisibilityTracker : IVisibilityTracker {
     private readonly LinkedList<ulong> _branches = new();
     private readonly HashSet<ulong> _resolved = [];
 
+    /// <summary>InstrId of the oldest still-unresolved in-flight branch, or null if none.</summary>
+    public ulong? OldestUnresolvedBranchInstrId => _branches.First?.Value;
+
     /// <summary>Registers a branch entering the ROB at Dispatch.</summary>
     public void OnDispatchBranch(ulong instrId) => _branches.AddLast(instrId);
 
@@ -36,9 +39,6 @@ public sealed class SpectreVisibilityTracker : IVisibilityTracker {
             _branches.RemoveFirst();
         }
     }
-
-    /// <summary>InstrId of the oldest still-unresolved in-flight branch, or null if none.</summary>
-    public ulong? OldestUnresolvedBranchInstrId => _branches.First?.Value;
 
     /// <summary>True when no older branch is still unresolved for the given InstrId.</summary>
     public bool IsSafe(ulong instrId) => OldestUnresolvedBranchInstrId is not { } oldest || oldest >= instrId;

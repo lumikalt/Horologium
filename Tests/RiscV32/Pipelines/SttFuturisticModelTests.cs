@@ -8,6 +8,8 @@ using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
 
+// ReSharper disable ShiftExpressionZeroLeftOperand
+
 #endregion
 
 namespace Tests.RiscV32.Pipelines;
@@ -23,6 +25,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     instruction of any of these types is still unresolved, not just an unresolved branch.
 /// </summary>
 public class SttFuturisticModelTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -31,9 +35,9 @@ public class SttFuturisticModelTests {
 
     private static uint Sw(int rs2, int rs1, int imm) {
         var u = (uint)imm;
-        uint imm11_5 = (u >> 5) & 0x7F;
-        uint imm4_0 = u & 0x1F;
-        return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
+        uint imm11To5 = (u >> 5) & 0x7F;
+        uint imm4To0 = u & 0x1F;
+        return (imm11To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4To0 << 7) | 0b0100011u;
     }
 
     private static uint Mul(int rd, int rs1, int rs2) =>
@@ -43,13 +47,11 @@ public class SttFuturisticModelTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static OooTrain Make(
         FlatMemory mem,
@@ -107,7 +109,7 @@ public class SttFuturisticModelTests {
     private static uint[] SlowStoreAheadOfUntaintedAnchorAndTarget() {
         List<uint> program = [
             Addi(7, 0, 1), // seed for the slow store's address chain -- kept off the address
-            // register itself so the store's target stays a plain, aligned scratch address
+            // register itself, so the store's target stays a plain, aligned scratch address
         ];
         for (var i = 0; i < 6; i++) program.Add(Mul(7, 7, 7)); // ~18-cycle chain; x7 stays 1
         program.Add(Addi(6, 7, 2000)); // x6 = 2001 -- depends on x7, so still gated by the chain
@@ -116,7 +118,7 @@ public class SttFuturisticModelTests {
         program.Add(Lw(2, 1, 0)); // anchor load: x2 = mem[300] = 2100 -- untainted address, roots
         // SourceYrot at its own InstrId; resolves in a handful of cycles
         program.Add(Lw(4, 2, 0)); // TARGET load: address = x2 = 2100; SourceYrot = anchor's InstrId
-        program.Add(Ebreak);
+        program.Add(SttFuturisticModelTests.Ebreak);
         return program.ToArray();
     }
 
@@ -189,7 +191,7 @@ public class SttFuturisticModelTests {
         program.Add(Addi(3, 3, -1));
         int loopCtrlPc = program.Count * 4;
         program.Add(Bne(3, 0, loopStart - loopCtrlPc)); // back to the store at loop start
-        program.Add(Ebreak);
+        program.Add(SttFuturisticModelTests.Ebreak);
         return program.ToArray();
     }
 
@@ -210,9 +212,9 @@ public class SttFuturisticModelTests {
         var memSpectre = new FlatMemory(4096);
         var memFuturistic = new FlatMemory(4096);
         OooTrain off = Make(memOff, false, false);
-        OooTrain spectre = Make(memSpectre, true, false, enableSmbBypass: true, valuePredictor: new StrideVp());
+        OooTrain spectre = Make(memSpectre, true, false, true, new StrideVp());
         OooTrain futuristic = Make(
-            memFuturistic, true, true, enableSmbBypass: true, valuePredictor: new StrideVp()
+            memFuturistic, true, true, true, new StrideVp()
         );
         LoadWords(memOff, 0, DualSourceLoadLoop());
         LoadWords(memSpectre, 0, DualSourceLoadLoop());
@@ -239,7 +241,9 @@ public class SttFuturisticModelTests {
         );
 
         Assert.True(Counter(futuristicResult, "smb_bypasses") > 0, "no SMB bypass occurred under the Futuristic model");
-        Assert.True(Counter(futuristicResult, "vp_predictions") > 0, "no value prediction occurred under the Futuristic model");
+        Assert.True(
+            Counter(futuristicResult, "vp_predictions") > 0, "no value prediction occurred under the Futuristic model"
+        );
         Assert.Equal(0L, Counter(futuristicResult, "vp_mispredicts"));
     }
 }

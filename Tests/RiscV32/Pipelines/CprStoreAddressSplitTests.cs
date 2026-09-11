@@ -1,12 +1,14 @@
 #region
 
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
+using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
+
+// ReSharper disable ShiftExpressionZeroLeftOperand
 
 #endregion
 
@@ -44,6 +46,9 @@ namespace Tests.RiscV32.Pipelines;
 public class CprStoreAddressSplitTests {
     private const uint Ebreak = 0x00100073;
 
+    private static readonly MemoryConfig SlowMissConfig =
+        new(4096, 4, 32, 60);
+
     private static void Load(FlatMemory mem, params uint[] words) {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) {
@@ -72,14 +77,11 @@ public class CprStoreAddressSplitTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private static readonly MemoryConfig SlowMissConfig =
-        new(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
 
     private static CprTrain Run(uint[] program, bool enableEarlyStoreAddress, MemoryConfig? dMemConfig = null) {
         var mem = new FlatMemory(65536);
@@ -130,7 +132,7 @@ public class CprStoreAddressSplitTests {
         // store must never write anything until its real Execute (needing both operands) fires.
         uint[] program = [
             Lw(2, 0, 1600), // x2 = mem[1600], cold miss
-            Addi(2, 2, 1), // a few dependent ALU hops widen the delay before x2 is finally ready
+            Addi(2, 2, 1),  // a few dependent ALU hops widen the delay before x2 is finally ready
             Addi(2, 2, 1),
             Addi(2, 2, 1),
             Sw(0, 2, 400), // mem[400] = x2, address = x0+400 (trivially ready)

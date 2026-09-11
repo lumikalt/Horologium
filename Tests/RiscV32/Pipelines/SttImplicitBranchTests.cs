@@ -1,10 +1,13 @@
 #region
 
+using Mechanism.BranchPred;
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
 using RiscV32;
 using RiscV32.Memory;
+
+// ReSharper disable ShiftExpressionZeroLeftOperand
 
 #endregion
 
@@ -23,6 +26,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     on <c>_enableSttImplicitBranches</c> in OooTrain.cs.
 /// </summary>
 public class SttImplicitBranchTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -36,13 +41,11 @@ public class SttImplicitBranchTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b000u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b000u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
@@ -80,16 +83,16 @@ public class SttImplicitBranchTests {
     ///     trick as SttExpOnlyTests). Between B1 and B2 sits a load L1 (<c>lw x2,0(x1)</c>) whose
     ///     result (0) both is B2's branch condition and roots B2's <c>SourceYrot</c> at L1's own
     ///     InstrId (a load is itself an access instruction). L1 depends only on <c>x1</c> (ready from
-    ///     the very first instruction), so B2 completes long before B1's mul chain does — confirmed
+    ///     the first instruction), so B2 completes long before B1's mul chain does — confirmed
     ///     empirically via PEventLog (a single 3-cycle mul was not enough of a gap; B1 still resolved
     ///     one cycle before B2 completed, so the chain was widened to three to give real margin). B2
-    ///     (<c>beq x2,x0,...</c>) is TAKEN (x2==0) against the default
+    ///     (<c>beq x2,x0,…</c>) is TAKEN (x2==0) against the default
     ///     <see cref="AlwaysNotTakenPredictor" />'s not-taken prediction — a genuine misprediction
     ///     whose squash must discard eight wrong-path filler instructions before reaching the real
     ///     target. With the defense off, this squash fires the instant B2 resolves. With it on, B2's
     ///     own taint (rooted at L1) isn't safe until B1 — still unresolved on the slow mul chain —
     ///     finally resolves, so the squash (and therefore the halt) is measurably delayed even though
-    ///     final architectural state is identical either way.
+    ///     the final architectural state is identical either way.
     /// </summary>
     private static uint[] TaintedMispredictAfterSlowOlderBranch() => [
         Addi(1, 0, 100), // x1 = 100
@@ -102,7 +105,7 @@ public class SttImplicitBranchTests {
         Beq(2, 0, 36), // B2: x2==0 -> TAKEN; predicted not-taken -> mispredicts
         Addi(7, 0, 111), Addi(7, 0, 222), Addi(7, 0, 333), Addi(7, 0, 444), // wrong-path filler,
         Addi(7, 0, 555), Addi(7, 0, 666), Addi(7, 0, 777), Addi(7, 0, 888), // must never survive
-        Ebreak, // the real (taken) target
+        SttImplicitBranchTests.Ebreak, // the real (taken) target
     ];
 
     [Fact]
@@ -160,7 +163,7 @@ public class SttImplicitBranchTests {
             Addi(3, 0, 0), // x3 = 0, independently of x2
             Beq(3, 0, 20), // B2: x3==0 -> TAKEN (mispredict), but untainted
             Addi(7, 0, 111), Addi(7, 0, 222), Addi(7, 0, 333), Addi(7, 0, 444), // wrong-path filler
-            Ebreak,
+            SttImplicitBranchTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);
@@ -210,7 +213,7 @@ public class SttImplicitBranchTests {
             Lw(3, 4, 0), // L2: x3 = mem[104] = 0 -- roots InnerB's taint (still gated by RootB)
             Beq(3, 0, 20), // InnerB: x3==0 -> TAKEN; mispredict, ALSO tainted via RootB (shared gate)
             Addi(7, 0, 111), Addi(7, 0, 222), Addi(7, 0, 333), Addi(7, 0, 444), // wrong-path filler
-            Ebreak, // the only correct outcome: OuterB's taken target
+            SttImplicitBranchTests.Ebreak, // the only correct outcome: OuterB's taken target
         ];
 
         var memOff = new FlatMemory(4096);
@@ -267,7 +270,7 @@ public class SttImplicitBranchTests {
             Lw(2, 1, 0), // L1: x2 = mem[200] = 0 -- ExpOnly holds this at Issue until L0 (RootB1) is safe
             Beq(2, 0, 20), // OuterB: x2==0 -> TAKEN; tainted via L1, gated by MidB (still unresolved)
             Addi(7, 0, 111), Addi(7, 0, 222), Addi(7, 0, 333), Addi(7, 0, 444), // wrong-path filler
-            Ebreak,
+            SttImplicitBranchTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);

@@ -13,7 +13,7 @@ namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
 ///     Verification, not new gating, for value-prediction training/squash gating (Yu et al., MICRO
-///     2019, §6.4.2/§6.5's "round out the paper's complete DelayExecute+STT variant" follow-up) TODO
+///     2019, §6.4.2/§6.5's "round out the paper's complete DelayExecute+STT variant" follow-up)
 ///     item, mirroring <see cref="SttStoreForwardTests" />'s own "safe by construction" closure of the
 ///     store-to-load-forwarding channel.
 ///     <list type="bullet">
@@ -44,8 +44,11 @@ namespace Tests.RiscV32.Pipelines;
 ///         </item>
 ///     </list>
 ///     <para>
-///         <b>What <see cref="ExpOnlyAndValuePredictionCoexist_ArchStateAndPredictionCountUnchanged" />
-///         proves, precisely</b> (same honest framing as <c>SttStoreForwardTests</c>'s own composition
+///         <b>
+///             What <see cref="ExpOnlyAndValuePredictionCoexist_ArchStateAndPredictionCountUnchanged" />
+///             proves, precisely
+///         </b>
+///         (same honest framing as <c>SttStoreForwardTests</c>'s own composition
 ///         test, after running the same check here): the same-instance claim above — "a load that IS
 ///         value-predicted is ALSO still gated" — rests on the code inspection (<c>leEligible</c>'s
 ///         class restriction), not on this dynamic test. Traced through: RootB is kept short (to
@@ -63,6 +66,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class SttValuePredictionTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -76,13 +81,11 @@ public class SttValuePredictionTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
@@ -148,7 +151,7 @@ public class SttValuePredictionTests {
         program.Add(Addi(3, 3, -1));
         int loopCtrlPc = program.Count * 4;
         program.Add(Bne(3, 0, loopStart - loopCtrlPc)); // back to the load at loop start
-        program.Add(Ebreak);
+        program.Add(SttValuePredictionTests.Ebreak);
         return program.ToArray();
     }
 

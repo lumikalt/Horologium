@@ -73,63 +73,11 @@ public sealed class FuturisticVisibilityTracker : IVisibilityTracker {
     private readonly LinkedList<ulong> _order = new();
     private readonly Dictionary<ulong, Sources> _pending = new();
 
-    /// <summary>
-    ///     Registers an instruction entering the ROB at Dispatch with its applicable squash
-    ///     sources. Additive: a second call for an InstrId already present ORs the new bits into
-    ///     the existing pending mask rather than overwriting it.
-    /// </summary>
-    public void Register(ulong instrId, Sources sources) {
-        if (sources == Sources.None) return;
-        if (_pending.TryGetValue(instrId, out Sources existing)) {
-            _pending[instrId] = existing | sources;
-            return;
-        }
-
-        _order.AddLast(instrId);
-        _pending[instrId] = sources;
-    }
+    /// <summary>InstrId of the oldest still-unresolved in-flight instruction, or null if none.</summary>
+    public ulong? OldestUnresolvedInstrId => _order.First?.Value;
 
     public void OnDispatchBranch(ulong instrId) => Register(instrId, Sources.Trap | Sources.Branch);
     public void OnBranchResolved(ulong instrId) => Resolve(instrId, Sources.Branch);
-
-    /// <summary>Clears the trap-squash bit — call only when the instruction did NOT trap.</summary>
-    public void ResolveTrap(ulong instrId) => Resolve(instrId, Sources.Trap);
-
-    /// <summary>Clears the store-address bit — call once the store's address is known.</summary>
-    public void ResolveStoreAddr(ulong instrId) => Resolve(instrId, Sources.StoreAddr);
-
-    /// <summary>Clears the SMB-bypass bit — call only when verification found no mismatch.</summary>
-    public void ResolveSmb(ulong instrId) => Resolve(instrId, Sources.Smb);
-
-    /// <summary>Clears the value-prediction bit — call only when verification found no mismatch.</summary>
-    public void ResolveVp(ulong instrId) => Resolve(instrId, Sources.Vp);
-
-    private void Resolve(ulong instrId, Sources bit) {
-        if (!_pending.TryGetValue(instrId, out Sources m)) return;
-        m &= ~bit;
-        if (m == Sources.None) _pending.Remove(instrId);
-        else _pending[instrId] = m;
-        TrimHead();
-    }
-
-    /// <summary>
-    ///     Condition (i): unconditionally clears every remaining pending bit for
-    ///     <paramref name="instrId" />, once it becomes the head of the ROB — see the class doc's
-    ///     second paragraph. Safe even if this instruction is about to be squashed this same
-    ///     cycle (e.g. a trap firing at commit): per the paper, that is a correct-path retirement
-    ///     outcome, not a transient-execution leak.
-    /// </summary>
-    public void ForceResolve(ulong instrId) {
-        if (_pending.Remove(instrId)) TrimHead();
-    }
-
-    private void TrimHead() {
-        while (_order.First is { } node && !_pending.ContainsKey(node.Value))
-            _order.RemoveFirst();
-    }
-
-    /// <summary>InstrId of the oldest still-unresolved in-flight instruction, or null if none.</summary>
-    public ulong? OldestUnresolvedInstrId => _order.First?.Value;
 
     /// <summary>True when no older in-flight instruction is still unresolved.</summary>
     public bool IsSafe(ulong instrId) => OldestUnresolvedInstrId is not { } oldest || oldest >= instrId;
@@ -146,5 +94,58 @@ public sealed class FuturisticVisibilityTracker : IVisibilityTracker {
     public void Clear() {
         _order.Clear();
         _pending.Clear();
+    }
+
+    /// <summary>
+    ///     Registers an instruction entering the ROB at Dispatch with its applicable squash
+    ///     sources. Additive: a second call for an InstrId already present ORs the new bits into
+    ///     the existing pending mask rather than overwriting it.
+    /// </summary>
+    public void Register(ulong instrId, Sources sources) {
+        if (sources == Sources.None) return;
+        if (_pending.TryGetValue(instrId, out Sources existing)) {
+            _pending[instrId] = existing | sources;
+            return;
+        }
+
+        _order.AddLast(instrId);
+        _pending[instrId] = sources;
+    }
+
+    /// <summary>Clears the trap-squash bit — call only when the instruction did NOT trap.</summary>
+    public void ResolveTrap(ulong instrId) => Resolve(instrId, Sources.Trap);
+
+    /// <summary>Clears the store-address bit — call once the store's address is known.</summary>
+    public void ResolveStoreAddr(ulong instrId) => Resolve(instrId, Sources.StoreAddr);
+
+    /// <summary>Clears the SMB-bypass bit — call only when verification found no mismatch.</summary>
+    public void ResolveSmb(ulong instrId) => Resolve(instrId, Sources.Smb);
+
+    /// <summary>Clears the value-prediction bit — call only when verification found no mismatch.</summary>
+    public void ResolveVp(ulong instrId) => Resolve(instrId, Sources.Vp);
+
+    private void Resolve(ulong instrId, Sources bit) {
+        if (!_pending.TryGetValue(instrId, out Sources m)) return;
+        m &= ~bit;
+        if (m == Sources.None)
+            _pending.Remove(instrId);
+        else
+            _pending[instrId] = m;
+        TrimHead();
+    }
+
+    /// <summary>
+    ///     Condition (i): unconditionally clears every remaining pending bit for
+    ///     <paramref name="instrId" />, once it becomes the head of the ROB — see the class doc's
+    ///     second paragraph. Safe even if this instruction is about to be squashed this same
+    ///     cycle (e.g. a trap firing at commit): per the paper, that is a correct-path retirement
+    ///     outcome, not a transient-execution leak.
+    /// </summary>
+    public void ForceResolve(ulong instrId) {
+        if (_pending.Remove(instrId)) TrimHead();
+    }
+
+    private void TrimHead() {
+        while (_order.First is { } node && !_pending.ContainsKey(node.Value)) _order.RemoveFirst();
     }
 }

@@ -39,39 +39,39 @@ public partial class MainWindowViewModel : ObservableObject {
     ///     something that compiles and runs correctly to start from.
     /// </summary>
     private const string SampleUveKernel = """
-        #include <stdio.h>
-        #include <stdint.h>
+                                           #include <stdio.h>
+                                           #include <stdint.h>
 
-        static float a[4] = {1.0f, 2.0f, 3.0f, 4.0f};
-        static float b[4] = {10.0f, 20.0f, 30.0f, 40.0f};
-        static float out;
+                                           static float a[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+                                           static float b[4] = {10.0f, 20.0f, 30.0f, 40.0f};
+                                           static float out;
 
-        static void dot4(float *av, float *bv, float *outv, uint64_t n) {
-            uint64_t one = 1;
-            asm volatile(
-                "ss.sta.ld.w u1, %[a] \n"
-                "ss.end      u1, zero, %[n], %[one] \n"
-                "ss.sta.ld.w u2, %[b] \n"
-                "ss.end      u2, zero, %[n], %[one] \n"
-                "ss.sta.st.w u3, %[out] \n"
-                "ss.end      u3, zero, %[one], %[one] \n"
-                "so.v.dp.w   u4, zero, p0 \n"
-                ".Lloop: \n"
-                "so.a.mac.fp u4, u1, u2, p0 \n"
-                "so.b.nc     u1, .Lloop \n"
-                "so.a.adde.fp u3, u4, p0 \n"
-                :
-                : [a] "r"(av), [b] "r"(bv), [out] "r"(outv), [n] "r"(n), [one] "r"(one)
-                : "memory"
-            );
-        }
+                                           static void dot4(float *av, float *bv, float *outv, uint64_t n) {
+                                               uint64_t one = 1;
+                                               asm volatile(
+                                                   "ss.sta.ld.w u1, %[a] \n"
+                                                   "ss.end      u1, zero, %[n], %[one] \n"
+                                                   "ss.sta.ld.w u2, %[b] \n"
+                                                   "ss.end      u2, zero, %[n], %[one] \n"
+                                                   "ss.sta.st.w u3, %[out] \n"
+                                                   "ss.end      u3, zero, %[one], %[one] \n"
+                                                   "so.v.dp.w   u4, zero, p0 \n"
+                                                   ".Lloop: \n"
+                                                   "so.a.mac.fp u4, u1, u2, p0 \n"
+                                                   "so.b.nc     u1, .Lloop \n"
+                                                   "so.a.adde.fp u3, u4, p0 \n"
+                                                   :
+                                                   : [a] "r"(av), [b] "r"(bv), [out] "r"(outv), [n] "r"(n), [one] "r"(one)
+                                                   : "memory"
+                                               );
+                                           }
 
-        int main() {
-            dot4(a, b, &out, 4);
-            printf("%f\n", out);
-            return 0;
-        }
-        """;
+                                           int main() {
+                                               dot4(a, b, &out, 4);
+                                               printf("%f\n", out);
+                                               return 0;
+                                           }
+                                           """;
 
     private static readonly string BenchmarksDir =
         Path.Combine(AppContext.BaseDirectory, "benchmarks");

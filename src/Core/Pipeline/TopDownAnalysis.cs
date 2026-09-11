@@ -47,7 +47,9 @@ public sealed record TopDownBreakdown(
     // registers these (plus the pre-existing "cycles", "retired", "branch_misses" and
     // "flushes" counters) gets the full breakdown from FromSnapshot for free.
     public const string TotalSlotsCounter = "td_total_slots";
+
     public const string SlotsIssuedCounter = "td_slots_issued";
+
     // Deliberately distinct from the "retired" counter: "retired" scales by
     // ITooth.ArchInstructionCount (2 for a macro-fused pair), but a slot is a pipeline-width
     // unit — a fused pair retires through exactly one ROB/checkpoint/issue-group entry, i.e.

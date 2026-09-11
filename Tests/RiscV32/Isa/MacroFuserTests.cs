@@ -41,10 +41,10 @@ public class MacroFuserTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (funct3 << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (funct3 << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static uint Beq(int rs1, int rs2, int immOffset) => BranchB(0b000, rs1, rs2, immOffset);
@@ -59,11 +59,11 @@ public class MacroFuserTests {
         ITooth? fused = _fuser.TryFuse(first, second);
 
         Assert.NotNull(fused);
-        Assert.Equal(0x100UL, fused!.Pc);
+        Assert.Equal(0x100UL, fused.Pc);
         Assert.Equal(8, fused.SizeBytes);
         Assert.Equal(5, fused.DestinationRegister);
         Assert.Equal(ToothClass.ConditionalBranch, fused.Class);
-        Assert.Equal([2, 1], fused.SourceRegisters);
+        Assert.Equal([2, 1,], fused.SourceRegisters);
         var payload = Assert.IsType<RvFusedCompareBranch>(fused.Payload);
         Assert.True(payload.TakenWhenNonZero);
         Assert.Equal(0x104UL, payload.BranchPc);
@@ -78,7 +78,7 @@ public class MacroFuserTests {
         ITooth? fused = _fuser.TryFuse(first, second);
 
         Assert.NotNull(fused);
-        var payload = Assert.IsType<RvFusedCompareBranch>(fused!.Payload);
+        var payload = Assert.IsType<RvFusedCompareBranch>(fused.Payload);
         Assert.False(payload.TakenWhenNonZero);
     }
 
@@ -90,7 +90,7 @@ public class MacroFuserTests {
         ITooth? fused = _fuser.TryFuse(first, second);
 
         Assert.NotNull(fused);
-        Assert.Equal(3, fused!.DestinationRegister);
+        Assert.Equal(3, fused.DestinationRegister);
     }
 
     [Fact]
@@ -101,8 +101,8 @@ public class MacroFuserTests {
         ITooth? fused = _fuser.TryFuse(first, second);
 
         Assert.NotNull(fused);
-        Assert.Equal(7, fused!.DestinationRegister);
-        Assert.Equal([6], fused.SourceRegisters);
+        Assert.Equal(7, fused.DestinationRegister);
+        Assert.Equal([6,], fused.SourceRegisters);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class MacroFuserTests {
         ITooth? fused = _fuser.TryFuse(first, second);
 
         Assert.NotNull(fused);
-        Assert.Equal(9, fused!.DestinationRegister);
+        Assert.Equal(9, fused.DestinationRegister);
     }
 
     [Fact]

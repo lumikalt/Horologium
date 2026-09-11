@@ -346,6 +346,7 @@ public sealed class SetAssociativeCache : IMemory {
     ///     every ISA/cache level/RTL policy in the codebase.
     /// </summary>
     public Action<ulong>? OnEviction { get; set; }
+
     public long WbDrains { get; private set; }
     private int WbCapacity { get; }
 

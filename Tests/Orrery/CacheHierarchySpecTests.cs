@@ -227,13 +227,13 @@ public class CacheHierarchySpecTests {
         // done" — this proves a BdiCache actually comes out of the spec-driven Build overload,
         // not just the flat MemoryConfig path).
         FlatMemory backing = MakeBacking();
-        var l0 = new CacheLevelSpec(16, 1, 16, 2); // L1, plain
+        var l0 = new CacheLevelSpec(16, 1, 16, 2);                                    // L1, plain
         var l1 = new CacheLevelSpec(128, 2, 16, 8, Compression: CompressionKind.Bdi); // L2, compressed
         var path = new CachePathSpec([l0, l1,]);
         var layers = MemoryLayers.Build(backing, path);
 
         Assert.NotNull(layers.Cache); // L1 unaffected
-        Assert.Null(layers.L2Cache); // compressed slot leaves the typed SetAssociativeCache field null
+        Assert.Null(layers.L2Cache);  // compressed slot leaves the typed SetAssociativeCache field null
         Assert.NotNull(layers.L2Bdi); // ...and surfaces on L2Bdi instead
 
         layers.Accessor.Read(0, 1);

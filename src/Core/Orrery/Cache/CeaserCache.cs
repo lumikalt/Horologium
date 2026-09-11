@@ -9,7 +9,15 @@ using Mechanism;
 namespace Orrery.Cache;
 
 /// <summary>One resident (or empty) line, for introspection/tooling — see <see cref="CeaserCache.GetSnapshot" />.</summary>
-public sealed record CeaserCacheLine(int Partition, int Set, int Way, bool Valid, ulong Address, int LruAge, bool Dirty);
+public sealed record CeaserCacheLine(
+    int Partition,
+    int Set,
+    int Way,
+    bool Valid,
+    ulong Address,
+    int LruAge,
+    bool Dirty
+);
 
 /// <summary>
 ///     A set-associative cache with a keyed, periodically re-randomized address→set mapping —
@@ -70,7 +78,7 @@ public sealed record CeaserCacheLine(int Partition, int Set, int Way, bool Valid
 ///     </para>
 ///     <para>
 ///         <strong>CEASER-S partitioning</strong> (the ISA-S paper: "CEASER-S1 is the same as the
-///         original CEASER design"): with <paramref name="partitions" /> P &gt; 1, the ways split
+///         original CEASER design"): with <c>partitions</c> P &gt; 1, the ways split
 ///         into P contiguous ranges, each with its own independent key/SPtr/ACtr state over the
 ///         same set count. A lookup checks every partition; a hit in any one is a cache hit. A miss
 ///         installs into a uniformly-randomly chosen partition (the paper: "CEASER-S randomly picks
@@ -81,29 +89,29 @@ public sealed record CeaserCacheLine(int Partition, int Set, int Way, bool Valid
 ///         Scope matches <see cref="BdiCache" />'s own fidelity level: no sectoring, MSHR modeling,
 ///         victim buffer, bus banking, or inclusion cascade — the paper's own evaluation is a single
 ///         LLC level's hit/miss and side-channel-defense behavior, not the full feature matrix.
-///         <see cref="InvalidateLine" />/<see cref="CleanLine" />/<see cref="FlushLine" /> are left
+///         <see cref="IMemory.InvalidateLine" />/<see cref="IMemory.CleanLine" />/
+///         <see cref="IMemory.FlushLine" /> are left
 ///         at their <see cref="IMemory" /> no-op defaults, same as <see cref="BdiCache" /> — a
 ///         deliberate scope match, not an oversight.
 ///     </para>
 /// </summary>
 public sealed class CeaserCache : IMemory {
     private readonly int[] _aCtr;
+    private readonly int _aplr;
     private readonly IMemory _backing;
     private readonly int _blockBytes;
     private readonly byte[][][][] _blocks; // [partition][set][way][blockBytes]
     private readonly ulong[] _currKey;
     private readonly bool[][][]? _dirty; // [partition][set][way], non-null only in WriteBack mode
     private readonly int _encryptLatency;
-    private readonly int _offsetMask;
     private readonly ulong[] _nextKey;
-    private readonly int _partitions;
+    private readonly int _offsetMask;
     private readonly IReplacementPolicy[] _policies;
-    private readonly int[] _sPtr;
     private readonly int _sets;
+    private readonly int[] _sPtr;
     private readonly ulong?[][][] _tags; // [partition][set][way]: null = invalid
     private readonly int _waysPerPartition;
     private readonly WritePolicyKind _writePolicy;
-    private readonly int _aplr;
     private long _pendingStalls;
 
     // xorshift64 state — used instead of System.Random so it can be checkpointed (a single ulong,
@@ -113,15 +121,27 @@ public sealed class CeaserCache : IMemory {
 
     /// <param name="backing">Backing memory.</param>
     /// <param name="capacityBytes">Total cache size in bytes. Must be a power of 2.</param>
-    /// <param name="ways">Total associativity, summed across all partitions. Must be a power of 2 and a multiple of <paramref name="partitions" />.</param>
+    /// <param name="ways">
+    ///     Total associativity, summed across all partitions. Must be a power of 2 and a multiple of
+    ///     <paramref name="partitions" />.
+    /// </param>
     /// <param name="blockBytes">Cache line size in bytes. Must be a power of 2.</param>
     /// <param name="missLatency">Extra cycles charged per miss.</param>
     /// <param name="partitions">CEASER-S partition count P (default 1 = plain CEASER; the paper's CEASER-S1 == CEASER).</param>
-    /// <param name="aplr">Accesses-Per-Line-Remap: a set is remapped every <c>aplr × waysPerPartition</c> accesses (default 100, matching the paper).</param>
+    /// <param name="aplr">
+    ///     Accesses-Per-Line-Remap: a set is remapped every <c>aplr × waysPerPartition</c> accesses (default
+    ///     100, matching the paper).
+    /// </param>
     /// <param name="seed">Seed for the per-partition key generator, for reproducible runs.</param>
-    /// <param name="encryptLatency">Extra cycles per access modeling the index function's own compute latency (default 2, matching the paper's sensitivity study).</param>
+    /// <param name="encryptLatency">
+    ///     Extra cycles per access modeling the index function's own compute latency (default 2,
+    ///     matching the paper's sensitivity study).
+    /// </param>
     /// <param name="writePolicy">Write-hit policy — write-back always allocates on a write miss; write-through never does.</param>
-    /// <param name="policyFactory">Optional per-partition replacement-policy factory, invoked with (sets, waysPerPartition). Defaults to LRU.</param>
+    /// <param name="policyFactory">
+    ///     Optional per-partition replacement-policy factory, invoked with (sets, waysPerPartition).
+    ///     Defaults to LRU.
+    /// </param>
     public CeaserCache(
         IMemory backing,
         int capacityBytes,
@@ -144,13 +164,12 @@ public sealed class CeaserCache : IMemory {
         ArgumentOutOfRangeException.ThrowIfNegative(encryptLatency);
         if (!BitOperations.IsPow2(capacityBytes) || !BitOperations.IsPow2(ways) || !BitOperations.IsPow2(blockBytes))
             throw new ArgumentException("Cache dimensions must be powers of 2.");
-        if (ways % partitions != 0)
-            throw new ArgumentException("ways must be a multiple of partitions.");
+        if (ways % partitions != 0) throw new ArgumentException("ways must be a multiple of partitions.");
 
         _backing = backing;
         _blockBytes = blockBytes;
         MissLatency = missLatency;
-        _partitions = partitions;
+        Partitions = partitions;
         _aplr = aplr;
         _encryptLatency = encryptLatency;
         _writePolicy = writePolicy;
@@ -190,7 +209,7 @@ public sealed class CeaserCache : IMemory {
     public int MissLatency { get; }
 
     /// <summary>CEASER-S partition count P (1 = plain CEASER).</summary>
-    public int Partitions => _partitions;
+    public int Partitions { get; }
 
     public long Hits { get; private set; }
     public long Misses { get; private set; }
@@ -200,7 +219,10 @@ public sealed class CeaserCache : IMemory {
     /// <summary>Number of completed remap steps (one set relocated per step) across all partitions — for cadence verification.</summary>
     public long RemapSteps { get; private set; }
 
-    /// <summary>Number of lines actually relocated to a different set by a remap step (a subset of what <see cref="RemapSteps" /> touches).</summary>
+    /// <summary>
+    ///     Number of lines actually relocated to a different set by a remap step (a subset of what
+    ///     <see cref="RemapSteps" /> touches).
+    /// </summary>
     public long RemapRelocations { get; private set; }
 
     public ulong Read(ulong address, int bytes) {
@@ -235,7 +257,8 @@ public sealed class CeaserCache : IMemory {
         if (offset + bytes > _blockBytes) return _backing.PeekRead(address, bytes);
 
         ulong lineAddr = address & ~(ulong)_offsetMask;
-        if (TryFind(lineAddr, out int p, out int set, out int way)) return ReadBytes(_blocks[p][set][way], offset, bytes);
+        if (TryFind(lineAddr, out int p, out int set, out int way))
+            return ReadBytes(_blocks[p][set][way], offset, bytes);
 
         _pendingStalls += MissLatency;
         return _backing.PeekRead(address, bytes);
@@ -280,9 +303,7 @@ public sealed class CeaserCache : IMemory {
             WriteBytes(_blocks[p][set][way], offset, value, bytes);
             _dirty![p][set][way] = true;
         }
-        else {
-            _pendingStalls += MissLatency + _encryptLatency;
-        }
+        else { _pendingStalls += MissLatency + _encryptLatency; }
 
         OnAccess();
     }
@@ -302,10 +323,13 @@ public sealed class CeaserCache : IMemory {
         return s;
     }
 
-    /// <summary>Per-line introspection across every partition — for tooling (e.g. the Waveform viewer) and tests; mirrors <see cref="SetAssociativeCache.GetSnapshot" />.</summary>
+    /// <summary>
+    ///     Per-line introspection across every partition — for tooling (e.g. the Waveform viewer) and tests; mirrors
+    ///     <see cref="SetAssociativeCache.GetSnapshot" />.
+    /// </summary>
     public CeaserCacheLine[] GetSnapshot() {
-        var lines = new List<CeaserCacheLine>(_partitions * _sets * _waysPerPartition);
-        for (var p = 0; p < _partitions; p++)
+        var lines = new List<CeaserCacheLine>(Partitions * _sets * _waysPerPartition);
+        for (var p = 0; p < Partitions; p++)
         for (var s = 0; s < _sets; s++)
         for (var w = 0; w < _waysPerPartition; w++) {
             bool valid = _tags[p][s][w].HasValue;
@@ -324,15 +348,18 @@ public sealed class CeaserCache : IMemory {
     /// </summary>
     public int SetOf(int partition, ulong address) => TargetSet(partition, address & ~(ulong)_offsetMask);
 
-    /// <summary>Serializes tag/block/dirty/remap state for a microarchitectural checkpoint, mirroring <see cref="BdiCache.WriteState" />.</summary>
+    /// <summary>
+    ///     Serializes tag/block/dirty/remap state for a microarchitectural checkpoint, mirroring
+    ///     <see cref="BdiCache.WriteState" />.
+    /// </summary>
     public void WriteState(BinaryWriter w) {
-        w.Write(_partitions);
+        w.Write(Partitions);
         w.Write(_sets);
         w.Write(_waysPerPartition);
         w.Write(_blockBytes);
         w.Write(_rngState);
 
-        for (var p = 0; p < _partitions; p++) {
+        for (var p = 0; p < Partitions; p++) {
             w.Write(_currKey[p]);
             w.Write(_nextKey[p]);
             w.Write(_sPtr[p]);
@@ -366,11 +393,12 @@ public sealed class CeaserCache : IMemory {
         int sets = r.ReadInt32();
         int waysPerPartition = r.ReadInt32();
         int blockBytes = r.ReadInt32();
-        if (partitions != _partitions || sets != _sets || waysPerPartition != _waysPerPartition || blockBytes != _blockBytes)
+        if (partitions != Partitions || sets != _sets || waysPerPartition != _waysPerPartition
+         || blockBytes != _blockBytes)
             throw new CheckpointException(
                 $"CeaserCache.ReadState: geometry mismatch — checkpoint has " +
                 $"partitions={partitions} sets={sets} waysPerPartition={waysPerPartition} blockBytes={blockBytes}, " +
-                $"but this cache has partitions={_partitions} sets={_sets} waysPerPartition={_waysPerPartition} " +
+                $"but this cache has partitions={Partitions} sets={_sets} waysPerPartition={_waysPerPartition} " +
                 $"blockBytes={_blockBytes}."
             );
         _rngState = r.ReadUInt64();
@@ -452,7 +480,7 @@ public sealed class CeaserCache : IMemory {
     }
 
     private bool TryFind(ulong lineAddr, out int foundP, out int foundSet, out int foundWay) {
-        for (var p = 0; p < _partitions; p++) {
+        for (var p = 0; p < Partitions; p++) {
             int set = TargetSet(p, lineAddr);
             for (var w = 0; w < _waysPerPartition; w++)
                 if (_tags[p][set][w] == lineAddr) {
@@ -473,13 +501,16 @@ public sealed class CeaserCache : IMemory {
         var fresh = new byte[_blockBytes];
         for (var i = 0; i < _blockBytes; i++) fresh[i] = (byte)_backing.Read(lineAddr + (ulong)i, 1);
 
-        int p = _partitions == 1 ? 0 : (int)(NextRandomU64() % (ulong)_partitions);
+        int p = Partitions == 1 ? 0 : (int)(NextRandomU64() % (ulong)Partitions);
         int set = TargetSet(p, lineAddr);
         int way = PlaceLine(p, set, lineAddr, fresh, false);
         return (p, set, way);
     }
 
-    /// <summary>Installs <paramref name="data" /> at (p, set), evicting via that partition's replacement policy if the set is full.</summary>
+    /// <summary>
+    ///     Installs <paramref name="data" /> at (p, set), evicting via that partition's replacement policy if the set is
+    ///     full.
+    /// </summary>
     private int PlaceLine(int p, int set, ulong lineAddr, byte[] data, bool dirty) {
         int way = FindFreeWay(p, set);
         if (way < 0) {
@@ -522,9 +553,12 @@ public sealed class CeaserCache : IMemory {
         DirtyEvictions++;
     }
 
-    /// <summary>Advances the remap state machine by one access for every partition — not called from <see cref="PeekRead" />, see its docs.</summary>
+    /// <summary>
+    ///     Advances the remap state machine by one access for every partition — not called from <see cref="PeekRead" />,
+    ///     see its docs.
+    /// </summary>
     private void OnAccess() {
-        for (var p = 0; p < _partitions; p++) {
+        for (var p = 0; p < Partitions; p++) {
             if (++_aCtr[p] < _aplr * _waysPerPartition) continue;
             RemapStep(p);
         }
@@ -548,7 +582,7 @@ public sealed class CeaserCache : IMemory {
 
         RemapSteps++;
         _sPtr[p] = (_sPtr[p] + 1) % _sets;
-        _aCtr![p] = 0;
+        _aCtr[p] = 0;
         if (_sPtr[p] == 0) {
             _currKey[p] = _nextKey[p];
             _nextKey[p] = NextRandomKey();

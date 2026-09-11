@@ -106,7 +106,7 @@ public sealed class UopCache {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(uops.Count, LineCapacity);
 
         int set = SetOf(startPc);
-        var way = -1;
+        int way = -1;
         for (var w = 0; w < _ways; w++)
             if (_lines[set, w] is { Valid: true, } l && l.Tag == startPc) {
                 way = w;

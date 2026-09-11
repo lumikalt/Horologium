@@ -1,9 +1,9 @@
 #region
 
-using Mechanism;
 using Orrery.Observation;
 using Pipeline;
 using RiscV32;
+using RiscV32.Decode;
 using RiscV32.Memory;
 
 #endregion
@@ -11,9 +11,9 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-///     Macro-fusion (TODO.md's "Macro-fusion" µops item): <see cref="SuperscalarTrain" />'s
+///     Macro-fusion ("Macro-fusion" µops item): <see cref="SuperscalarTrain" />'s
 ///     opt-in fusion of RV32's SLT(U)/SLTI(U) + BEQ/BNE-against-zero idiom into a single
-///     issue-slot µop (<see cref="RiscV32.Decode.RvMacroFuser" />).
+///     issue-slot µop (<see cref="RvMacroFuser" />).
 ///     <para>
 ///         Each test uses width-2 issue so a straight-line stream of dependent compare+branch
 ///         pairs structurally forces the interlock fusion eliminates: an in-order machine's
@@ -48,10 +48,10 @@ public class SuperscalarMacroFusionTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     // x1 = 5, x2 = 3, slt x5,x2,x1 (3<5 = 1, taken), bne x5,x0,+12 jumps straight to ebreak —

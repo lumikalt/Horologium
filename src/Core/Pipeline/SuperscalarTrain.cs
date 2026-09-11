@@ -166,17 +166,6 @@ internal sealed class SuperscalarCore(
 ) : Gear(name, parent, esc) {
     private readonly Queue<FetchedEntry> _fetchQueue = new();
 
-    private readonly UopCache? _uopCache =
-        uopCacheSets > 0 ? new UopCache(uopCacheSets, uopCacheWays, uopCacheLineCapacity) : null;
-
-    // In-progress UC line build (paper §2.5.1): accumulates decoded uops for the block
-    // currently being fetched along the correct path, closed (inserted) at a branch or at
-    // capacity, discarded without inserting on a frontend flush (wrong-path instructions
-    // must never be cached).
-    private readonly ITooth?[] _uopBuildLine = new ITooth?[uopCacheLineCapacity];
-    private int _uopBuildCount;
-    private ulong _uopBuildStartPc;
-
     // Fetch-queue capacity: enough to cover the fetch→issue delay plus one full group.
     private readonly int _queueCapacity = (frontendDepth + 1) * issueWidth;
 
@@ -184,6 +173,16 @@ internal sealed class SuperscalarCore(
     // shadow — wrong-path corruption is possible but shallow (bounded by the fetch queue),
     // matching the five-stage train's fetch-time RAS.
     private readonly ReturnAddressStack _ras = new();
+
+    // In-progress UC line build (paper §2.5.1): accumulates decoded uops for the block
+    // currently being fetched along the correct path, closed (inserted) at a branch or at
+    // capacity, discarded without inserting on a frontend flush (wrong-path instructions
+    // must never be cached).
+    private readonly ITooth?[] _uopBuildLine = new ITooth?[uopCacheLineCapacity];
+
+    private readonly UopCache? _uopCache =
+        uopCacheSets > 0 ? new UopCache(uopCacheSets, uopCacheWays, uopCacheLineCapacity) : null;
+
     private bool _anyCache;
     private Counter _branchMissCounter = null!;
     private Counter? _cacheMissStallsCounter;
@@ -202,8 +201,6 @@ internal sealed class SuperscalarCore(
     private long _fetchStallUntil;
     private IFetchTranslator? _fetchTranslator;
     private Counter _flushesCounter = null!;
-    private Counter _macroFusionsCounter = null!;
-    private Counter _microFusionsCounter = null!;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
@@ -215,6 +212,7 @@ internal sealed class SuperscalarCore(
     // Delta tracking for hit/miss counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private long _lastUcHits, _lastUcMisses, _lastUcBuilds;
 
     // True when the current LSU-busy window was opened by a store miss (TMA MemStalls
     // attribution: loads vs stores).
@@ -223,6 +221,8 @@ internal sealed class SuperscalarCore(
     // Blocking data cache: the LSU accepts no new memory operation until this cycle while
     // a miss is outstanding (no hit-under-miss). Independent ALU work continues.
     private long _lsuBusyUntil;
+    private Counter _macroFusionsCounter = null!;
+    private Counter _microFusionsCounter = null!;
     private ulong _nextInstrId = 1;
 
     // Latest cycle at which an issued load's result lands — "a load is in flight" for the
@@ -244,8 +244,9 @@ internal sealed class SuperscalarCore(
     // the frontend-refill slots after a flush, charged while _tdRefillPending.
     private TopDownCounters _td = null!;
     private bool _tdRefillPending;
+    private int _uopBuildCount;
+    private ulong _uopBuildStartPc;
     private Counter? _uopCacheHitsCounter, _uopCacheMissesCounter, _uopCacheBuildsCounter;
-    private long _lastUcHits, _lastUcMisses, _lastUcBuilds;
     public MemoryLayers ILayers { get; } = iLayers;
     public MemoryLayers DLayers { get; } = dLayers;
     public PEventLog? PEventLog { get; } = pEventLog;
@@ -313,13 +314,13 @@ internal sealed class SuperscalarCore(
         }
 
         if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null
-                                         || ILayers.L2Scatter is not null) {
+         || ILayers.L2Scatter is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
 
         if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null
-                                         || ILayers.L3Scatter is not null) {
+         || ILayers.L3Scatter is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
@@ -330,13 +331,13 @@ internal sealed class SuperscalarCore(
         }
 
         if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null
-                                         || DLayers.L2Scatter is not null) {
+         || DLayers.L2Scatter is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
 
         if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null
-                                         || DLayers.L3Scatter is not null) {
+         || DLayers.L3Scatter is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
@@ -504,8 +505,10 @@ internal sealed class SuperscalarCore(
                 // Counted here, past every RAW/WAW/structural/RequestBlock break above: those
                 // breaks re-peek the same still-undequeued pair next cycle without issuing it,
                 // so incrementing at detection time would double-count every stalled cycle.
-                if (instr.Class == ToothClass.Load) _microFusionsCounter.Increment();
-                else _macroFusionsCounter.Increment();
+                if (instr.Class == ToothClass.Load)
+                    _microFusionsCounter.Increment();
+                else
+                    _macroFusionsCounter.Increment();
             }
 
             classIssued[fuSlot]++;
@@ -661,7 +664,7 @@ internal sealed class SuperscalarCore(
     /// </summary>
     private bool TryPeekSecond(out FetchedEntry second) {
         if (_fetchQueue.Count < 2) {
-            second = default;
+            second = default(FetchedEntry);
             return false;
         }
 
@@ -687,7 +690,9 @@ internal sealed class SuperscalarCore(
             // why this — not the paper's own parallel-IC-lookup design — is a documented
             // modeling divergence, not a performance result). Only ever hits at a block's
             // recorded start PC.
-            if (_uopCache is not null && _uopCache.TryLookup(pc, out IReadOnlyList<ITooth> uops, out bool endsInBranch)) {
+            if (_uopCache is not null && _uopCache.TryLookup(
+                    pc, out IReadOnlyList<ITooth> uops, out bool endsInBranch
+                )) {
                 ulong linePc = pc;
                 var tookBranch = false;
                 for (var i = 0; i < uops.Count && fetched < issueWidth && _fetchQueue.Count < _queueCapacity; i++) {
@@ -842,7 +847,7 @@ internal sealed class SuperscalarCore(
         _fetchPc = target;
         _fetchFaulted = false;
         _fetchStallUntil = 0; // any in-flight I-miss belonged to the wrong path
-        _uopBuildCount = 0; // discard: wrong-path instructions must never be cached
+        _uopBuildCount = 0;   // discard: wrong-path instructions must never be cached
         _flushesCounter.Increment();
         _tdRefillPending = true; // starved slots are recovery, not fetch, until issue resumes
     }

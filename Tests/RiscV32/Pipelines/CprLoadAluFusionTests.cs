@@ -1,6 +1,5 @@
 #region
 
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
@@ -119,11 +118,11 @@ public class CprLoadAluFusionTests {
     // more slowly and rename stalls less.
     private static uint[] BuildCheckpointPressureProgram(int copies) {
         var program = new List<uint> {
-            Lw(10, 0, 0), // cold D-cache miss: nothing behind this retires until it resolves
+            Lw(10, 0, 0),     // cold D-cache miss: nothing behind this retires until it resolves
             Addi(1, 0, 2000), // address base for the repeated pairs (safely beyond the program's own bytes)
         };
         for (var i = 0; i < copies; i++) {
-            program.Add(Lw(5, 1, 0)); // x5 = mem[2000] — hits cache after the first iteration
+            program.Add(Lw(5, 1, 0));   // x5 = mem[2000] — hits cache after the first iteration
             program.Add(Addi(5, 5, 1)); // x5 += 1 — fusible read-modify pair
         }
 
@@ -137,7 +136,7 @@ public class CprLoadAluFusionTests {
         const int checkpointCount = 4;
         const int checkpointMaxInstructions = 3;
         uint[] program = BuildCheckpointPressureProgram(copies);
-        var dMemConfig = new MemoryConfig(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
+        var dMemConfig = new MemoryConfig(4096, 4, 32, 60);
 
         DialBoardSnapshot unfused =
             Run(program, false, checkpointCount, checkpointMaxInstructions, dMemConfig).SnapshotPipeline();

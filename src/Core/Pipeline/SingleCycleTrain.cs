@@ -185,13 +185,13 @@ internal sealed class SingleCycleCore(
         }
 
         if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null
-                                         || ILayers.L2Scatter is not null) {
+         || ILayers.L2Scatter is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
 
         if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null
-                                         || ILayers.L3Scatter is not null) {
+         || ILayers.L3Scatter is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
@@ -202,13 +202,13 @@ internal sealed class SingleCycleCore(
         }
 
         if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null
-                                         || DLayers.L2Scatter is not null) {
+         || DLayers.L2Scatter is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
 
         if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null
-                                         || DLayers.L3Scatter is not null) {
+         || DLayers.L3Scatter is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }

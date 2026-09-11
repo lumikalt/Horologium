@@ -14,7 +14,7 @@ public sealed class BdiCompressorTests {
     private static byte[] BuildLine(params long[] values32) {
         var line = new byte[values32.Length * 4];
         for (var i = 0; i < values32.Length; i++) {
-            uint v = unchecked((uint)values32[i]);
+            var v = unchecked((uint)values32[i]);
             for (var b = 0; b < 4; b++) line[i * 4 + b] = (byte)(v >> (8 * b));
         }
 
@@ -39,8 +39,8 @@ public sealed class BdiCompressorTests {
     public void RepeatedEightByteValue_CompressesToRepValues() {
         var line = new byte[32];
         for (var off = 0; off < 32; off += 8)
-            for (var b = 0; b < 8; b++)
-                line[off + b] = (byte)(0xA0 + b);
+        for (var b = 0; b < 8; b++)
+            line[off + b] = (byte)(0xA0 + b);
         BdiResult result = BdiCompressor.Compress(line);
         Assert.Equal(BdiEncoding.RepValues, result.Encoding);
         Assert.Equal(8, result.Data.Length);
@@ -58,7 +58,7 @@ public sealed class BdiCompressorTests {
         // base by more than the Δ range allows. Not RepValues (chunks differ) or Zeros.
         var line = new byte[32];
         for (var block = 0; block < 4; block++) {
-            byte nibble = (byte)(0x11 * (block + 1));
+            var nibble = (byte)(0x11 * (block + 1));
             for (var b = 0; b < 8; b++) line[block * 8 + b] = nibble;
         }
 
@@ -74,7 +74,7 @@ public sealed class BdiCompressorTests {
         // Base=0 (the first element already is zero), 8 elements all fit within 1 signed byte
         // of zero — a uniform zero-base line, so no mask is needed and the size matches Table 2
         // exactly: 4 (base) + 8*1 (deltas) = 12 bytes.
-        byte[] line = BdiCompressorTests.BuildLine(0, 0xB, 3, 1, 4, 0, 3, 4);
+        byte[] line = BuildLine(0, 0xB, 3, 1, 4, 0, 3, 4);
         BdiResult result = BdiCompressor.Compress(line);
         Assert.Equal(BdiEncoding.Base4Delta1, result.Encoding);
         Assert.Equal(12, result.Data.Length);
@@ -92,7 +92,7 @@ public sealed class BdiCompressorTests {
     public void Figure4_Perlbench_CompressesExactlyAsInThePaper() {
         // Base=0xC04039C0 (the first element; none fit near zero), all 8 fit within 1 signed
         // byte of that base — a uniform real-base line, so again no mask: 4 + 8 = 12 bytes.
-        byte[] line = BdiCompressorTests.BuildLine(
+        byte[] line = BuildLine(
             0xC04039C0, 0xC04039C8, 0xC04039D0, 0xC04039D8, 0xC04039E0, 0xC04039E8, 0xC04039F0, 0xC04039F8
         );
         BdiResult result = BdiCompressor.Compress(line);
@@ -118,7 +118,7 @@ public sealed class BdiCompressorTests {
         // compressibility for much less hardware complexity). We don't assert BΔI reproduces
         // that 19-byte result, or even that it finds any encoding at all for this specific line —
         // only that whatever Compress() decides is faithfully reversible.
-        byte[] line = BdiCompressorTests.BuildLine(
+        byte[] line = BuildLine(
             0, 0x09A40178, 0xB, 1, 0x09A4A838, 0xA, 0xB, 0x09A4C2F0
         );
         BdiResult result = BdiCompressor.Compress(line);
@@ -134,7 +134,7 @@ public sealed class BdiCompressorTests {
         // Element0 and element2 are small enough to compress against an implicit zero base;
         // element1 (huge) becomes the real base; element3 compresses against that real base.
         // A uniform-base encoding cannot represent this line — the mask is load-bearing.
-        byte[] line = BdiCompressorTests.BuildLine(2, 0xC0403000, 5, 0xC0403008);
+        byte[] line = BuildLine(2, 0xC0403000, 5, 0xC0403008);
         BdiResult result = BdiCompressor.Compress(line);
         Assert.Equal(BdiEncoding.Base4Delta1, result.Encoding);
         // 4 (base) + 4*1 (deltas) + 1 (mask, ⌈4/8⌉) = 9 bytes — one more than Table 2's
@@ -150,7 +150,7 @@ public sealed class BdiCompressorTests {
 
     [Fact]
     public void RandomLines_RoundTripWheneverNotNoCompr() {
-        ulong x = 88172645463325252UL; // xorshift seed
+        var x = 88172645463325252UL; // xorshift seed
         for (var trial = 0; trial < 5000; trial++) {
             var line = new byte[32];
             for (var i = 0; i < 32; i++) {

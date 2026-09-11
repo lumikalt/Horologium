@@ -103,15 +103,15 @@ public sealed partial class OooTrain : ISteppableTrain {
                 valuePredictor,
                 enableEoleLateExec,
                 enableEoleEarlyExec,
-                enableSttExpOnly: enableSttExpOnly,
-                enableInvisiSpec: enableInvisiSpec,
-                enableSttImplicitBranches: enableSttImplicitBranches,
-                enableSttMemDepGating: enableSttMemDepGating,
-                enableInvisiSpecLlcSb: enableInvisiSpecLlcSb,
-                llcSbCapacity: llcSbCapacity,
-                llcSbHitLatency: llcSbHitLatency,
-                sttFuturisticModel: sttFuturisticModel,
-                enableEarlyStoreAddress: enableEarlyStoreAddress
+                enableSttExpOnly,
+                enableInvisiSpec,
+                enableSttImplicitBranches,
+                enableSttMemDepGating,
+                enableInvisiSpecLlcSb,
+                llcSbCapacity,
+                llcSbHitLatency,
+                sttFuturisticModel,
+                enableEarlyStoreAddress
             )
         );
         _train.Build();
@@ -284,31 +284,13 @@ internal sealed partial class OoOPipelineCore : Gear {
     // Early-Execution computation during the current StepRename() call. Cleared at the top of
     // every call — see StepRename for why this must never persist across ticks.
     private readonly HashSet<int> _eeWrittenThisTick = [];
-    private readonly bool _enableEoleEarlyExec;
-    private readonly bool _enableEoleLateExec;
-
-    // STT-ExpOnly (Yu et al., MICRO 2019): loads are treated as the only "transmitter" class
-    // (explicit-channel-only, per the paper's own DelayExecute+STT-ExpOnly evaluated variant).
-    // A load whose address depends on not-yet-visible data (RobEntry.SourceYrot) is held at
-    // Issue until the shared visibility point clears it — see TryIssueSlot.
-    private readonly bool _enableSttExpOnly;
 
     // Store address/data decomposition: gives a store's address-operand readiness independent
     // effect on StoreSetStallLoad/CheckLoadViolations/forwarding-candidate matching, ahead of
     // its data operand — see StepEarlyStoreAddressResolution.
     private readonly bool _enableEarlyStoreAddress;
-
-    // Shared visibility-point tracker, selectable between the Spectre model
-    // (SpectreVisibilityTracker: safe once all older branches resolve) and the Futuristic model
-    // (FuturisticVisibilityTracker: safe once at the ROB head, or once no older in-flight
-    // instruction of ANY squash-source type is unresolved), via sttFuturisticModel. Every gating
-    // call site below is written against the IVisibilityTracker interface and is oblivious to
-    // which model is active. _futuristicTracker aliases the same instance, narrowed to the
-    // concrete type, only where Futuristic-specific registration/resolution calls are needed —
-    // it is null in Spectre mode (and whenever the shared tracker itself is null).
-    private readonly IVisibilityTracker? _vpTracker;
-    private readonly FuturisticVisibilityTracker? _futuristicTracker;
-    private Counter? _sttLoadIssueStallsCounter;
+    private readonly bool _enableEoleEarlyExec;
+    private readonly bool _enableEoleLateExec;
 
     // InvisiSpec (Yan et al., MICRO 2018 + 2019 Corrigendum): an unsafe speculative load (USL)
     // peeks its data at Execute via IMemory.PeekRead (no cache-state mutation) and is queued here;
@@ -318,24 +300,6 @@ internal sealed partial class OoOPipelineCore : Gear {
     // (RobEntry.PendingUslAccess), per the corrigendum's fix (never delay data propagation to the
     // visibility point; the paper's own simulator bug that did so inflated overhead substantially).
     private readonly bool _enableInvisiSpec;
-    private readonly List<PendingUsl> _pendingUsls = [];
-    private Counter? _invisispecExposuresCounter;
-    private Counter? _invisispecValidationsCounter;
-
-    private readonly record struct PendingUsl(int RobIdx, ulong InstrId, ulong Address, int Bytes, bool NeedsValidation);
-
-    // Once a USL's real access fires (StepUslResolution) and misses, its miss latency drains here
-    // as a per-entry countdown — the same MLP-overlap shape StepExecute gives ordinary load misses
-    // via _inFlight — rather than a lump-sum stall charge, so multiple USLs resolving in the same
-    // cycle overlap their miss penalties instead of paying them additively. No CDB broadcast is
-    // involved (the USL's data already reached dependents at its original speculative Execute);
-    // reaching zero here only clears RobEntry.PendingUslAccess so Commit can retire it. No squash
-    // cleanup beyond StepFlush's full clear is needed: an entry only lands here once its visibility
-    // point has already cleared, and once IsSafe(instrId) is true for an instruction it stays true
-    // (dispatch order is InstrId order, so no older blocking entry can ever be registered after a
-    // younger one has already resolved) — so no later partial squash can retroactively invalidate
-    // an entry already in this list, only a full flush (e.g. an older trap) discards it.
-    private readonly List<(int RobIdx, int Countdown)> _pendingUslLatency = [];
 
     // InvisiSpec's optional Per-Core Speculative Buffer in the LLC (Yan et al., MICRO 2018, §VI-C):
     // when enabled, a USL's speculative peek records the LLC-level line it touched here; if that
@@ -353,12 +317,19 @@ internal sealed partial class OoOPipelineCore : Gear {
     // instructions that never actually reach their deferred access, matching a real squash
     // cancelling the outstanding speculative fetch.
     private readonly bool _enableInvisiSpecLlcSb;
-    private readonly int _llcSbCapacity;
-    private readonly int _llcSbHitLatency;
-    private readonly List<(ulong LineBase, ulong InstrId)> _llcSb = [];
-    private Counter? _llcSbHitsCounter;
 
-    private int? LlcBlockBytes => DLayers.L3Cache?.BlockBytes ?? DLayers.L2Cache?.BlockBytes ?? DLayers.Cache?.BlockBytes;
+    // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
+    // a self-contained shadow execution lane entered when dispatch is stalled behind a full
+    // ROB whose head is an incomplete load. Never touches the real ROB/IQ/LQ/SQ/RAS/predictor
+    // history — only the RAT (snapshotted and restored), the PRF, and the real data-cache
+    // accessor (which is what actually delivers the prefetch benefit).
+    private readonly bool _enableRunahead;
+
+    // STT-ExpOnly (Yu et al., MICRO 2019): loads are treated as the only "transmitter" class
+    // (explicit-channel-only, per the paper's own DelayExecute+STT-ExpOnly evaluated variant).
+    // A load whose address depends on not-yet-visible data (RobEntry.SourceYrot) is held at
+    // Issue until the shared visibility point clears it — see TryIssueSlot.
+    private readonly bool _enableSttExpOnly;
 
     // STT full DelayExecute+STT, explicit-branch slice only (Yu et al., MICRO 2019, Section 6.4.1):
     // closes the resolution-based implicit channel through explicit branches. Predictor training
@@ -378,8 +349,6 @@ internal sealed partial class OoOPipelineCore : Gear {
     // RecordViolation, already fires exclusively at commit (same as _predictor.Update) — no new gate
     // needed there. See _enableSttMemDepGating below for the one genuinely open training site.
     private readonly bool _enableSttImplicitBranches;
-    private readonly List<ulong> _pendingTaintedMispredicts = [];
-    private Counter? _sttMispredictDeferralsCounter;
 
     // STT full DelayExecute+STT, prediction-based implicit-channel slice (Yu et al., MICRO 2019,
     // §6.4.2 "Implicit branch with prediction"): "the relevant predictor ... [must] be updated only
@@ -393,15 +362,6 @@ internal sealed partial class OoOPipelineCore : Gear {
     // isn't safe yet, the training is queued here and re-checked every cycle
     // (StepSmbTrainingResolution) rather than applied immediately.
     private readonly bool _enableSttMemDepGating;
-    private readonly List<(ulong Pc, ulong Distance, ulong StoreYrot)> _pendingSmbTraining = [];
-    private Counter? _sttMemDepTrainingDeferralsCounter;
-
-    // Runahead execution (Mutlu et al., HPCA 2003; Naithani et al., HPCA 2020 / ISCA 2021):
-    // a self-contained shadow execution lane entered when dispatch is stalled behind a full
-    // ROB whose head is an incomplete load. Never touches the real ROB/IQ/LQ/SQ/RAS/predictor
-    // history — only the RAT (snapshotted and restored), the PRF, and the real data-cache
-    // accessor (which is what actually delivers the prefetch benefit).
-    private readonly bool _enableRunahead;
 
     // Vector Runahead (Naithani, Ainsworth, Jones & Eeckhout, ISCA 2021): extends the scalar
     // shadow lane above with (1) a termination-condition change that keeps the episode running
@@ -427,22 +387,42 @@ internal sealed partial class OoOPipelineCore : Gear {
     private readonly List<IssuedInstr> _execBuffer = [];
     private readonly IExecutor _executor;
     private readonly FdipPrefetcher? _fdip;
-    private readonly IMacroFuser? _macroFuser;
     private readonly IFetchTranslator? _fetchTranslator;
 
     // In per-class mode each IQ has iqCapacity slots; in flat mode all instructions
     // go to IQ[0] which has IqCount×iqCapacity slots so total capacity is the same.
     private readonly bool _flatIq;
     private readonly FuLatencyConfig _fuConfig;
+    private readonly FuturisticVisibilityTracker? _futuristicTracker;
     private readonly List<(int Countdown, ExecResult Result, bool HoldsMshr)> _inFlight = [];
     private readonly IssueQueue[] _iqs;
     private readonly int _issueWidth;
+    private readonly List<(ulong LineBase, ulong InstrId)> _llcSb = [];
+    private readonly int _llcSbCapacity;
+    private readonly int _llcSbHitLatency;
     private readonly LoadQueue _lq;
+    private readonly IMacroFuser? _macroFuser;
     private readonly int _maxDecodeDepth;
 
     // MSHR (Miss Status Holding Register) capacity: limits the number of simultaneously
     // outstanding load/atomic cache misses. Capacity 0 means unlimited (old behavior).
     private readonly int _mshrCapacity;
+    private readonly List<(ulong Pc, ulong Distance, ulong StoreYrot)> _pendingSmbTraining = [];
+    private readonly List<ulong> _pendingTaintedMispredicts = [];
+
+    // Once a USL's real access fires (StepUslResolution) and misses, its miss latency drains here
+    // as a per-entry countdown — the same MLP-overlap shape StepExecute gives ordinary load misses
+    // via _inFlight — rather than a lump-sum stall charge, so multiple USLs resolving in the same
+    // cycle overlap their miss penalties instead of paying them additively. No CDB broadcast is
+    // involved (the USL's data already reached dependents at its original speculative Execute);
+    // reaching zero here only clears RobEntry.PendingUslAccess so Commit can retire it. No squash
+    // cleanup beyond StepFlush's full clear is needed: an entry only lands here once its visibility
+    // point has already cleared, and once IsSafe(instrId) is true for an instruction it stays true
+    // (dispatch order is InstrId order, so no older blocking entry can ever be registered after a
+    // younger one has already resolved) — so no later partial squash can retroactively invalidate
+    // an entry already in this list, only a full flush (e.g. an older trap) discards it.
+    private readonly List<(int RobIdx, int Countdown)> _pendingUslLatency = [];
+    private readonly List<PendingUsl> _pendingUsls = [];
     private readonly IBranchPredictor _predictor;
 
     // OoOE structures
@@ -484,6 +464,16 @@ internal sealed partial class OoOPipelineCore : Gear {
     private readonly StoreSetPredictor? _storeSets;
     private readonly ITrapController _trapController;
     private readonly IValuePredictor? _valuePredictor;
+
+    // Shared visibility-point tracker, selectable between the Spectre model
+    // (SpectreVisibilityTracker: safe once all older branches resolve) and the Futuristic model
+    // (FuturisticVisibilityTracker: safe once at the ROB head, or once no older in-flight
+    // instruction of ANY squash-source type is unresolved), via sttFuturisticModel. Every gating
+    // call site below is written against the IVisibilityTracker interface and is oblivious to
+    // which model is active. _futuristicTracker aliases the same instance, narrowed to the
+    // concrete type, only where Futuristic-specific registration/resolution calls are needed —
+    // it is null in Spectre mode (and whenever the shared tracker itself is null).
+    private readonly IVisibilityTracker? _vpTracker;
     private readonly VrStrideEntry[] _vrStrideTable;
 
     // Write buffer: absorbs post-commit store write-miss stalls so the pipeline
@@ -561,6 +551,8 @@ internal sealed partial class OoOPipelineCore : Gear {
     private ulong _flushTarget;
     private bool _halted;
     private Counter? _icacheHitsCounter, _icacheMissesCounter;
+    private Counter? _invisispecExposuresCounter;
+    private Counter? _invisispecValidationsCounter;
     private Counter? _itlbHitsCounter, _itlbMissesCounter;
     private Counter? _l2DcacheHitsCounter, _l2DcacheMissesCounter;
     private Counter? _l2IcacheHitsCounter, _l2IcacheMissesCounter;
@@ -572,7 +564,10 @@ internal sealed partial class OoOPipelineCore : Gear {
     // Delta tracking for hit/miss/prefetch counters
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
+    private Counter? _llcSbHitsCounter;
+    private Counter _macroFusionsCounter = null!;
     private Counter _memViolationsCounter = null!;
+    private Counter _microFusionsCounter = null!;
     private Counter? _mshrStallsCounter;
     private int _mshrUsed; // MSHR slots currently occupied
 
@@ -597,8 +592,6 @@ internal sealed partial class OoOPipelineCore : Gear {
     private int _pendingRollbackArch = -1;
     private int _pendingRollbackPrevPhys = -1;
     private Counter _retiredCounter = null!;
-    private Counter _macroFusionsCounter = null!;
-    private Counter _microFusionsCounter = null!;
     private bool _runaheadActive;
     private bool _runaheadChainActive;
     private ulong _runaheadChainOrigin;
@@ -626,6 +619,9 @@ internal sealed partial class OoOPipelineCore : Gear {
     private bool _squashTaken;
     private ulong _squashTarget;
     private Counter _stallsCounter = null!;
+    private Counter? _sttLoadIssueStallsCounter;
+    private Counter? _sttMemDepTrainingDeferralsCounter;
+    private Counter? _sttMispredictDeferralsCounter;
 
     // Top-Down Microarchitecture Analysis slot accounting (Yasin, ISPASS 2014); see
     // TopDownBreakdown for the metric formulas these feed.
@@ -770,6 +766,9 @@ internal sealed partial class OoOPipelineCore : Gear {
         _wbSlots = writeBufferCapacity > 0 ? new int[writeBufferCapacity] : [];
         _mshrCapacity = mshrCapacity;
     }
+
+    private int? LlcBlockBytes =>
+        DLayers.L3Cache?.BlockBytes ?? DLayers.L2Cache?.BlockBytes ?? DLayers.Cache?.BlockBytes;
 
     // Streaming engine (architectural; survives pipeline flushes)
     public StreamingEngine StreamingEngine { get; }
@@ -969,13 +968,13 @@ internal sealed partial class OoOPipelineCore : Gear {
         }
 
         if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null
-                                         || ILayers.L2Scatter is not null) {
+         || ILayers.L2Scatter is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
 
         if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null
-                                         || ILayers.L3Scatter is not null) {
+         || ILayers.L3Scatter is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
@@ -994,13 +993,13 @@ internal sealed partial class OoOPipelineCore : Gear {
         }
 
         if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null
-                                         || DLayers.L2Scatter is not null) {
+         || DLayers.L2Scatter is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
 
         if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null
-                                         || DLayers.L3Scatter is not null) {
+         || DLayers.L3Scatter is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
@@ -1211,7 +1210,7 @@ internal sealed partial class OoOPipelineCore : Gear {
 
             // A branch (only branches set ResolvedNextPc) that resolved off its predicted path.
             bool thisMispredicted = rob.ResolvedNextPc is { HasValue: true, Value: var resolvedPc, }
-                                  && resolvedPc != rob.PredictedNextPc;
+                                 && resolvedPc != rob.PredictedNextPc;
 
             // Only remove a branch from the shared visibility tracker once it is confirmed
             // correctly predicted. A mispredicted branch must stay "unresolved" until the squash
@@ -1320,8 +1319,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                     // which never reaches here, resolves this bit at Commit instead — see StepCommit.)
                     _futuristicTracker?.ResolveVp(r.InstrId);
                 }
-                else
-                    rob.ValuePredMispredicted = true;
+                else { rob.ValuePredMispredicted = true; }
             }
 
             _prf.Write(r.PhysDest, r.RegValue.Value);
@@ -1356,7 +1354,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     /// </summary>
     private void ArmMispredictSquash(ulong branchInstrId, RobEntry b) {
         if (_rob.Head.InstrId == branchInstrId || AnyOlderHaltOrTrap(branchInstrId)) return;
-        ulong resolvedPc = b.ResolvedNextPc!.Value;
+        ulong resolvedPc = b.ResolvedNextPc.Value;
         _squashPending = true;
         _squashInstrId = branchInstrId;
         _squashTarget = resolvedPc;
@@ -1380,8 +1378,8 @@ internal sealed partial class OoOPipelineCore : Gear {
 
         if (_flushPending || _squashPending) return;
 
-        ulong best = ulong.MaxValue;
-        var bestIdx = -1;
+        var best = ulong.MaxValue;
+        int bestIdx = -1;
         for (var i = 0; i < _pendingTaintedMispredicts.Count; i++) {
             ulong instrId = _pendingTaintedMispredicts[i];
             RobEntry b = FindRobByInstrId(instrId);
@@ -1463,15 +1461,17 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (_flushPending || (_squashPending && p.InstrId > _squashInstrId)) continue;
             if (!_vpTracker!.IsSafe(p.InstrId)) continue;
 
-            bool sbHit = false;
+            var sbHit = false;
             if (_enableInvisiSpecLlcSb && LlcBlockBytes is { } bb) {
                 ulong lineBase = p.Address & ~(ulong)(bb - 1);
                 sbHit = _llcSb.Exists(e => e.LineBase == lineBase);
             }
 
             _ = DLayers.Accessor.Read(p.Address, p.Bytes);
-            if (p.NeedsValidation) _invisispecValidationsCounter?.Increment();
-            else _invisispecExposuresCounter?.Increment();
+            if (p.NeedsValidation)
+                _invisispecValidationsCounter?.Increment();
+            else
+                _invisispecExposuresCounter?.Increment();
             _pendingUsls.RemoveAt(i);
             if (_enableInvisiSpecLlcSb) _llcSb.RemoveAll(e => e.InstrId == p.InstrId);
 
@@ -1481,8 +1481,10 @@ internal sealed partial class OoOPipelineCore : Gear {
                 stalls = Math.Min(stalls, _llcSbHitLatency);
             }
 
-            if (stalls > 0) _pendingUslLatency.Add((p.RobIdx, (int)stalls));
-            else _rob.At(p.RobIdx).PendingUslAccess = false;
+            if (stalls > 0)
+                _pendingUslLatency.Add((p.RobIdx, (int)stalls));
+            else
+                _rob.At(p.RobIdx).PendingUslAccess = false;
         }
     }
 
@@ -1511,7 +1513,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         var committed = 0;
         var dcachePortUsed = false;
         while (_rob is { IsEmpty: false, Head: { IsComplete: true, PendingUslAccess: false, }, }
-             && committed < _issueWidth) {
+            && committed < _issueWidth) {
             RobEntry head = _rob.Head;
 
             // Futuristic model, condition (i): the RunCycle-level ForceResolve above only covers
@@ -1893,7 +1895,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         // sources as the primary is exact, not approximate: the fused pair shares one
         // Dispatch/Issue/Execute/Commit timing throughout — there never were two separate
         // instants to model.
-        if (head.FusedSecondInstrId is { } secondId) {
+        if (head.FusedSecondInstrId is { } secondId)
             _criticalityPredictor.OnCommit(
                 new CriticalityCommitInfo {
                     InstrId = secondId,
@@ -1906,7 +1908,6 @@ internal sealed partial class OoOPipelineCore : Gear {
                     CSourceInstrId = cSource,
                 }
             );
-        }
     }
 
     /// <summary>
@@ -1983,15 +1984,15 @@ internal sealed partial class OoOPipelineCore : Gear {
                 issuedRob.DMissClass =
                     DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
                     (DLayers.L3Cache is { } dl3 && dl3.Misses > dm3)
-                    || (DLayers.L3Bdi is { } dl3b && dl3b.Misses > dm3)
-                    || (DLayers.L3Ceaser is { } dl3c && dl3c.Misses > dm3)
-                    || (DLayers.L3Scatter is { } dl3s && dl3s.Misses > dm3) ? CpiMissClass.L3D :
+                 || (DLayers.L3Bdi is { } dl3B && dl3B.Misses > dm3)
+                 || (DLayers.L3Ceaser is { } dl3C && dl3C.Misses > dm3)
+                 || (DLayers.L3Scatter is { } dl3S && dl3S.Misses > dm3) ? CpiMissClass.L3D :
                     (DLayers.L2Cache is { } dl2 && dl2.Misses > dm2)
-                    || (DLayers.L2Bdi is { } dl2b && dl2b.Misses > dm2)
-                    || (DLayers.L2Ceaser is { } dl2c && dl2c.Misses > dm2)
-                    || (DLayers.L2Scatter is { } dl2s && dl2s.Misses > dm2) ? CpiMissClass.L2D :
-                    DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
-                    CpiMissClass.None;
+                 || (DLayers.L2Bdi is { } dl2B && dl2B.Misses > dm2)
+                 || (DLayers.L2Ceaser is { } dl2C && dl2C.Misses > dm2)
+                 || (DLayers.L2Scatter is { } dl2S && dl2S.Misses > dm2) ? CpiMissClass.L2D :
+                    DLayers.Cache is { } dl1 && dl1.Misses > dm1         ? CpiMissClass.L1D :
+                                                                           CpiMissClass.None;
 
             PEventLog?.Record(issued.InstrId, issued.Pc, _cyclesCounter.Value, PEventKind.Execute);
 
@@ -2444,8 +2445,10 @@ internal sealed partial class OoOPipelineCore : Gear {
     ///         Gates on <see cref="SqEntry.DataKnown" />, not <see cref="SqEntry.AddressKnown" />:
     ///         with early store-address resolution (<c>enableEarlyStoreAddress</c>), a store's
     ///         address can be known well before its data. Releasing the predicted-dependent load
-    ///         at address-known would let it race the store's real write — <see
-    ///         cref="TryForwardFromStore" /> can't forward yet (it also requires DataKnown), so
+    ///         at address-known would let it race the store's real write —
+    ///         <see
+    ///             cref="TryForwardFromStore" />
+    ///         can't forward yet (it also requires DataKnown), so
     ///         the load would read stale memory instead, guaranteeing a memory-order violation on
     ///         every prediction instead of the clean stall Store Sets exists to provide. Same bug
     ///         class as the one fixed on <c>CprTrain</c>'s equivalent check.
@@ -2572,12 +2575,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     ///     <see cref="FindRobByInstrId" />'s style/scope (small, bounded ring buffer; called only
     ///     from the STT memory-dependence predictor-training gate, not a hot path).
     /// </summary>
-    private SqEntry? FindSqBySeqNo(ulong seqNo) {
-        foreach (SqEntry sq in _sq.InOrder())
-            if (sq.SeqNo == seqNo)
-                return sq;
-        return null;
-    }
+    private SqEntry? FindSqBySeqNo(ulong seqNo) => _sq.InOrder().FirstOrDefault(sq => sq.SeqNo == seqNo);
 
     /// <summary>
     ///     True if any SQ entry older than <paramref name="loadSeqNo" /> has a known address
@@ -2698,10 +2696,8 @@ internal sealed partial class OoOPipelineCore : Gear {
             if (_enableSttExpOnly || _enableSttImplicitBranches || _enableSttMemDepGating) {
                 ulong? srcYrot = null;
                 if (ri.P1 >= 0 && _prf.Yrot(ri.P1) is { } y1) srcYrot = y1;
-                if (ri.P2 >= 0 && _prf.Yrot(ri.P2) is { } y2)
-                    srcYrot = srcYrot is { } sy1 ? Math.Max(sy1, y2) : y2;
-                if (ri.P3 >= 0 && _prf.Yrot(ri.P3) is { } y3)
-                    srcYrot = srcYrot is { } sy2 ? Math.Max(sy2, y3) : y3;
+                if (ri.P2 >= 0 && _prf.Yrot(ri.P2) is { } y2) srcYrot = srcYrot is { } sy1 ? Math.Max(sy1, y2) : y2;
+                if (ri.P3 >= 0 && _prf.Yrot(ri.P3) is { } y3) srcYrot = srcYrot is { } sy2 ? Math.Max(sy2, y3) : y3;
                 rob.SourceYrot = srcYrot;
 
                 if (rob.PhysDestination >= 0) {
@@ -2745,7 +2741,7 @@ internal sealed partial class OoOPipelineCore : Gear {
                 // verification at Commit happens at exactly that same moment, so this costs it no
                 // extra latency; Early Execution never mispredicts, so only Trap applies to it).
                 if (_futuristicTracker is not null) {
-                    FuturisticVisibilityTracker.Sources mask = FuturisticVisibilityTracker.Sources.Trap;
+                    var mask = FuturisticVisibilityTracker.Sources.Trap;
                     if (leEligible) mask |= FuturisticVisibilityTracker.Sources.Vp;
                     _futuristicTracker.Register(ri.InstrId, mask);
                 }
@@ -2820,7 +2816,7 @@ internal sealed partial class OoOPipelineCore : Gear {
             // is still pending (Smb); a value-predicted load or ALU op's prediction is still
             // pending (Vp, including ordinary — non-Late-Execution — value prediction on loads).
             if (_futuristicTracker is not null) {
-                FuturisticVisibilityTracker.Sources mask = FuturisticVisibilityTracker.Sources.Trap;
+                var mask = FuturisticVisibilityTracker.Sources.Trap;
                 if (needsSq) mask |= FuturisticVisibilityTracker.Sources.StoreAddr;
                 if (needsLq && _lq.At(rob.LqIdx).Bypassed) mask |= FuturisticVisibilityTracker.Sources.Smb;
                 if (rob.IsVpEligible) mask |= FuturisticVisibilityTracker.Sources.Vp;
@@ -3080,8 +3076,10 @@ internal sealed partial class OoOPipelineCore : Gear {
                 // Counted here, past every RAT-full/secondary-dest break above: those breaks
                 // re-peek the same still-undequeued pair next cycle without renaming it, so
                 // incrementing at detection time would double-count every stalled cycle.
-                if (instr.Class == ToothClass.Load) _microFusionsCounter.Increment();
-                else _macroFusionsCounter.Increment();
+                if (instr.Class == ToothClass.Load)
+                    _microFusionsCounter.Increment();
+                else
+                    _macroFusionsCounter.Increment();
             }
         }
     }
@@ -3094,7 +3092,7 @@ internal sealed partial class OoOPipelineCore : Gear {
     /// </summary>
     private bool TryPeekSecondDecoded(out FetchedInstr second) {
         if (_decodeQueue.Count < 2) {
-            second = default;
+            second = default(FetchedInstr);
             return false;
         }
 
@@ -4140,8 +4138,7 @@ internal sealed partial class OoOPipelineCore : Gear {
         // IMacroFuser), issued.Pc is the compare half — the loop-iteration-estimation table
         // is keyed on the branch's own real address, same as the training sites above.
         if (_predictor is IVectorAwareBranchPredictor vbp) {
-            if (isVec)
-                vbp.NotifyVectorInstruction(issued.Pc);
+            if (isVec) { vbp.NotifyVectorInstruction(issued.Pc); }
             else if (issued.Instr.Class == ToothClass.ConditionalBranch && resolvedNextPc.HasValue) {
                 ulong branchPc = issued.Instr.BranchComponent.Pc;
                 if (resolvedNextPc.Value < branchPc)
@@ -4316,13 +4313,13 @@ internal sealed partial class OoOPipelineCore : Gear {
         if (iStalls > 0) {
             long wL1 = ILayers.Cache is { } l1 ? (l1.Misses - _lastIMisses) * l1.MissLatency : 0;
             long wL2 = ILayers.L2Cache is { } l2 ? (l2.Misses - _lastIl2Misses) * l2.MissLatency :
-                ILayers.L2Bdi is { } l2b ? (l2b.Misses - _lastIl2Misses) * l2b.MissLatency :
-                ILayers.L2Ceaser is { } l2c ? (l2c.Misses - _lastIl2Misses) * l2c.MissLatency :
-                ILayers.L2Scatter is { } l2s ? (l2s.Misses - _lastIl2Misses) * l2s.MissLatency : 0;
+                ILayers.L2Bdi is { } l2B         ? (l2B.Misses - _lastIl2Misses) * l2B.MissLatency :
+                ILayers.L2Ceaser is { } l2C      ? (l2C.Misses - _lastIl2Misses) * l2C.MissLatency :
+                ILayers.L2Scatter is { } l2S     ? (l2S.Misses - _lastIl2Misses) * l2S.MissLatency : 0;
             long wL3 = ILayers.L3Cache is { } l3 ? (l3.Misses - _lastIl3Misses) * l3.MissLatency :
-                ILayers.L3Bdi is { } l3b ? (l3b.Misses - _lastIl3Misses) * l3b.MissLatency :
-                ILayers.L3Ceaser is { } l3c ? (l3c.Misses - _lastIl3Misses) * l3c.MissLatency :
-                ILayers.L3Scatter is { } l3s ? (l3s.Misses - _lastIl3Misses) * l3s.MissLatency : 0;
+                ILayers.L3Bdi is { } l3B         ? (l3B.Misses - _lastIl3Misses) * l3B.MissLatency :
+                ILayers.L3Ceaser is { } l3C      ? (l3C.Misses - _lastIl3Misses) * l3C.MissLatency :
+                ILayers.L3Scatter is { } l3S     ? (l3S.Misses - _lastIl3Misses) * l3S.MissLatency : 0;
             long wTlb = ILayers.Tlb is { } tlb ? (tlb.Misses - _lastITlbMisses) * tlb.MissLatency : 0;
             long wSum = wL1 + wL2 + wL3 + wTlb;
             if (wSum <= 0) { _cpiPendingL1I += iStalls; }
@@ -4531,6 +4528,14 @@ internal sealed partial class OoOPipelineCore : Gear {
         lastHits = tlb.Hits;
         lastMisses = tlb.Misses;
     }
+
+    private readonly record struct PendingUsl(
+        int RobIdx,
+        ulong InstrId,
+        ulong Address,
+        int Bytes,
+        bool NeedsValidation
+    );
 
     /// <summary>
     ///     PC-indexed, direct-mapped, untagged stride table for Vector Runahead (Naithani et al.,

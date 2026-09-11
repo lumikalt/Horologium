@@ -218,11 +218,13 @@ public class MulticoreSpecTests {
         // rather than silently fall back to a plain SetAssociativeCache that drops the requested CEASER
         // protection with no error.
         var llcSpec = new CacheLevelSpec(65536, 8, 64, 30, Variant: CacheVariantKind.Ceaser);
-        Assert.Throws<NotSupportedException>(
-            () => new MulticoreSpec(
-                [new HartSpec(new SingleCycleSpec(), Rv32()), new HartSpec(new SingleCycleSpec(), Rv32()),],
-                llcSpec
-            ).Build(new FlatMemory(0x10000))
+        Assert.Throws<NotSupportedException>(() => new MulticoreSpec(
+                                                 [
+                                                     new HartSpec(new SingleCycleSpec(), Rv32()),
+                                                     new HartSpec(new SingleCycleSpec(), Rv32()),
+                                                 ],
+                                                 llcSpec
+                                             ).Build(new FlatMemory(0x10000))
         );
     }
 
@@ -230,11 +232,13 @@ public class MulticoreSpecTests {
     public void SharedLlc_UnsupportedCompression_Throws() {
         // BΔI at the shared-LLC surface isn't wired either; same silent-fallback hazard as Variant.
         var llcSpec = new CacheLevelSpec(65536, 8, 64, 30, Compression: CompressionKind.Bdi);
-        Assert.Throws<NotSupportedException>(
-            () => new MulticoreSpec(
-                [new HartSpec(new SingleCycleSpec(), Rv32()), new HartSpec(new SingleCycleSpec(), Rv32()),],
-                llcSpec
-            ).Build(new FlatMemory(0x10000))
+        Assert.Throws<NotSupportedException>(() => new MulticoreSpec(
+                                                 [
+                                                     new HartSpec(new SingleCycleSpec(), Rv32()),
+                                                     new HartSpec(new SingleCycleSpec(), Rv32()),
+                                                 ],
+                                                 llcSpec
+                                             ).Build(new FlatMemory(0x10000))
         );
     }
 
@@ -270,9 +274,9 @@ public class MulticoreSpecTests {
         // H0: addi x1,x0,42 / lui x3,1    / sw x1,0(x3) / ebreak  -> mem[0x1000] = 42
         // H1: addi x2,x0,99 / lui x4,2    / sw x2,0(x4) / ebreak  -> mem[0x2000] = 99
         // Distinct, far-apart, block-aligned addresses so the two harts never share a coherence line.
-        const uint h0Lui = 0x000011B7; // lui x3, 1        (x3 = 0x1000)
+        const uint h0Lui = 0x000011B7;        // lui x3, 1        (x3 = 0x1000)
         const uint h0SwIndirect = 0x0011A023; // sw x1, 0(x3)
-        const uint h1Lui = 0x00002237; // lui x4, 2        (x4 = 0x2000)
+        const uint h1Lui = 0x00002237;        // lui x4, 2        (x4 = 0x2000)
         const uint h1SwIndirect = 0x00222023; // sw x2, 0(x4)
 
         var mem = new FlatMemory(0x4000);
@@ -303,9 +307,9 @@ public class MulticoreSpecTests {
         Assert.NotNull(line1);
 
         llc.SetRequestSdid(0); // hart 0's default SDID
-        Assert.Equal(line0!.Row, llc.IdfRow(line0.Way, 0x1000));
+        Assert.Equal(line0.Row, llc.IdfRow(line0.Way, 0x1000));
         llc.SetRequestSdid(1); // hart 1's default SDID
-        Assert.Equal(line1!.Row, llc.IdfRow(line1.Way, 0x2000));
+        Assert.Equal(line1.Row, llc.IdfRow(line1.Way, 0x2000));
 
         // MoesifCache is write-back only; sequential Run (unlike RunConcurrent's per-tick bus drain)
         // never auto-flushes dirty private-cache lines down to backing, so an explicit flush is needed

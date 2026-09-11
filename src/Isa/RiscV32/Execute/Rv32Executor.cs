@@ -1001,6 +1001,24 @@ public partial class Rv32Executor : IExecutor {
         };
     }
 
+    // RV64's RvSd isn't handled here — Rv64Executor doesn't override this, so a 64-bit store's
+    // address is only ever resolved at its normal full Execute (a missed early-resolution
+    // opportunity, not a correctness gap: AddressKnown just stays false until then).
+    public virtual ulong? TryComputeStoreAddress(ITooth instruction, IArchState state, IMemory memory) {
+        if (instruction.Payload is not RvOp op) return null;
+        (int rs1, int imm) = op switch {
+            RvSb(var r, _, var i) => (r, i),
+            RvSh(var r, _, var i) => (r, i),
+            RvSw(var r, _, var i) => (r, i),
+            _                     => (-1, 0),
+        };
+        if (rs1 < 0) return null;
+
+        ulong vaddr = state.IntegerRegisters.Read(rs1) + (ulong)imm;
+        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
+        return fault != 0 ? null : addr;
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     // Carry-less multiply: XOR-sum of (a << i) for each set bit i in b.
@@ -1331,24 +1349,6 @@ public partial class Rv32Executor : IExecutor {
         return ExecuteResult.WithResult(value & 0xFFFFFFFF);
     }
 
-    // RV64's RvSd isn't handled here — Rv64Executor doesn't override this, so a 64-bit store's
-    // address is only ever resolved at its normal full Execute (a missed early-resolution
-    // opportunity, not a correctness gap: AddressKnown just stays false until then).
-    public virtual ulong? TryComputeStoreAddress(ITooth instruction, IArchState state, IMemory memory) {
-        if (instruction.Payload is not RvOp op) return null;
-        (int rs1, int imm) = op switch {
-            RvSb(var r, _, var i) => (r, i),
-            RvSh(var r, _, var i) => (r, i),
-            RvSw(var r, _, var i) => (r, i),
-            _                     => (-1, 0),
-        };
-        if (rs1 < 0) return null;
-
-        ulong vaddr = state.IntegerRegisters.Read(rs1) + (ulong)imm;
-        (ulong addr, int fault) = Translate(memory, state, vaddr, true, false);
-        return fault != 0 ? null : addr;
-    }
-
     protected ExecuteResult Store(
         IMemory memory,
         IArchState state,
@@ -1414,8 +1414,13 @@ public partial class Rv32Executor : IExecutor {
     // macroOpPc/macroOpSizeBytes (the fused Tooth's Pc/SizeBytes, which span both original
     // instructions and drive the not-taken fall-through instead).
     private static ExecuteResult FusedCompareBranch(
-        RvOp cmp, bool takenWhenNonZero, ulong branchPc, int branchImm,
-        IRegisterFile regs, ulong macroOpPc, int macroOpSizeBytes
+        RvOp cmp,
+        bool takenWhenNonZero,
+        ulong branchPc,
+        int branchImm,
+        IRegisterFile regs,
+        ulong macroOpPc,
+        int macroOpSizeBytes
     ) {
         ulong cmpValue = FusedCompareValue(cmp, regs);
         bool taken = takenWhenNonZero ? cmpValue != 0 : cmpValue == 0;
@@ -1432,7 +1437,12 @@ public partial class Rv32Executor : IExecutor {
     // If the load traps, the ALU half never runs — same as the unfused pair would behave,
     // since a trapped load's destination is never written.
     private ExecuteResult FusedLoadAlu(
-        RvOp load, RvOp aluOp, IMemory memory, IArchState state, ulong pc, IRegisterFile regs
+        RvOp load,
+        RvOp aluOp,
+        IMemory memory,
+        IArchState state,
+        ulong pc,
+        IRegisterFile regs
     ) {
         (int rdLoad, int rs1, int imm, int bytes, bool signExtend, int bits) = load switch {
             RvLw(var rd, var r, var i)  => (rd, r, i, 4, false, 32),
@@ -1452,16 +1462,16 @@ public partial class Rv32Executor : IExecutor {
         ulong ReadSub(int reg) => reg == rdLoad ? loadedValue : regs.Read(reg);
 
         ulong result = aluOp switch {
-            RvAdd(_, var a, var b)  => ReadSub(a) + ReadSub(b),
-            RvSub(_, var a, var b)  => ReadSub(a) - ReadSub(b),
-            RvXor(_, var a, var b)  => ReadSub(a) ^ ReadSub(b),
-            RvOr(_, var a, var b)   => ReadSub(a) | ReadSub(b),
-            RvAnd(_, var a, var b)  => ReadSub(a) & ReadSub(b),
-            RvSll(_, var a, var b)  => ReadSub(a) << (int)(ReadSub(b) & 0x1F),
-            RvSrl(_, var a, var b)  => (uint)ReadSub(a) >> (int)(ReadSub(b) & 0x1F),
-            RvSra(_, var a, var b)  => (ulong)((int)ReadSub(a) >> (int)(ReadSub(b) & 0x1F)),
-            RvSlt(_, var a, var b)  => (int)ReadSub(a) < (int)ReadSub(b) ? 1UL : 0UL,
-            RvSltu(_, var a, var b) => ReadSub(a) < ReadSub(b) ? 1UL : 0UL,
+            RvAdd(_, var a, var b)   => ReadSub(a) + ReadSub(b),
+            RvSub(_, var a, var b)   => ReadSub(a) - ReadSub(b),
+            RvXor(_, var a, var b)   => ReadSub(a) ^ ReadSub(b),
+            RvOr(_, var a, var b)    => ReadSub(a) | ReadSub(b),
+            RvAnd(_, var a, var b)   => ReadSub(a) & ReadSub(b),
+            RvSll(_, var a, var b)   => ReadSub(a) << (int)(ReadSub(b) & 0x1F),
+            RvSrl(_, var a, var b)   => (uint)ReadSub(a) >> (int)(ReadSub(b) & 0x1F),
+            RvSra(_, var a, var b)   => (ulong)((int)ReadSub(a) >> (int)(ReadSub(b) & 0x1F)),
+            RvSlt(_, var a, var b)   => (int)ReadSub(a) < (int)ReadSub(b) ? 1UL : 0UL,
+            RvSltu(_, var a, var b)  => ReadSub(a) < ReadSub(b) ? 1UL : 0UL,
             RvAddi(_, var a, var i)  => ReadSub(a) + (ulong)i,
             RvXori(_, var a, var i)  => ReadSub(a) ^ (ulong)i,
             RvOri(_, var a, var i)   => ReadSub(a) | unchecked((uint)i),

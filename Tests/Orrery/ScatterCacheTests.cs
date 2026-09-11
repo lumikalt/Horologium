@@ -141,7 +141,7 @@ public sealed class ScatterCacheTests {
         var backing = new FlatMemory(4096);
         var cache = new ScatterCache(backing, 1024, 4, 32, 10, writePolicy: WritePolicyKind.WriteBack);
 
-        cache.Write(0x40, 0xCAFEF00DUL, 4); // dirty, resident, not yet in backing
+        cache.Write(0x40, 0xCAFEF00DUL, 4);       // dirty, resident, not yet in backing
         Assert.Equal(0UL, backing.Read(0x40, 4)); // confirms it's genuinely only in the cache
 
         cache.Rekey();
@@ -174,10 +174,10 @@ public sealed class ScatterCacheTests {
 
     [Fact]
     public void AutoRekey_FiresAtExpectedCadence() {
-        var cache = new ScatterCache(new FlatMemory(4096), 1024, 4, 32, 10, rekeyInterval: 20);
+        var cache = new ScatterCache(new FlatMemory(4096), 1024, 4, 32, 10, 20);
 
         for (var i = 0; i < 45; i++) cache.Read(0x100, 4); // repeated access to one line
-        Assert.Equal(2, cache.RekeyCount); // floor(45 / 20)
+        Assert.Equal(2, cache.RekeyCount);                 // floor(45 / 20)
 
         for (var i = 0; i < 20; i++) cache.Read(0x100, 4); // 65 total -> floor(65/20)=3
         Assert.Equal(3, cache.RekeyCount);
@@ -192,7 +192,7 @@ public sealed class ScatterCacheTests {
 
     [Fact]
     public void PeekRead_DoesNotAdvanceRekeyState() {
-        var cache = new ScatterCache(new FlatMemory(4096), 1024, 4, 32, 10, rekeyInterval: 1);
+        var cache = new ScatterCache(new FlatMemory(4096), 1024, 4, 32, 10, 1);
         for (var i = 0; i < 100; i++) cache.PeekRead(0x100, 4);
         Assert.Equal(0, cache.RekeyCount);
         Assert.Equal(0, cache.Hits);
@@ -211,10 +211,10 @@ public sealed class ScatterCacheTests {
         // `restored` gets an independent empty backing, so only the checkpoint (not backing) can
         // supply the dirty bytes back.
         var original = new ScatterCache(
-            new FlatMemory(65536), 4096, 8, 32, 10, rekeyInterval: 8, writePolicy: WritePolicyKind.WriteBack
+            new FlatMemory(65536), 4096, 8, 32, 10, 8, writePolicy: WritePolicyKind.WriteBack
         );
 
-        original.Write(0x40, 0xABCDEF01UL, 4); // 1 access, dirty line resident
+        original.Write(0x40, 0xABCDEF01UL, 4);                                  // 1 access, dirty line resident
         for (var i = 0; i < 4; i++) original.Read((ulong)(0x1000 + i * 32), 4); // 4 more -> counter=5
         Assert.Equal(0, original.RekeyCount);
         Assert.Contains(
@@ -222,13 +222,13 @@ public sealed class ScatterCacheTests {
         ); // still resident going into the checkpoint
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) original.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { original.WriteState(w); }
 
         var restored = new ScatterCache(
-            new FlatMemory(65536), 4096, 8, 32, 10, rekeyInterval: 8, writePolicy: WritePolicyKind.WriteBack
+            new FlatMemory(65536), 4096, 8, 32, 10, 8, writePolicy: WritePolicyKind.WriteBack
         );
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) restored.ReadState(r);
+        using (var r = new BinaryReader(ms)) { restored.ReadState(r); }
 
         Assert.Equal(0xABCDEF01UL, restored.PeekRead(0x40, 4)); // non-mutating: doesn't touch the counter
 
@@ -243,13 +243,16 @@ public sealed class ScatterCacheTests {
         // Priming through one auto-rekey additionally exercises key regeneration specifically.
         const int capacityBytes = 512, ways = 4, blockBytes = 32, rekeyInterval = 10, seed = 99;
 
-        var original = new ScatterCache(new FlatMemory(65536), capacityBytes, ways, blockBytes, 10, rekeyInterval, seed);
+        var original = new ScatterCache(
+            new FlatMemory(65536), capacityBytes, ways, blockBytes, 10, rekeyInterval, seed
+        );
 
         for (var i = 0; i < 15; i++) original.Read((ulong)(0x1000 + i * 32), 4); // >= 1 rekey (interval=10)
         Assert.True(original.RekeyCount >= 1, "priming should have crossed at least one auto-rekey");
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) original.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { original.WriteState(w); }
+
         long rekeyCountAtCheckpoint = original.RekeyCount;
 
         // A small working set revisited over many rounds so eviction/placement (and therefore the
@@ -264,9 +267,12 @@ public sealed class ScatterCacheTests {
         long originalRekeyDelta = original.RekeyCount - rekeyCountAtCheckpoint;
         Assert.Equal(8, originalRekeyDelta); // 80/10, deterministic regardless of RNG state
 
-        var restored = new ScatterCache(new FlatMemory(65536), capacityBytes, ways, blockBytes, 10, rekeyInterval, seed);
+        var restored = new ScatterCache(
+            new FlatMemory(65536), capacityBytes, ways, blockBytes, 10, rekeyInterval, seed
+        );
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) restored.ReadState(r);
+        using (var r = new BinaryReader(ms)) { restored.ReadState(r); }
+
         foreach (ulong a in postCheckpointAddresses) restored.Read(a, 4);
         Assert.Equal(originalRekeyDelta, restored.RekeyCount);
 
@@ -281,7 +287,7 @@ public sealed class ScatterCacheTests {
         const int probeCount = 200;
         var sameRow = 0;
         for (var i = 0; i < probeCount; i++) {
-            ulong addr = (ulong)(0x5000 + i * 32);
+            var addr = (ulong)(0x5000 + i * 32);
             if (original.IdfRow(0, addr) == restored.IdfRow(0, addr)) sameRow++;
         }
 
@@ -292,7 +298,7 @@ public sealed class ScatterCacheTests {
     public void Checkpoint_GeometryMismatch_Throws() {
         var original = new ScatterCache(new FlatMemory(4096), 1024, 4, 32, 10);
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) original.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { original.WriteState(w); }
 
         var differentGeometry = new ScatterCache(new FlatMemory(4096), 1024, 8, 32, 10);
         ms.Position = 0;

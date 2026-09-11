@@ -319,8 +319,8 @@ internal sealed class CprPipelineCore : Gear {
     private long _lastIHits, _lastIMisses, _lastIl2Hits, _lastIl2Misses, _lastIl3Hits, _lastIl3Misses;
     private long _lastITlbHits, _lastITlbMisses, _lastDTlbHits, _lastDTlbMisses;
     private Counter _macroFusionsCounter = null!;
-    private Counter _microFusionsCounter = null!;
     private Counter _memViolationsCounter = null!;
+    private Counter _microFusionsCounter = null!;
     private ulong _nextCheckpointSeq = 1;
     private ulong _nextInstrId = 1;
     private ulong _nextMemSeqNo;
@@ -554,13 +554,13 @@ internal sealed class CprPipelineCore : Gear {
         }
 
         if (ILayers.L2Cache is not null || ILayers.L2Bdi is not null || ILayers.L2Ceaser is not null
-                                         || ILayers.L2Scatter is not null) {
+         || ILayers.L2Scatter is not null) {
             _l2IcacheHitsCounter = Dials.AddCounter("l2_icache_hits", "L2 I-cache hits");
             _l2IcacheMissesCounter = Dials.AddCounter("l2_icache_misses", "L2 I-cache misses");
         }
 
         if (ILayers.L3Cache is not null || ILayers.L3Bdi is not null || ILayers.L3Ceaser is not null
-                                         || ILayers.L3Scatter is not null) {
+         || ILayers.L3Scatter is not null) {
             _l3IcacheHitsCounter = Dials.AddCounter("l3_icache_hits", "L3 I-cache hits");
             _l3IcacheMissesCounter = Dials.AddCounter("l3_icache_misses", "L3 I-cache misses");
         }
@@ -571,13 +571,13 @@ internal sealed class CprPipelineCore : Gear {
         }
 
         if (DLayers.L2Cache is not null || DLayers.L2Bdi is not null || DLayers.L2Ceaser is not null
-                                         || DLayers.L2Scatter is not null) {
+         || DLayers.L2Scatter is not null) {
             _l2DcacheHitsCounter = Dials.AddCounter("l2_dcache_hits", "L2 D-cache hits");
             _l2DcacheMissesCounter = Dials.AddCounter("l2_dcache_misses", "L2 D-cache misses");
         }
 
         if (DLayers.L3Cache is not null || DLayers.L3Bdi is not null || DLayers.L3Ceaser is not null
-                                         || DLayers.L3Scatter is not null) {
+         || DLayers.L3Scatter is not null) {
             _l3DcacheHitsCounter = Dials.AddCounter("l3_dcache_hits", "L3 D-cache hits");
             _l3DcacheMissesCounter = Dials.AddCounter("l3_dcache_misses", "L3 D-cache misses");
         }
@@ -762,8 +762,7 @@ internal sealed class CprPipelineCore : Gear {
                 entry.ResultValue = r.RegValue.Value;
                 entry.HasResultValue = true;
                 _prf.Write(r.PhysDest, r.RegValue.Value);
-                var captured = 0;
-                foreach (IssueQueue iq in _iqs) captured += iq.Broadcast(r.PhysDest, r.RegValue.Value, r.InstrId);
+                int captured = _iqs.Sum(iq => iq.Broadcast(r.PhysDest, r.RegValue.Value, r.InstrId));
                 // Each capture is a "register read" — drop that many references (MICRO 2003 §4.3).
                 for (var i = 0; i < captured; i++) _prf.Release(r.PhysDest);
                 TryReclaim(r.PhysDest);
@@ -1079,15 +1078,15 @@ internal sealed class CprPipelineCore : Gear {
                 entry.DMissClass =
                     DLayers.Tlb is { } dTlb && dTlb.Misses > dmt ? CpiMissClass.DTlb :
                     (DLayers.L3Cache is { } dl3 && dl3.Misses > dm3)
-                    || (DLayers.L3Bdi is { } dl3b && dl3b.Misses > dm3)
-                    || (DLayers.L3Ceaser is { } dl3c && dl3c.Misses > dm3)
-                    || (DLayers.L3Scatter is { } dl3s && dl3s.Misses > dm3) ? CpiMissClass.L3D :
+                 || (DLayers.L3Bdi is { } dl3B && dl3B.Misses > dm3)
+                 || (DLayers.L3Ceaser is { } dl3C && dl3C.Misses > dm3)
+                 || (DLayers.L3Scatter is { } dl3S && dl3S.Misses > dm3) ? CpiMissClass.L3D :
                     (DLayers.L2Cache is { } dl2 && dl2.Misses > dm2)
-                    || (DLayers.L2Bdi is { } dl2b && dl2b.Misses > dm2)
-                    || (DLayers.L2Ceaser is { } dl2c && dl2c.Misses > dm2)
-                    || (DLayers.L2Scatter is { } dl2s && dl2s.Misses > dm2) ? CpiMissClass.L2D :
-                    DLayers.Cache is { } dl1 && dl1.Misses > dm1 ? CpiMissClass.L1D :
-                    CpiMissClass.None;
+                 || (DLayers.L2Bdi is { } dl2B && dl2B.Misses > dm2)
+                 || (DLayers.L2Ceaser is { } dl2C && dl2C.Misses > dm2)
+                 || (DLayers.L2Scatter is { } dl2S && dl2S.Misses > dm2) ? CpiMissClass.L2D :
+                    DLayers.Cache is { } dl1 && dl1.Misses > dm1         ? CpiMissClass.L1D :
+                                                                           CpiMissClass.None;
 
             // Register load disambiguation state at execute time so a later-resolving older store
             // can flag this load while its miss is still in flight.
@@ -1540,7 +1539,7 @@ internal sealed class CprPipelineCore : Gear {
     /// </summary>
     private void StepEarlyStoreAddressResolution() {
         IRegisterFile regs = State.IntegerRegisters;
-        foreach (IssueQueue iq in _iqs) {
+        foreach (IssueQueue iq in _iqs)
             for (var slot = 0; slot < iq.Capacity; slot++) {
                 RsEntry rs = iq.At(slot);
                 if (!rs.Busy || rs.Instruction?.Class != ToothClass.Store || !rs.Src1Ready) continue;
@@ -1566,7 +1565,6 @@ internal sealed class CprPipelineCore : Gear {
                     sq.Address = addr.Value;
                 }
             }
-        }
     }
 
     // ── Issue ──────────────────────────────────────────────────────────────────
@@ -1948,8 +1946,10 @@ internal sealed class CprPipelineCore : Gear {
             _decodeQueue.Dequeue();
             if (fused) {
                 _decodeQueue.Dequeue();
-                if (instr.Class == ToothClass.Load) _microFusionsCounter.Increment();
-                else _macroFusionsCounter.Increment();
+                if (instr.Class == ToothClass.Load)
+                    _microFusionsCounter.Increment();
+                else
+                    _macroFusionsCounter.Increment();
             }
         }
 
@@ -1960,7 +1960,7 @@ internal sealed class CprPipelineCore : Gear {
 
     private bool TryPeekSecondDecoded(out FetchedInstr second) {
         if (_decodeQueue.Count < 2) {
-            second = default;
+            second = default(FetchedInstr);
             return false;
         }
 
@@ -2376,13 +2376,13 @@ internal sealed class CprPipelineCore : Gear {
         if (iStalls > 0) {
             long wL1 = ILayers.Cache is { } l1 ? (l1.Misses - _lastIMisses) * l1.MissLatency : 0;
             long wL2 = ILayers.L2Cache is { } l2 ? (l2.Misses - _lastIl2Misses) * l2.MissLatency :
-                ILayers.L2Bdi is { } l2b ? (l2b.Misses - _lastIl2Misses) * l2b.MissLatency :
-                ILayers.L2Ceaser is { } l2c ? (l2c.Misses - _lastIl2Misses) * l2c.MissLatency :
-                ILayers.L2Scatter is { } l2s ? (l2s.Misses - _lastIl2Misses) * l2s.MissLatency : 0;
+                ILayers.L2Bdi is { } l2B         ? (l2B.Misses - _lastIl2Misses) * l2B.MissLatency :
+                ILayers.L2Ceaser is { } l2C      ? (l2C.Misses - _lastIl2Misses) * l2C.MissLatency :
+                ILayers.L2Scatter is { } l2S     ? (l2S.Misses - _lastIl2Misses) * l2S.MissLatency : 0;
             long wL3 = ILayers.L3Cache is { } l3 ? (l3.Misses - _lastIl3Misses) * l3.MissLatency :
-                ILayers.L3Bdi is { } l3b ? (l3b.Misses - _lastIl3Misses) * l3b.MissLatency :
-                ILayers.L3Ceaser is { } l3c ? (l3c.Misses - _lastIl3Misses) * l3c.MissLatency :
-                ILayers.L3Scatter is { } l3s ? (l3s.Misses - _lastIl3Misses) * l3s.MissLatency : 0;
+                ILayers.L3Bdi is { } l3B         ? (l3B.Misses - _lastIl3Misses) * l3B.MissLatency :
+                ILayers.L3Ceaser is { } l3C      ? (l3C.Misses - _lastIl3Misses) * l3C.MissLatency :
+                ILayers.L3Scatter is { } l3S     ? (l3S.Misses - _lastIl3Misses) * l3S.MissLatency : 0;
             long wTlb = ILayers.Tlb is { } tlb ? (tlb.Misses - _lastITlbMisses) * tlb.MissLatency : 0;
             long wSum = wL1 + wL2 + wL3 + wTlb;
             if (wSum <= 0) { _cpiPendingL1I += iStalls; }

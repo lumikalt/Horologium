@@ -31,10 +31,7 @@ public enum PrefetcherKind {
 ///     /<see cref="MemoryConfig.L3Compression" />), matching the paper's own scope: L1 hit latency
 ///     is too critical to spend on decompression (Pekhimenko et al., PACT 2012, Section 1).
 /// </summary>
-public enum CompressionKind {
-    None,
-    Bdi,
-}
+public enum CompressionKind { None, Bdi, }
 
 /// <summary>
 ///     Randomized-index cache variant for a level, backed by <see cref="CeaserCache" /> or
@@ -47,10 +44,16 @@ public enum CompressionKind {
 public enum CacheVariantKind {
     None,
 
-    /// <summary>CEASER (Qureshi, MICRO 2018) with 1 partition, or CEASER-S (Qureshi, ISCA 2019) with more — see <see cref="CeaserCache" />.</summary>
+    /// <summary>
+    ///     CEASER (Qureshi, MICRO 2018) with 1 partition, or CEASER-S (Qureshi, ISCA 2019) with more — see
+    ///     <see cref="CeaserCache" />.
+    /// </summary>
     Ceaser,
 
-    /// <summary>ScatterCache (Werner et al., USENIX Security 2019): independently-indexed ways — see <see cref="Orrery.Cache.ScatterCache" />.</summary>
+    /// <summary>
+    ///     ScatterCache (Werner et al., USENIX Security 2019): independently-indexed ways — see
+    ///     <see cref="Orrery.Cache.ScatterCache" />.
+    /// </summary>
     ScatterCache,
 }
 
@@ -507,7 +510,8 @@ public sealed record MemoryLayers(
             // to L3 when L2 exists but is compressed/randomized-index (l2Bdi/l2Ceaser/l2Scatter set)
             // would wrongly let L3 invalidate L1 directly, skipping that L2 in the cascade — so only
             // fall through to L3 when L2 is entirely absent, not merely typed-null.
-            if (l2 is not null) l2.AttachInner(l1);
+            if (l2 is not null)
+                l2.AttachInner(l1);
             else if (l2Bdi is null && l2Ceaser is null && l2Scatter is null) l3?.AttachInner(l1);
             current = l1;
         }

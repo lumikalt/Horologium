@@ -3,8 +3,11 @@
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
+using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
+
+// ReSharper disable ShiftExpressionZeroLeftOperand
 
 #endregion
 
@@ -27,6 +30,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class SttExpOnlyTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -40,22 +45,20 @@ public class SttExpOnlyTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b000u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b000u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static uint Jal(int rd, int immOffset) {
         var imm = (uint)immOffset;
         uint bit20 = (imm >> 20) & 0x1;
-        uint bits10_1 = (imm >> 1) & 0x3FF;
+        uint bits10To1 = (imm >> 1) & 0x3FF;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits19_12 = (imm >> 12) & 0xFF;
-        return (bit20 << 31) | (bits10_1 << 21) | (bit11 << 20) | (bits19_12 << 12) | ((uint)rd << 7) | 0b1101111u;
+        uint bits19To12 = (imm >> 12) & 0xFF;
+        return (bit20 << 31) | (bits10To1 << 21) | (bit11 << 20) | (bits19To12 << 12) | ((uint)rd << 7) | 0b1101111u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
@@ -88,8 +91,12 @@ public class SttExpOnlyTests {
     }
 
     /// <summary>
-    ///     Program: <c>addi x1,x0,400; mul x6,x0,x0; beq x6,x0,4 (targets pc+4, the fall-through,
-    ///     regardless of direction — a timing-only branch); lw x2,0(x1); lw x4,0(x2); ebreak</c>.
+    ///     Program:
+    ///     <c>
+    ///         addi x1,x0,400; mul x6,x0,x0; beq x6,x0,4 (targets pc+4, the fall-through,
+    ///         regardless of direction — a timing-only branch); lw x2,0(x1); lw x4,0(x2); ebreak
+    ///     </c>
+    ///     .
     ///     Memory[400] holds the pointer value 800 so the second load's address is genuinely
     ///     data-dependent on the first. The branch depends on <c>mul</c>'s 3-cycle-latency result
     ///     (<see cref="FuLatencyConfig.Default" />), so it resolves several cycles after it dispatches
@@ -98,11 +105,11 @@ public class SttExpOnlyTests {
     /// </summary>
     private static uint[] PointerChaseAfterSlowBranch() => [
         Addi(1, 0, 400), // x1 = 400
-        Mul(6, 0, 0), // x6 = 0 (3-cycle latency; only its timing matters)
-        Beq(6, 0, 4), // depends on x6; targets pc+4 (fall-through) either way
-        Lw(2, 1, 0), // x2 = mem[x1] = mem[400] = 800
-        Lw(4, 2, 0), // x4 = mem[x2] = mem[800]  — address depends on the first load
-        Ebreak,
+        Mul(6, 0, 0),    // x6 = 0 (3-cycle latency; only its timing matters)
+        Beq(6, 0, 4),    // depends on x6; targets pc+4 (fall-through) either way
+        Lw(2, 1, 0),     // x2 = mem[x1] = mem[400] = 800
+        Lw(4, 2, 0),     // x4 = mem[x2] = mem[800]  — address depends on the first load
+        SttExpOnlyTests.Ebreak,
     ];
 
     [Fact]
@@ -127,9 +134,6 @@ public class SttExpOnlyTests {
         // a final-state divergence even if the cycle-count assertions below happened to pass.
         AssertIdenticalArchState(off, on);
 
-        long IssueCycle(PEventLog l, ulong pc) =>
-            l.Events.Single(e => e.Kind == PEventKind.Issue && e.Pc == pc).Cycle;
-
         long offL1Issue = IssueCycle(logOff, 12);
         long offL2Issue = IssueCycle(logOff, 16);
         long onL1Issue = IssueCycle(logOn, 12);
@@ -151,6 +155,10 @@ public class SttExpOnlyTests {
             Counter(onResult, "stt_load_issue_stalls") > 0,
             "the dependent load was never actually held at Issue by the STT-ExpOnly gate"
         );
+        return;
+
+        long IssueCycle(PEventLog l, ulong pc) =>
+            l.Events.Single(e => e.Kind == PEventKind.Issue && e.Pc == pc).Cycle;
     }
 
     /// <summary>
@@ -164,12 +172,12 @@ public class SttExpOnlyTests {
     public void NoTaintedChain_ProducesZeroStallsAndIdenticalCycleCount() {
         uint[] program = [
             Addi(1, 0, 400), // x1 = 400
-            Mul(6, 0, 0), // x6 = 0
-            Beq(6, 0, 4), // timing-only branch, as above
-            Lw(2, 1, 0), // x2 = mem[400] = 800 (never consumed as an address below)
+            Mul(6, 0, 0),    // x6 = 0
+            Beq(6, 0, 4),    // timing-only branch, as above
+            Lw(2, 1, 0),     // x2 = mem[400] = 800 (never consumed as an address below)
             Addi(3, 0, 800), // x3 = 800, independently of x2
-            Lw(4, 3, 0), // x4 = mem[x3] — untainted, ordinary independent load
-            Ebreak,
+            Lw(4, 3, 0),     // x4 = mem[x3] — untainted, ordinary independent load
+            SttExpOnlyTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);
@@ -207,11 +215,11 @@ public class SttExpOnlyTests {
     [Fact]
     public void DirectJalDoesNotWedgeTheVisibilityTracker() {
         uint[] program = [
-            Jal(0, 4), // jal x0, pc+4 (fall-through either way) — must still resolve in StepComplete
+            Jal(0, 4),       // jal x0, pc+4 (fall-through either way) — must still resolve in StepComplete
             Addi(1, 0, 400), // x1 = 400
-            Lw(2, 1, 0), // x2 = mem[400] = 800
-            Lw(4, 2, 0), // x4 = mem[x2] = mem[800] — tainted, must not wait on the JAL forever
-            Ebreak,
+            Lw(2, 1, 0),     // x2 = mem[400] = 800
+            Lw(4, 2, 0),     // x4 = mem[x2] = mem[800] — tainted, must not wait on the JAL forever
+            SttExpOnlyTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);

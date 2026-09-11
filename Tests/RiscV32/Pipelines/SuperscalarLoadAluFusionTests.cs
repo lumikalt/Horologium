@@ -1,9 +1,9 @@
 #region
 
-using Mechanism;
 using Orrery.Observation;
 using Pipeline;
 using RiscV32;
+using RiscV32.Decode;
 using RiscV32.Memory;
 
 #endregion
@@ -17,7 +17,7 @@ namespace Tests.RiscV32.Pipelines;
 ///     rationale for compare+branch). A dependent ALU consumer reading that same register
 ///     fails the RAW check and must issue a cycle later — fusion collapses both into one
 ///     issue slot/cycle, same mechanism as compare+branch, just triggered by
-///     <see cref="RiscV32.Decode.RvMacroFuser" />'s second (load+ALU) pattern instead of its
+///     <see cref="RvMacroFuser" />'s second (load+ALU) pattern instead of its
 ///     first.
 /// </summary>
 public class SuperscalarLoadAluFusionTests {
@@ -96,7 +96,7 @@ public class SuperscalarLoadAluFusionTests {
             Addi(1, 0, 2000), // shared address base (safely beyond the program's own bytes)
         };
         for (var i = 0; i < copies; i++) {
-            program.Add(Lw(5, 1, 0)); // x5 = mem[2000]
+            program.Add(Lw(5, 1, 0));   // x5 = mem[2000]
             program.Add(Addi(5, 5, 1)); // x5 += 1 — fusible read-modify pair
         }
 

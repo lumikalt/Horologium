@@ -1,5 +1,6 @@
 #region
 
+using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
 using Orrery.Train;
@@ -14,7 +15,7 @@ namespace Tests.RiscV32.Pipelines;
 /// <summary>
 ///     Pipeline-level tests for InvisiSpec (Yan et al., MICRO 2018, + 2019 Corrigendum) as wired
 ///     into <see cref="OooTrain" /> via <c>enableInvisiSpec</c>. Every scalar load speculatively
-///     peeks its data (<see cref="Mechanism.IMemory.PeekRead" />, no cache-state mutation) at
+///     peeks its data (<see cref="IMemory.PeekRead" />, no cache-state mutation) at
 ///     Execute; its real access (expose or validate, per the TSO rule in the paper's Table 1) is
 ///     deferred to its own Spectre-model visibility point (<c>Pipeline.Ooo.SpectreVisibilityTracker</c>,
 ///     shared with STT-ExpOnly) and gates retirement (<c>RobEntry.PendingUslAccess</c>) — never the
@@ -28,6 +29,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class InvisiSpecTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -41,13 +44,11 @@ public class InvisiSpecTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static OooTrain Make(FlatMemory mem, bool enableInvisiSpec, MemoryConfig? dMemConfig = null) =>
         new(
@@ -99,12 +100,12 @@ public class InvisiSpecTests {
     [Fact]
     public void SuppressesWrongPathCachePollution_ButBaselinePollutes() {
         uint[] program = [
-            Addi(1, 0, 600), // x1 = 600
-            Addi(5, 0, 1), // x5 = 1
-            Mul(6, 5, 5), // x6 = 1 (3-cycle latency; stretches the branch's resolution window)
-            Bne(6, 0, 8), // taken (x6 != 0); mispredicts AlwaysNotTaken; target = pc+8, pc=20
-            Lw(2, 1, 0), // WRONG-PATH (only touch of address 600 before the squash): x2 = mem[600]
-            Ebreak, // pc=20: reached both ways (not-taken falls through here; taken jumps here
+            Addi(1, 0, 600),        // x1 = 600
+            Addi(5, 0, 1),          // x5 = 1
+            Mul(6, 5, 5),           // x6 = 1 (3-cycle latency; stretches the branch's resolution window)
+            Bne(6, 0, 8),           // taken (x6 != 0); mispredicts AlwaysNotTaken; target = pc+8, pc=20
+            Lw(2, 1, 0),            // WRONG-PATH (only touch of address 600 before the squash): x2 = mem[600]
+            InvisiSpecTests.Ebreak, // pc=20: reached both ways (not-taken falls through here; taken jumps here
             // directly, skipping the load) — never touches address 600 either way.
         ];
 
@@ -163,12 +164,12 @@ public class InvisiSpecTests {
         uint[] program = [
             Addi(1, 0, 100), // x1 = 100
             Addi(2, 0, 200), // x2 = 200
-            Addi(7, 0, 1), // x7 = 1
-            Mul(6, 7, 7), // x6 = 1 (3-cycle latency; delays the branch below)
-            Bne(6, 0, 4), // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only
-            Lw(3, 1, 0), // first load — no older load/fence: exposure
-            Lw(4, 2, 0), // second load — an older load (the first) is still in the ROB: validation
-            Ebreak,
+            Addi(7, 0, 1),   // x7 = 1
+            Mul(6, 7, 7),    // x6 = 1 (3-cycle latency; delays the branch below)
+            Bne(6, 0, 4),    // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only
+            Lw(3, 1, 0),     // first load — no older load/fence: exposure
+            Lw(4, 2, 0),     // second load — an older load (the first) is still in the ROB: validation
+            InvisiSpecTests.Ebreak,
         ];
 
         var mem = new FlatMemory(4096);
@@ -203,7 +204,7 @@ public class InvisiSpecTests {
             Lw(1, 0, 512), // mem[512] — cold miss
             Lw(2, 0, 576), // mem[576] — distinct line, cold miss
             Lw(3, 0, 640), // mem[640] — distinct line, cold miss
-            Ebreak,
+            InvisiSpecTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);
@@ -248,17 +249,17 @@ public class InvisiSpecTests {
     public void RealAccessDeferredPastVisibilityPointCostsMoreThanBaseline() {
         uint[] program = [
             Addi(5, 0, 1), // x5 = 1
-            Mul(6, 5, 5), // x6 = 1
-            Mul(6, 6, 6), // still 1 (3x chained mul: ~9-cycle resolution window for the branch below)
-            Mul(6, 6, 6), // still 1
-            Bne(6, 0, 4), // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only,
+            Mul(6, 5, 5),  // x6 = 1
+            Mul(6, 6, 6),  // still 1 (3x chained mul: ~9-cycle resolution window for the branch below)
+            Mul(6, 6, 6),  // still 1
+            Bne(6, 0, 4),  // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only,
             // never mispredicts, but stays unresolved in the visibility tracker for the mul chain's
             // full latency, holding the USL below pending for that whole window.
             Lw(1, 0, 512), // USL: cold miss, deferred real access held by the branch above
             Addi(10, 0, 1), Addi(11, 0, 1), Addi(12, 0, 1), Addi(13, 0, 1), // 8 independent fillers:
             Addi(14, 0, 1), Addi(15, 0, 1), Addi(16, 0, 1), Addi(17, 0, 1), // complete immediately,
             // but cannot retire ahead of the still-pending USL at the ROB head.
-            Ebreak,
+            InvisiSpecTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);
@@ -303,8 +304,8 @@ public class InvisiSpecTests {
     public void DependentLoadChainNeverCostsLessThanBaseline() {
         uint[] program = [
             Lw(2, 0, 512), // x2 = mem[512] (cold miss)
-            Lw(3, 2, 0), // x3 = mem[x2] (depends on x2; distinct line, cold miss)
-            Ebreak,
+            Lw(3, 2, 0),   // x3 = mem[x2] (depends on x2; distinct line, cold miss)
+            InvisiSpecTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);
@@ -348,15 +349,15 @@ public class InvisiSpecTests {
     public void LlcSbAvoidsPayingMissLatencyTwiceForTheSameUsl() {
         uint[] program = [
             Addi(5, 0, 1), // x5 = 1
-            Mul(6, 5, 5), // x6 = 1
-            Mul(6, 6, 6), // still 1 (3x chained mul: ~9-cycle resolution window for the branch below)
-            Mul(6, 6, 6), // still 1
-            Bne(6, 0, 4), // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only,
+            Mul(6, 5, 5),  // x6 = 1
+            Mul(6, 6, 6),  // still 1 (3x chained mul: ~9-cycle resolution window for the branch below)
+            Mul(6, 6, 6),  // still 1
+            Bne(6, 0, 4),  // taken (x6 != 0); targets its own fall-through (pc+4) — timing-only,
             // never mispredicts, but stays unresolved in the visibility tracker for the mul chain's
             // full latency, holding the USL below pending for that whole window.
             Lw(1, 0, 512), // USL: cold miss at peek; its deferred real access is the SB's one chance
             // to avoid paying a second miss for the exact same line.
-            Ebreak,
+            InvisiSpecTests.Ebreak,
         ];
 
         var memNoSb = new FlatMemory(4096);

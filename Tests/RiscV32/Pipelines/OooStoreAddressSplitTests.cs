@@ -1,6 +1,5 @@
 #region
 
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
@@ -13,7 +12,7 @@ using RiscV32.Memory;
 namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
-///     Store address/data decomposition on <see cref="OooTrain" /> (TODO.md's µops
+///     Store address/data decomposition on <see cref="OooTrain" /> (µops
 ///     micro-fusion item, store half): a store's address operand (rs1) getting independent
 ///     effect from its data operand (rs2) on address-only consumers — chiefly
 ///     <c>HasUnresolvedPrecedingStore</c> (<see cref="FuLatencyConfig.ConservativeLoads" />)
@@ -45,6 +44,9 @@ namespace Tests.RiscV32.Pipelines;
 public class OooStoreAddressSplitTests {
     private const uint Ebreak = 0x00100073;
 
+    private static readonly MemoryConfig SlowMissConfig =
+        new(4096, 4, 32, 60);
+
     private static void Load(FlatMemory mem, params uint[] words) {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) {
@@ -73,17 +75,17 @@ public class OooStoreAddressSplitTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
-    private static readonly MemoryConfig SlowMissConfig =
-        new(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
-
     private static OooTrain Run(
-        uint[] program, bool enableEarlyStoreAddress, MemoryConfig? dMemConfig = null, FuLatencyConfig? fuConfig = null
+        uint[] program,
+        bool enableEarlyStoreAddress,
+        MemoryConfig? dMemConfig = null,
+        FuLatencyConfig? fuConfig = null
     ) {
         var mem = new FlatMemory(65536);
         Load(mem, program);
@@ -127,7 +129,7 @@ public class OooStoreAddressSplitTests {
         // store must never write anything until its real Execute (needing both operands) fires.
         uint[] program = [
             Lw(2, 0, 1600), // x2 = mem[1600], cold miss
-            Addi(2, 2, 1), // a few dependent ALU hops widen the delay before x2 is finally ready
+            Addi(2, 2, 1),  // a few dependent ALU hops widen the delay before x2 is finally ready
             Addi(2, 2, 1),
             Addi(2, 2, 1),
             Sw(0, 2, 400), // mem[400] = x2, address = x0+400 (trivially ready)
@@ -142,9 +144,9 @@ public class OooStoreAddressSplitTests {
     public void EarlyAddressResolution_ReleasesConservativeLoad_WhenDataOperandIsSlow() {
         uint[] program = [
             Addi(1, 0, 400), // x1 = 400, store address base — trivially ready
-            Lw(2, 0, 1600), // x2 = mem[1600] — SLOW cold miss, store's data operand
-            Sw(1, 2, 0), // mem[400] = x2 — address ready immediately, data ready late
-            Lw(4, 0, 800), // younger, non-aliasing load; conservative loads must wait on the
+            Lw(2, 0, 1600),  // x2 = mem[1600] — SLOW cold miss, store's data operand
+            Sw(1, 2, 0),     // mem[400] = x2 — address ready immediately, data ready late
+            Lw(4, 0, 800),   // younger, non-aliasing load; conservative loads must wait on the
             // store above having a KNOWN address (not a known value) before issuing
             Lw(5, 0, 400), // read the store back
             OooStoreAddressSplitTests.Ebreak,
@@ -198,14 +200,14 @@ public class OooStoreAddressSplitTests {
     [Fact]
     public void SameAddressLoad_UnderStoreSets_DoesNotRaceStoreData() {
         uint[] program = [
-            Addi(9, 0, 4), // pc=0: loop trip count = 4
-            Addi(6, 0, 10), // pc=4 [LOOP]
-            Mul(6, 6, 6), // pc=8: x6 = 100 — deterministically slow store data
-            Mul(6, 6, 6), // pc=12: x6 = 10000
-            Sw(0, 6, 400), // pc=16: mem[400] = x6, address = x0+400 (trivially ready)
-            Lw(4, 0, 400), // pc=20: younger, same-address load
-            Addi(9, 9, -1), // pc=24
-            Bne(9, 0, 4 - 28), // pc=28: branch back to pc=4 if x9 != 0
+            Addi(9, 0, 4),                    // pc=0: loop trip count = 4
+            Addi(6, 0, 10),                   // pc=4 [LOOP]
+            Mul(6, 6, 6),                     // pc=8: x6 = 100 — deterministically slow store data
+            Mul(6, 6, 6),                     // pc=12: x6 = 10000
+            Sw(0, 6, 400),                    // pc=16: mem[400] = x6, address = x0+400 (trivially ready)
+            Lw(4, 0, 400),                    // pc=20: younger, same-address load
+            Addi(9, 9, -1),                   // pc=24
+            Bne(9, 0, 4 - 28),                // pc=28: branch back to pc=4 if x9 != 0
             OooStoreAddressSplitTests.Ebreak, // pc=32
         ];
 

@@ -32,7 +32,7 @@ namespace Orrery.Cache;
 ///         simulator, not a real chip — there is no benefit to literally shrinking a .NET
 ///         <c>byte[]</c> allocation to match a compressed size. Each resident line keeps its full
 ///         uncompressed bytes (so reads/writes are trivial and always correct) alongside a
-///         separately tracked <em>simulated footprint</em>, in <paramref name="segmentBytes" />-
+///         separately tracked <em>simulated footprint</em>, in <c>segmentBytes</c>-
 ///         sized segments, computed by <see cref="BdiCompressor.Compress" /> on the real fill/
 ///         write bytes. Capacity and eviction decisions are driven by that simulated footprint,
 ///         which is exactly the effect the paper measures (more resident lines, lower MPKI) —
@@ -54,19 +54,19 @@ namespace Orrery.Cache;
 public sealed class BdiCache : IMemory {
     private readonly IMemory _backing;
     private readonly int _blockBytes;
-    private readonly byte[][][] _blocks; // [set][tagWay][blockBytes]: full uncompressed bytes
+    private readonly byte[][][] _blocks;  // [set][tagWay][blockBytes]: full uncompressed bytes
     private readonly int _budgetSegments; // per set: physicalWays * segmentsPerLine
-    private readonly bool[][]? _dirty; // non-null only in WriteBack mode
+    private readonly bool[][]? _dirty;    // non-null only in WriteBack mode
     private readonly int _indexBits;
     private readonly int _indexMask;
     private readonly int _offsetBits;
     private readonly int _offsetMask;
     private readonly IReplacementPolicy _policy;
     private readonly int _segmentBytes;
+    private readonly int[][] _segments;    // [set][tagWay]: current footprint in segments, 0 = invalid
     private readonly int _segmentsPerLine; // blockBytes / segmentBytes: a NoCompr line's footprint
-    private readonly int[][] _segments; // [set][tagWay]: current footprint in segments, 0 = invalid
-    private readonly ulong?[][] _tags; // [set][tagWay]: null = invalid
-    private readonly int _tagWays; // 2 * physicalWays
+    private readonly ulong?[][] _tags;     // [set][tagWay]: null = invalid
+    private readonly int _tagWays;         // 2 * physicalWays
     private readonly WritePolicyKind _writePolicy;
     private long _pendingStalls;
 
@@ -79,7 +79,10 @@ public sealed class BdiCache : IMemory {
     ///     Physical data storage allocation granularity (default 8, matching the paper). Must be a
     ///     power of 2 dividing <paramref name="blockBytes" /> evenly.
     /// </param>
-    /// <param name="writePolicy">Write-hit policy — write-back always allocates on a write miss (there is nowhere else for dirty data to live); write-through never does.</param>
+    /// <param name="writePolicy">
+    ///     Write-hit policy — write-back always allocates on a write miss (there is nowhere else for
+    ///     dirty data to live); write-through never does.
+    /// </param>
     /// <param name="policy">Replacement policy over the doubled <c>2 × physicalWays</c> tag slots per set. Defaults to LRU.</param>
     public BdiCache(
         IMemory backing,
@@ -263,9 +266,7 @@ public sealed class BdiCache : IMemory {
             _dirty![set][way] = true;
             RecomputeFootprint(set, way);
         }
-        else {
-            _pendingStalls += MissLatency;
-        }
+        else { _pendingStalls += MissLatency; }
     }
 
     public void Load(ulong address, ReadOnlySpan<byte> data) {
@@ -404,7 +405,7 @@ public sealed class BdiCache : IMemory {
     private void RecomputeFootprint(int set, int way) {
         int newSegments = SegmentsFor(BdiCompressor.Compress(_blocks[set][way]).Data.Length);
         int oldSegments = _segments[set][way];
-        if (newSegments > oldSegments) {
+        if (newSegments > oldSegments)
             while (UsedSegments(set) - oldSegments + newSegments > _budgetSegments) {
                 int victim = ChooseEvictionVictim(set, way);
                 // Only this line itself remains — its own max footprint always fits alone
@@ -413,7 +414,6 @@ public sealed class BdiCache : IMemory {
                 if (victim < 0 || victim == way) break;
                 EvictWay(set, victim);
             }
-        }
 
         _segments[set][way] = newSegments;
     }
@@ -452,8 +452,8 @@ public sealed class BdiCache : IMemory {
         int candidate = _policy.ChooseVictim(set);
         if (candidate != protect && _tags[set][candidate].HasValue) return candidate;
 
-        var best = -1;
-        var bestAge = -1;
+        int best = -1;
+        int bestAge = -1;
         for (var w = 0; w < _tagWays; w++) {
             if (w == protect || !_tags[set][w].HasValue) continue;
             int age = _policy.GetMetadata(set, w);

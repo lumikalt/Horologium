@@ -1,6 +1,5 @@
 #region
 
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
@@ -74,13 +73,12 @@ public class OooLoadAluFusionTests {
         OooLoadAluFusionTests.Ebreak,
     ];
 
-    private static FlatMemory RunWithSeededData(uint[] program, bool enableMacroFusion, out OooTrain train) {
+    private static void RunWithSeededData(uint[] program, bool enableMacroFusion, out OooTrain train) {
         var mem = new FlatMemory(65536);
         Load(mem, program);
         mem.Write(200, 10, 4);
         train = new OooTrain(new Rv32Mechanism(enableMacroFusion: enableMacroFusion), mem, issueWidth: 4);
         train.Run();
-        return mem;
     }
 
     [Theory]
@@ -117,16 +115,16 @@ public class OooLoadAluFusionTests {
         // compare+branch); this shape is empirically verified to fuse reliably.
         uint[] program = [
             Addi(1, 0, 200),
-            Lw(6, 1, 0), // x6 = mem[200] — cold D-cache miss, resolves late
+            Lw(6, 1, 0),    // x6 = mem[200] — cold D-cache miss, resolves late
             Lw(5, 0, 2000), // x5 = mem[2000] (base x0) — fused with the add below
-            Add(5, 5, 6), // x5 = x5 + x6 — must wait for x6's real value, not a stale one
+            Add(5, 5, 6),   // x5 = x5 + x6 — must wait for x6's real value, not a stale one
             OooLoadAluFusionTests.Ebreak,
         ];
         var mem = new FlatMemory(65536);
         Load(mem, program);
         mem.Write(200, 7, 4);
         mem.Write(2000, 3, 4);
-        var dMemConfig = new MemoryConfig(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
+        var dMemConfig = new MemoryConfig(4096, 4, 32, 60);
         var train = new OooTrain(
             new Rv32Mechanism(enableMacroFusion: fusion), mem, issueWidth: 4, dMemConfig: dMemConfig
         );
@@ -195,11 +193,11 @@ public class OooLoadAluFusionTests {
     // dispatch to stall on ROB-full mid-backlog) while the *fused* count (copies) fits entirely.
     private static uint[] BuildRobPressureProgram(int copies) {
         var program = new List<uint> {
-            Lw(10, 0, 0), // cold D-cache miss: nothing behind this retires until it resolves
+            Lw(10, 0, 0),     // cold D-cache miss: nothing behind this retires until it resolves
             Addi(1, 0, 2000), // address base for the repeated pairs (safely beyond the program's own bytes)
         };
         for (var i = 0; i < copies; i++) {
-            program.Add(Lw(5, 1, 0)); // x5 = mem[2000] — hits cache after the first iteration
+            program.Add(Lw(5, 1, 0));   // x5 = mem[2000] — hits cache after the first iteration
             program.Add(Addi(5, 5, 1)); // x5 += 1 — fusible read-modify pair
         }
 
@@ -212,7 +210,7 @@ public class OooLoadAluFusionTests {
         const int copies = 12;
         const int robCapacity = 16; // 2*copies=24 > 16 (unfused stalls); copies=12 <= 16 (fused fits)
         uint[] program = BuildRobPressureProgram(copies);
-        var dMemConfig = new MemoryConfig(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
+        var dMemConfig = new MemoryConfig(4096, 4, 32, 60);
 
         DialBoardSnapshot unfused = Run(program, false, robCapacity, robCapacity * 2, dMemConfig).SnapshotPipeline();
         DialBoardSnapshot fused = Run(program, true, robCapacity, robCapacity * 2, dMemConfig).SnapshotPipeline();

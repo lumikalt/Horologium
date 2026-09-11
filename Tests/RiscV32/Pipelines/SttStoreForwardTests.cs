@@ -12,7 +12,7 @@ namespace Tests.RiscV32.Pipelines;
 
 /// <summary>
 ///     Verification, not new gating, for the store-to-load-forwarding implicit channel (Yu et al.,
-///     MICRO 2019, §6.4.2/§6.5) TODO item. Both of the two mechanisms the item names turned out to
+///     MICRO 2019, §6.4.2/§6.5) item. Both of the two mechanisms the item names turned out to
 ///     already be safe by construction on direct tracing:
 ///     <list type="bullet">
 ///         <item>
@@ -47,15 +47,22 @@ namespace Tests.RiscV32.Pipelines;
 ///     computed purely from its producer's Yrot (set once at the producer's own Dispatch), entirely
 ///     independent of when the producer's value physically arrives.
 ///     <para>
-///         <b>What <see cref="ExpOnlyAndSmbBypassCoexist_ArchStateAndBypassCountUnchanged" /> proves,
-///         precisely:</b> the same-instance claim above ("a load that IS bypassed is ALSO still
+///         <b>
+///             What <see cref="ExpOnlyAndSmbBypassCoexist_ArchStateAndBypassCountUnchanged" /> proves,
+///             precisely:
+///         </b>
+///         the same-instance claim above ("a load that IS bypassed is ALSO still
 ///         gated") rests on the <em>code inspection</em> — the switch case has no exemption, full
 ///         stop — not on this dynamic test. Traced through the test's own actual timing: SMB needs 2
 ///         prior trainings before it predicts, so the bypass only fires on the 3rd loop iteration;
 ///         RootB (kept short to survive the loop's own per-iteration mispredict-flush — see the
 ///         program's own doc comment) has long since resolved by then, so the 3rd iteration's reload
-///         is not gated. The measured stalls and the measured bypass therefore land on <em>different
-///         dynamic instances</em> (iterations 1–2 gated-but-not-bypassed, iteration 3
+///         is not gated. The measured stalls and the measured bypass therefore land on
+///         <em>
+///             different
+///             dynamic instances
+///         </em>
+///         (iterations 1–2 gated-but-not-bypassed, iteration 3
 ///         bypassed-but-not-gated) — confirmed by deliberately injecting the exact regression this
 ///         test would need to catch (exempting <c>lq.Bypassed</c> loads from the gate) and observing
 ///         the test still passes. So this test demonstrates <em>coexistence</em> (both mechanisms fire
@@ -66,6 +73,8 @@ namespace Tests.RiscV32.Pipelines;
 ///     </para>
 /// </summary>
 public class SttStoreForwardTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -74,9 +83,9 @@ public class SttStoreForwardTests {
 
     private static uint Sw(int rs2, int rs1, int imm) {
         var u = (uint)imm;
-        uint imm11_5 = (u >> 5) & 0x7F;
-        uint imm4_0 = u & 0x1F;
-        return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
+        uint imm11To5 = (u >> 5) & 0x7F;
+        uint imm4To0 = u & 0x1F;
+        return (imm11To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4To0 << 7) | 0b0100011u;
     }
 
     private static uint Mul(int rd, int rs1, int rs2) =>
@@ -86,13 +95,11 @@ public class SttStoreForwardTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
@@ -163,7 +170,7 @@ public class SttStoreForwardTests {
         program.Add(Lw(2, 1, 0)); // anchor load: x2 = mem[300] = 500 -- untainted address (x1),
         // taints x2 with the anchor's own InstrId, unsafe while RootB above is unresolved
         program.Add(Addi(5, 0, 42)); // x5 = 42: fixed store value
-        program.Add(Addi(3, 0, 3)); // loop counter = 3
+        program.Add(Addi(3, 0, 3));  // loop counter = 3
         int loopStart = program.Count * 4;
         program.Add(Sw(5, 2, 0)); // store mem[x2]=mem[500] = 42 -- SAME PC every iteration; stores
         // aren't STT-gated
@@ -172,12 +179,12 @@ public class SttStoreForwardTests {
         program.Add(Addi(3, 3, -1));
         int loopCtrlPc = program.Count * 4;
         program.Add(Bne(3, 0, loopStart - loopCtrlPc)); // back to the store at loop start
-        program.Add(Ebreak);
+        program.Add(SttStoreForwardTests.Ebreak);
         return program.ToArray();
     }
 
     /// <summary>
-    ///     Proves coexistence, not the same-instance guarantee (see the class doc comment): with
+    ///     Proves coexistence, different-instance guarantee (see the class doc comment): with
     ///     STT-ExpOnly and SMB bypass both enabled, (a) at least one iteration's reload is still held
     ///     by ExpOnly's gate (iterations 1–2, before SMB's confidence threshold is met — confirmed
     ///     nonzero, not asserted to be the bypassed instance), (b) SMB bypass still fires exactly as
@@ -204,7 +211,7 @@ public class SttStoreForwardTests {
 
         AssertIdenticalArchState(off, on);
 
-        // Some reload in this run is held by ExpOnly's gate (iterations 1-2, before SMB bypass
+        // ExpOnly's gate holds some reload in this run (iterations 1-2, before SMB bypass
         // becomes eligible) -- confirms the gate is genuinely active in this program, not that the
         // SAME instance that bypasses is the one held (see class doc comment).
         Assert.Equal(0L, Counter(offResult, "stt_load_issue_stalls"));
@@ -215,7 +222,7 @@ public class SttStoreForwardTests {
 
         // SMB bypass still fires, and exactly as often with ExpOnly on as off -- proves ExpOnly's
         // gate (a pure timing/scheduling change on the load's own issue) doesn't perturb SMB's own
-        // prediction/bypass behavior, i.e. neither mechanism defeats the other.
+        // prediction/bypass behavior, i.e., neither mechanism defeats the other.
         Assert.True(Counter(onResult, "smb_bypasses") > 0, "no SMB bypass occurred in this composition");
         Assert.Equal(Counter(offResult, "smb_bypasses"), Counter(onResult, "smb_bypasses"));
         Assert.Equal(0L, Counter(onResult, "smb_mispredicts"));

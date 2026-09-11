@@ -1,6 +1,5 @@
 #region
 
-using Mechanism;
 using Orrery.Cache;
 using Orrery.Observation;
 using Pipeline;
@@ -55,17 +54,17 @@ public class CprMacroFusionTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static uint[] TakenProgram() => [
         Addi(1, 0, 5),
         Addi(2, 0, 3),
-        Slt(5, 2, 1), // 3 < 5 = 1
-        Bne(5, 0, 12), // taken, jumps straight to ebreak
+        Slt(5, 2, 1),    // 3 < 5 = 1
+        Bne(5, 0, 12),   // taken, jumps straight to ebreak
         Addi(3, 0, 111), // skipped
         Addi(3, 0, 222), // skipped
         CprMacroFusionTests.Ebreak,
@@ -74,7 +73,7 @@ public class CprMacroFusionTests {
     private static uint[] NotTakenProgram() => [
         Addi(1, 0, 3),
         Addi(2, 0, 5),
-        Slt(5, 2, 1), // 5 < 3 = 0
+        Slt(5, 2, 1),  // 5 < 3 = 0
         Bne(5, 0, 12), // not taken, falls through both ADDIs
         Addi(3, 0, 111),
         Addi(3, 0, 222),
@@ -133,10 +132,12 @@ public class CprMacroFusionTests {
         train.Run();
 
         Assert.True(train.SnapshotPipeline().Counters["macro_fusions"] > 0, "expected the pair to fuse");
-        var danglingFetchOnly = log.Events
-            .GroupBy(e => e.InstrId)
-            .Where(g => g.Count() == 1 && g.First().Kind == PEventKind.Fetch)
-            .ToList();
+        List<IGrouping<ulong, PEvent>> danglingFetchOnly = log.Events
+                                                              .GroupBy(e => e.InstrId)
+                                                              .Where(g => g.Count() == 1
+                                                                       && g.First().Kind == PEventKind.Fetch
+                                                               )
+                                                              .ToList();
         Assert.Empty(danglingFetchOnly);
     }
 
@@ -164,7 +165,7 @@ public class CprMacroFusionTests {
     // one entry instead of two, so the tail fills slower and rename stalls less.
     private static uint[] BuildCheckpointPressureProgram(int copies) {
         var program = new List<uint> {
-            Lw(10, 0, 0), // cold D-cache miss: nothing behind this retires until it resolves
+            Lw(10, 0, 0),  // cold D-cache miss: nothing behind this retires until it resolves
             Addi(1, 0, 1), // x1 = 1, independent of the load
         };
         for (var i = 0; i < copies; i++) {
@@ -182,7 +183,7 @@ public class CprMacroFusionTests {
         const int checkpointCount = 4;
         const int checkpointMaxInstructions = 3;
         uint[] program = BuildCheckpointPressureProgram(copies);
-        var dMemConfig = new MemoryConfig(CacheCapacityBytes: 4096, CacheWays: 4, CacheBlockBytes: 32, CacheMissLatency: 60);
+        var dMemConfig = new MemoryConfig(4096, 4, 32, 60);
 
         DialBoardSnapshot unfused =
             Run(program, false, checkpointCount, checkpointMaxInstructions, dMemConfig).SnapshotPipeline();

@@ -122,7 +122,7 @@ public class TopDownAnalysisTests {
 
         TopDownBreakdown? b = TopDownBreakdown.FromSnapshot(snapshot);
         Assert.NotNull(b);
-        Assert.Equal(0.40, b.Retiring, 12); // 400/1000, not 700/1000
+        Assert.Equal(0.40, b.Retiring, 12);      // 400/1000, not 700/1000
         Assert.Equal(0.0, b.BadSpeculation, 12); // slotsIssued == slotsRetired: no bad speculation
     }
 }

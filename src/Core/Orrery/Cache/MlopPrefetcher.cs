@@ -59,7 +59,7 @@ namespace Orrery.Cache;
 public sealed class MlopPrefetcher : IPrefetcher {
     private const int MaxLookahead = 16;
     private const int HistoryDepth = MlopPrefetcher.MaxLookahead - 1; // 15
-    private const int RegionShift = 6; // 64 lines/region — bit-vector fits a ulong
+    private const int RegionShift = 6;                                // 64 lines/region — bit-vector fits a ulong
     private const int BlocksPerRegion = 1 << MlopPrefetcher.RegionShift;
 
     private const int TableEntries = 256; // AMT and prefetched-bit table sizing
@@ -70,12 +70,12 @@ public sealed class MlopPrefetcher : IPrefetcher {
     private readonly ulong[] _bits = new ulong[MlopPrefetcher.TableEntries];
     private readonly int _blockShift;
     private readonly int _evalPeriod;
-    private readonly int[,] _history = new int[MlopPrefetcher.TableEntries, MlopPrefetcher.HistoryDepth];
     private readonly int[] _histLen = new int[MlopPrefetcher.TableEntries];
+    private readonly int[,] _history = new int[MlopPrefetcher.TableEntries, MlopPrefetcher.HistoryDepth];
     private readonly int _linesPerPageShift;
     private readonly int[] _offsets; // 1..63
     private readonly int[] _pfBit = new int[MlopPrefetcher.TableEntries];
-    private readonly int[,] _scores; // [level, offsetIndex]
+    private readonly int[,] _scores;                                      // [level, offsetIndex]
     private readonly long[] _tag = new long[MlopPrefetcher.TableEntries]; // -1 = invalid
 
     private int _evalCounter;
@@ -110,8 +110,8 @@ public sealed class MlopPrefetcher : IPrefetcher {
         ulong region = line >> MlopPrefetcher.RegionShift;
         var pos = (int)(line & (MlopPrefetcher.BlocksPerRegion - 1));
 
-        int idx = MlopPrefetcher.HashIndex(region);
-        long tag = MlopPrefetcher.HashTag(region);
+        int idx = HashIndex(region);
+        long tag = HashTag(region);
         if (_tag[idx] != tag) {
             _tag[idx] = tag;
             _bits[idx] = 0;
@@ -131,8 +131,7 @@ public sealed class MlopPrefetcher : IPrefetcher {
 
     /// <summary>Best offset currently selected for 1-indexed lookahead level; 0 = none learned yet.</summary>
     public int BestOffsetForLookahead(int level) {
-        if (level < 1 || level > MlopPrefetcher.MaxLookahead)
-            throw new ArgumentOutOfRangeException(nameof(level));
+        if (level < 1 || level > MlopPrefetcher.MaxLookahead) throw new ArgumentOutOfRangeException(nameof(level));
         return _bestOffset[level - 1];
     }
 
@@ -214,11 +213,11 @@ public sealed class MlopPrefetcher : IPrefetcher {
 
     private static int HashTag(ulong key) => (int)((key >> 8) & MlopPrefetcher.TagMask);
 
-    private void PfBitSet(ulong line) => _pfBit[MlopPrefetcher.HashIndex(line)] = (int)MlopPrefetcher.HashTag(line);
+    private void PfBitSet(ulong line) => _pfBit[HashIndex(line)] = HashTag(line);
 
     private bool PfBitTestAndClear(ulong line) {
-        int idx = MlopPrefetcher.HashIndex(line);
-        if (_pfBit[idx] != (int)MlopPrefetcher.HashTag(line)) return false;
+        int idx = HashIndex(line);
+        if (_pfBit[idx] != HashTag(line)) return false;
         _pfBit[idx] = -1;
         return true;
     }

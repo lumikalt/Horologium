@@ -45,10 +45,10 @@ public class SuperscalarUopCacheTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     // x1 = iterations; loop body (pc=4: decrement, pc=8: branch back while x1 != 0) is a single
@@ -56,13 +56,13 @@ public class SuperscalarUopCacheTests {
     // later pass should hit.
     private static uint[] BackwardLoopProgram(int iterations) => [
         Addi(1, 0, iterations),
-        Addi(1, 1, -1), // pc=4: loop body start
-        Bne(1, 0, -4), // pc=8: back edge
+        Addi(1, 1, -1),                  // pc=4: loop body start
+        Bne(1, 0, -4),                   // pc=8: back edge
         SuperscalarUopCacheTests.Ebreak, // pc=12
     ];
 
     // AlwaysBackwardNotForwards, not the trains' default AlwaysNotTakenPredictor: RV32's direct
-    // branches carry a statically-known target, so this predicts the loop's back-edge correctly
+    // branches carry a statically known target, so this predicts the loop's back-edge correctly
     // (taken) from the very first iteration — no misprediction/flush noise from a cold BTB
     // muddying the hit/miss trace this test wants to make legible.
     private static SuperscalarTrain Run(uint[] program, bool enableUopCache) {
@@ -79,7 +79,7 @@ public class SuperscalarUopCacheTests {
 
     [Fact]
     public void HotLoop_ReusesTheCachedLoopBody() {
-        SuperscalarTrain train = Run(BackwardLoopProgram(5), enableUopCache: true);
+        SuperscalarTrain train = Run(BackwardLoopProgram(5), true);
         DialBoardSnapshot snap = train.SnapshotPipeline();
 
         Assert.Equal(0UL, train.ArchState.IntegerRegisters.Read(1));
@@ -93,7 +93,7 @@ public class SuperscalarUopCacheTests {
 
     [Fact]
     public void DisabledByDefault_NoUopCacheCountersRegistered() {
-        SuperscalarTrain train = Run(BackwardLoopProgram(5), enableUopCache: false);
+        SuperscalarTrain train = Run(BackwardLoopProgram(5), false);
         DialBoardSnapshot snap = train.SnapshotPipeline();
         Assert.False(snap.Counters.ContainsKey("uop_cache_hits"));
         Assert.False(snap.Counters.ContainsKey("uop_cache_builds"));
@@ -101,8 +101,8 @@ public class SuperscalarUopCacheTests {
 
     [Fact]
     public void HotLoop_PreservesArchStateAndRetiredCount() {
-        SuperscalarTrain withCache = Run(BackwardLoopProgram(5), enableUopCache: true);
-        SuperscalarTrain withoutCache = Run(BackwardLoopProgram(5), enableUopCache: false);
+        SuperscalarTrain withCache = Run(BackwardLoopProgram(5), true);
+        SuperscalarTrain withoutCache = Run(BackwardLoopProgram(5), false);
 
         Assert.Equal(
             withoutCache.ArchState.IntegerRegisters.Read(1), withCache.ArchState.IntegerRegisters.Read(1)

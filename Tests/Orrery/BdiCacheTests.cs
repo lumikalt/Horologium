@@ -17,7 +17,7 @@ public sealed class BdiCacheTests {
     private static byte[] CompressibleLine(int baseValue) {
         var line = new byte[32];
         for (var i = 0; i < 8; i++) {
-            uint v = (uint)(baseValue + i);
+            var v = (uint)(baseValue + i);
             for (var b = 0; b < 4; b++) line[i * 4 + b] = (byte)(v >> (8 * b));
         }
 
@@ -29,7 +29,7 @@ public sealed class BdiCacheTests {
     private static byte[] IncompressibleLine() {
         var line = new byte[32];
         for (var block = 0; block < 4; block++) {
-            byte nibble = (byte)(0x11 * (block + 1));
+            var nibble = (byte)(0x11 * (block + 1));
             for (var b = 0; b < 8; b++) line[block * 8 + b] = nibble;
         }
 
@@ -100,7 +100,7 @@ public sealed class BdiCacheTests {
     [Fact]
     public void CompressibleLine_IncreasesEffectiveCompressionRatio() {
         var backing = new FlatMemory(4096);
-        backing.Load(0x0, BdiCacheTests.CompressibleLine(5));
+        backing.Load(0x0, CompressibleLine(5));
         var cache = new BdiCache(backing, 1024, 4, 32, 10);
         cache.Read(0x0, 4); // fills the line
         Assert.Equal(1, cache.ResidentLineCount);
@@ -126,7 +126,7 @@ public sealed class BdiCacheTests {
         var plainBacking = new FlatMemory(4096);
         ulong[] addrs = [0x0, 0x20, 0x40, 0x60,]; // 4 lines, 32 bytes apart, all in set 0
         for (var i = 0; i < 4; i++) {
-            byte[] line = BdiCacheTests.CompressibleLine(i * 8);
+            byte[] line = CompressibleLine(i * 8);
             bdiBacking.Load(addrs[i], line);
             plainBacking.Load(addrs[i], line);
         }
@@ -137,19 +137,19 @@ public sealed class BdiCacheTests {
         const int warmupCycles = 1;
         const int measuredCycles = 10;
         for (var cycle = 0; cycle < warmupCycles; cycle++)
-        foreach (ulong a in addrs) {
-            bdi.Read(a, 4);
-            plain.Read(a, 4);
-        }
+            foreach (ulong a in addrs) {
+                bdi.Read(a, 4);
+                plain.Read(a, 4);
+            }
 
         long bdiHitsBefore = bdi.Hits, plainHitsBefore = plain.Hits;
         var accesses = 0;
         for (var cycle = 0; cycle < measuredCycles; cycle++)
-        foreach (ulong a in addrs) {
-            bdi.Read(a, 4);
-            plain.Read(a, 4);
-            accesses++;
-        }
+            foreach (ulong a in addrs) {
+                bdi.Read(a, 4);
+                plain.Read(a, 4);
+                accesses++;
+            }
 
         long bdiSteadyHits = bdi.Hits - bdiHitsBefore;
         long plainSteadyHits = plain.Hits - plainHitsBefore;
@@ -174,9 +174,9 @@ public sealed class BdiCacheTests {
         // capped at one), this would leave >8 segments resident or ResidentLineCount == 4.
         var backing = new FlatMemory(4096);
         ulong[] compressibleAddrs = [0x0, 0x20, 0x40, 0x60,];
-        for (var i = 0; i < 4; i++) backing.Load(compressibleAddrs[i], BdiCacheTests.CompressibleLine(i * 8));
+        for (var i = 0; i < 4; i++) backing.Load(compressibleAddrs[i], CompressibleLine(i * 8));
         const ulong incompressibleAddr = 0x80;
-        backing.Load(incompressibleAddr, BdiCacheTests.IncompressibleLine());
+        backing.Load(incompressibleAddr, IncompressibleLine());
 
         var cache = new BdiCache(backing, 64, 2, 32, 10);
         foreach (ulong a in compressibleAddrs) cache.Read(a, 4);
@@ -195,7 +195,7 @@ public sealed class BdiCacheTests {
         cache.Write(0x0, 0x11111111, 4); // fills + dirties line at 0x0 (tagWays=2, budget=4 segments)
         // Force enough distinct compressible lines through to evict the first one.
         for (var i = 1; i <= 4; i++) {
-            backing.Load((ulong)(i * 32), BdiCacheTests.CompressibleLine(i * 8));
+            backing.Load((ulong)(i * 32), CompressibleLine(i * 8));
             cache.Read((ulong)(i * 32), 4);
         }
 
@@ -248,7 +248,7 @@ public sealed class BdiCacheTests {
         cache.Read(0x100, 4);
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) cache.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { cache.WriteState(w); }
 
         var differentGeometry = new BdiCache(new FlatMemory(4096), 1024, 4, 16, 10); // half blockBytes
         ms.Position = 0;
@@ -270,7 +270,7 @@ public sealed class BdiCacheTests {
         cache.ConsumePendingStalls();
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) cache.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { cache.WriteState(w); }
 
         // B: mutate the SAME cache after the checkpoint was taken.
         cache.Write(0x100, 0xBBBBBBBB, 4);
@@ -278,10 +278,10 @@ public sealed class BdiCacheTests {
 
         // Restore the checkpoint into the same (now-mutated) cache instance.
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) cache.ReadState(r);
+        using (var r = new BinaryReader(ms)) { cache.ReadState(r); }
 
         long hitsBeforeRestoredRead = cache.Hits;
-        Assert.Equal(0xAAAAAAAAUL, cache.Read(0x100, 4)); // == A, proving restore overwrote B
+        Assert.Equal(0xAAAAAAAAUL, cache.Read(0x100, 4));     // == A, proving restore overwrote B
         Assert.Equal(hitsBeforeRestoredRead + 1, cache.Hits); // resident -> hit, not a miss
 
         // C: an independent, never-restored cache stays cold — proves A != C, so the assertion
@@ -297,7 +297,7 @@ public sealed class BdiCacheTests {
         var backing = new FlatMemory(4096);
         var cache = new BdiCache(backing, 64, 2, 32, 10);
         for (var i = 0; i < 3; i++) {
-            backing.Load((ulong)(i * 32), BdiCacheTests.CompressibleLine(i * 8));
+            backing.Load((ulong)(i * 32), CompressibleLine(i * 8));
             cache.Read((ulong)(i * 32), 4);
         }
 
@@ -306,16 +306,14 @@ public sealed class BdiCacheTests {
         int residentBefore = cache.ResidentLineCount;
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) cache.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { cache.WriteState(w); }
 
         var restored = new BdiCache(new FlatMemory(4096), 64, 2, 32, 10);
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) restored.ReadState(r);
+        using (var r = new BinaryReader(ms)) { restored.ReadState(r); }
 
         Assert.Equal(residentBefore, restored.ResidentLineCount);
         Assert.Equal(ratioBefore, restored.EffectiveCompressionRatio, 3);
-        for (var i = 0; i < 3; i++) {
-            Assert.Equal(cache.Read((ulong)(i * 32), 4), restored.Read((ulong)(i * 32), 4));
-        }
+        for (var i = 0; i < 3; i++) Assert.Equal(cache.Read((ulong)(i * 32), 4), restored.Read((ulong)(i * 32), 4));
     }
 }

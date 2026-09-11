@@ -3,6 +3,7 @@
 using Orrery.Observation;
 using Orrery.Train;
 using Pipeline;
+using Pipeline.Ooo;
 using RiscV32;
 using RiscV32.Memory;
 
@@ -26,10 +27,12 @@ namespace Tests.RiscV32.Pipelines;
 ///     <c>RecordViolation</c>, is likewise already commit-time-safe — there is no
 ///     <c>StoreSetPredictor.Train</c>; the <c>OnStoreDispatch</c>/<c>OnLoadDispatch</c>/
 ///     <c>OnStoreIssued</c> calls are ephemeral per-SSID LFST scheduling state, not learned
-///     persistence, and belong to the separate store-to-load-forwarding-resolution TODO item, not
+///     persistence, and belong to the separate store-to-load-forwarding-resolution item, not
 ///     this one.
 /// </summary>
 public class SttMemDepGatingTests {
+    private const uint Ebreak = 0x00100073;
+
     private static uint Addi(int rd, int rs1, int imm) =>
         (uint)(((imm & 0xFFF) << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
 
@@ -38,9 +41,9 @@ public class SttMemDepGatingTests {
 
     private static uint Sw(int rs2, int rs1, int imm) {
         var u = (uint)imm;
-        uint imm11_5 = (u >> 5) & 0x7F;
-        uint imm4_0 = u & 0x1F;
-        return (imm11_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4_0 << 7) | 0b0100011u;
+        uint imm11To5 = (u >> 5) & 0x7F;
+        uint imm4To0 = u & 0x1F;
+        return (imm11To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15) | (0b010u << 12) | (imm4To0 << 7) | 0b0100011u;
     }
 
     private static uint Mul(int rd, int rs1, int rs2) =>
@@ -50,23 +53,21 @@ public class SttMemDepGatingTests {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b000u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b000u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
 
     private static uint Bne(int rs1, int rs2, int immOffset) {
         var imm = (uint)immOffset;
         uint bit12 = (imm >> 12) & 0x1;
         uint bit11 = (imm >> 11) & 0x1;
-        uint bits10_5 = (imm >> 5) & 0x3F;
-        uint bits4_1 = (imm >> 1) & 0xF;
-        return (bit12 << 31) | (bits10_5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
-             | (0b001u << 12) | (bits4_1 << 8) | (bit11 << 7) | 0b1100011u;
+        uint bits10To5 = (imm >> 5) & 0x3F;
+        uint bits4To1 = (imm >> 1) & 0xF;
+        return (bit12 << 31) | (bits10To5 << 25) | ((uint)rs2 << 20) | ((uint)rs1 << 15)
+             | (0b001u << 12) | (bits4To1 << 8) | (bit11 << 7) | 0b1100011u;
     }
-
-    private const uint Ebreak = 0x00100073;
 
     private static void AssertIdenticalArchState(OooTrain off, OooTrain on) {
         for (var r = 0; r < 32; r++)
@@ -128,7 +129,7 @@ public class SttMemDepGatingTests {
         Lw(4, 1, 0), // Reload -- ordinary forward, cold-start-trains SmbPredictor
         Addi(3, 3, -1),
         Bne(3, 0, -12), // back to loop
-        Ebreak,
+        SttMemDepGatingTests.Ebreak,
     ];
 
     [Fact]
@@ -179,7 +180,7 @@ public class SttMemDepGatingTests {
             Lw(4, 1, 0), // Reload -- ordinary forward, cold-start-trains SmbPredictor
             Addi(3, 3, -1),
             Bne(3, 0, -12),
-            Ebreak,
+            SttMemDepGatingTests.Ebreak,
         ];
 
         var memOff = new FlatMemory(4096);

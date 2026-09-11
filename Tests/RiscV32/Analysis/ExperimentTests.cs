@@ -10,9 +10,8 @@ using RiscV32.Analysis;
 using RiscV32.Config;
 using RiscV32.Memory;
 using RiscV64;
-using OooTrain = global::Pipeline.OooTrain;
-using PipelineSpec = global::Pipeline.Spec.PipelineSpec;
-using OutOfOrderSpec = global::Pipeline.Spec.OutOfOrderSpec;
+using OooTrain = Pipeline.OooTrain;
+using OutOfOrderSpec = Pipeline.Spec.OutOfOrderSpec;
 
 #endregion
 
@@ -166,7 +165,7 @@ public class ExperimentTests {
 
         var dLayers = MemoryLayers.Build(new FlatMemory(0x20000), dMem);
         Assert.Null(dLayers.L2Cache); // a CEASER-variant level is not a SetAssociativeCache
-        CeaserCache ceaser = Assert.IsType<CeaserCache>(dLayers.L2Ceaser);
+        var ceaser = Assert.IsType<CeaserCache>(dLayers.L2Ceaser);
         Assert.Equal(2, ceaser.Partitions);
     }
 
@@ -197,10 +196,10 @@ public class ExperimentTests {
         // OooTrain(enableSttExpOnly:) wiring: a dropped parameter anywhere along that chain would
         // silently build a plain OooTrain with the defense never active, and no OooTrain-direct
         // test (SttExpOnlyTests) goes through this config/spec path, so none of them would catch it.
-        var cfg = new TrainConfig(Pipeline: "ooo", EnableSttExpOnly: true);
+        var cfg = new TrainConfig("ooo", EnableSttExpOnly: true);
         var mech = new Rv32Mechanism();
         var mem = new FlatMemory(0x10000);
-        uint[] program = [0x00100073]; // ebreak
+        uint[] program = [0x00100073,]; // ebreak
         var bytes = new byte[program.Length * 4];
         for (var i = 0; i < program.Length; i++) {
             bytes[i * 4 + 0] = (byte)program[i];
@@ -212,9 +211,11 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(bytes, entryPoint: 0);
         workload.Load(mem);
 
-        PipelineSpec spec = cfg.ToPipelineSpec(mech, workload);
+        var spec = cfg.ToPipelineSpec(mech, workload);
         Assert.IsType<OutOfOrderSpec>(spec);
-        ISteppableTrain train = spec.Build(mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig());
+        ISteppableTrain train = spec.Build(
+            mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig()
+        );
         var ooo = Assert.IsType<OooTrain>(train);
 
         RevolutionResult result = ooo.Run();
@@ -231,10 +232,10 @@ public class ExperimentTests {
         // Regression guard for TrainConfig.EnableInvisiSpec -> OutOfOrderSpec.EnableInvisiSpec ->
         // OooTrain(enableInvisiSpec:) wiring, mirroring TrainConfig_EnableSttExpOnly_... above —
         // no OooTrain-direct test (InvisiSpecTests) goes through this config/spec path.
-        var cfg = new TrainConfig(Pipeline: "ooo", EnableInvisiSpec: true);
+        var cfg = new TrainConfig("ooo", EnableInvisiSpec: true);
         var mech = new Rv32Mechanism();
         var mem = new FlatMemory(0x10000);
-        uint[] program = [0x00100073]; // ebreak
+        uint[] program = [0x00100073,]; // ebreak
         var bytes = new byte[program.Length * 4];
         for (var i = 0; i < program.Length; i++) {
             bytes[i * 4 + 0] = (byte)program[i];
@@ -246,9 +247,11 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(bytes, entryPoint: 0);
         workload.Load(mem);
 
-        PipelineSpec spec = cfg.ToPipelineSpec(mech, workload);
+        var spec = cfg.ToPipelineSpec(mech, workload);
         Assert.IsType<OutOfOrderSpec>(spec);
-        ISteppableTrain train = spec.Build(mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig());
+        ISteppableTrain train = spec.Build(
+            mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig()
+        );
         var ooo = Assert.IsType<OooTrain>(train);
 
         RevolutionResult result = ooo.Run();
@@ -265,10 +268,10 @@ public class ExperimentTests {
         // Regression guard for TrainConfig.EnableSttImplicitBranches -> OutOfOrderSpec.EnableSttImplicitBranches
         // -> OooTrain(enableSttImplicitBranches:) wiring, mirroring the two guards above — no
         // OooTrain-direct test (SttImplicitBranchTests) goes through this config/spec path.
-        var cfg = new TrainConfig(Pipeline: "ooo", EnableSttImplicitBranches: true);
+        var cfg = new TrainConfig("ooo", EnableSttImplicitBranches: true);
         var mech = new Rv32Mechanism();
         var mem = new FlatMemory(0x10000);
-        uint[] program = [0x00100073]; // ebreak
+        uint[] program = [0x00100073,]; // ebreak
         var bytes = new byte[program.Length * 4];
         for (var i = 0; i < program.Length; i++) {
             bytes[i * 4 + 0] = (byte)program[i];
@@ -280,9 +283,11 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(bytes, entryPoint: 0);
         workload.Load(mem);
 
-        PipelineSpec spec = cfg.ToPipelineSpec(mech, workload);
+        var spec = cfg.ToPipelineSpec(mech, workload);
         Assert.IsType<OutOfOrderSpec>(spec);
-        ISteppableTrain train = spec.Build(mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig());
+        ISteppableTrain train = spec.Build(
+            mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig()
+        );
         var ooo = Assert.IsType<OooTrain>(train);
 
         RevolutionResult result = ooo.Run();
@@ -299,10 +304,10 @@ public class ExperimentTests {
         // Regression guard for TrainConfig.EnableSttMemDepGating -> OutOfOrderSpec.EnableSttMemDepGating
         // -> OooTrain(enableSttMemDepGating:) wiring, mirroring the guards above — no OooTrain-direct
         // test (SttMemDepGatingTests) goes through this config/spec path.
-        var cfg = new TrainConfig(Pipeline: "ooo", EnableSttMemDepGating: true);
+        var cfg = new TrainConfig("ooo", EnableSttMemDepGating: true);
         var mech = new Rv32Mechanism();
         var mem = new FlatMemory(0x10000);
-        uint[] program = [0x00100073]; // ebreak
+        uint[] program = [0x00100073,]; // ebreak
         var bytes = new byte[program.Length * 4];
         for (var i = 0; i < program.Length; i++) {
             bytes[i * 4 + 0] = (byte)program[i];
@@ -314,9 +319,11 @@ public class ExperimentTests {
         var workload = new ByteArrayWorkload(bytes, entryPoint: 0);
         workload.Load(mem);
 
-        PipelineSpec spec = cfg.ToPipelineSpec(mech, workload);
+        var spec = cfg.ToPipelineSpec(mech, workload);
         Assert.IsType<OutOfOrderSpec>(spec);
-        ISteppableTrain train = spec.Build(mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig());
+        ISteppableTrain train = spec.Build(
+            mech, mem, workload.EntryPoint, cfg.ToIMemoryConfig(), cfg.ToDMemoryConfig()
+        );
         var ooo = Assert.IsType<OooTrain>(train);
 
         RevolutionResult result = ooo.Run();

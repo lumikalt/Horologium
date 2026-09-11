@@ -113,8 +113,7 @@ public sealed class MlopPrefetcherTests {
             addr += (ulong)stride * MlopPrefetcherTests.Line;
         }
 
-        for (var lvl = 1; lvl <= 16; lvl++)
-            Assert.Equal(stride * lvl, p.BestOffsetForLookahead(lvl));
+        for (var lvl = 1; lvl <= 16; lvl++) Assert.Equal(stride * lvl, p.BestOffsetForLookahead(lvl));
     }
 
     [Fact]
@@ -134,8 +133,7 @@ public sealed class MlopPrefetcherTests {
         buf.Clear();
         int cnt = p.OnAccess(0x1000UL, addr, false, buf);
         Assert.Equal(16, cnt); // stride 1: offsets 1..16, all distinct, all same-page
-        for (var lvl = 1; lvl <= 16; lvl++)
-            Assert.Equal(addr + (ulong)lvl * MlopPrefetcherTests.Line, buf[lvl - 1]);
+        for (var lvl = 1; lvl <= 16; lvl++) Assert.Equal(addr + (ulong)lvl * MlopPrefetcherTests.Line, buf[lvl - 1]);
     }
 
     // ── Page-boundary clamp ───────────────────────────────────────────────────

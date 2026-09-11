@@ -54,6 +54,45 @@ public class MicroCheckpointTests {
         TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 2
     );
 
+    // ── BΔI-compressed L2 (BdiCache) ─────────────────────────────────────────
+    //
+    // addi x1,x0,0; addi x3,x0,20; loop: lw x4,0(x1); lw x5,64(x1); addi x3,x3,-1;
+    // bne x3,x0,loop; ebreak
+    // Alternates reads between two lines 64 bytes apart. Paired with a direct-mapped
+    // (1 way, 1 line) D-L1, every iteration evicts the other address from L1 — every access is
+    // an L1 miss, so L2 (with room for both lines) is touched every iteration too, giving the
+    // L2Bdi section real hit/miss/segment state to checkpoint (not just a single one-off miss).
+    private static readonly uint[] BdiL2LoopProgram = [
+        0x00000093, // addi x1, x0, 0
+        0x01400193, // addi x3, x0, 20
+        0x0000A203, // loop: lw x4, 0(x1)
+        0x400A283,  //       lw x5, 64(x1)
+        0xFFF18193, //      addi x3, x3, -1
+        EncodeBne(3, 0, -12),
+        0x00100073, // ebreak
+    ];
+
+    private static readonly MemoryConfig BdiL2DCacheCfg = new(
+        32, 1, 32, 4,
+        128, 2, 32, 8,
+        L2Compression: CompressionKind.Bdi,
+        TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
+    );
+
+    // ── CEASER-variant L2 (CeaserCache) ───────────────────────────────────────
+    //
+    // Same BdiL2LoopProgram; Aplr defaults to 100 (threshold = 100*ways accesses), well beyond
+    // this short run's access count, so no remap fires mid-test — isolates the tag/data/dirty
+    // round-trip from the remap-state round-trip (covered separately by CeaserCacheTests'
+    // Checkpoint_RestoresAcrossMidEpochRemapProgress).
+
+    private static readonly MemoryConfig CeaserL2DCacheCfg = new(
+        32, 1, 32, 4,
+        128, 2, 32, 8,
+        L2Variant: CacheVariantKind.Ceaser,
+        TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
+    );
+
     private static void Load(FlatMemory mem, uint[] words) {
         var bytes = new byte[words.Length * 4];
         for (var i = 0; i < words.Length; i++) {
@@ -760,31 +799,6 @@ public class MicroCheckpointTests {
         Assert.True(result.TotalTicks > 0);
     }
 
-    // ── BΔI-compressed L2 (BdiCache) ─────────────────────────────────────────
-    //
-    // addi x1,x0,0; addi x3,x0,20; loop: lw x4,0(x1); lw x5,64(x1); addi x3,x3,-1;
-    // bne x3,x0,loop; ebreak
-    // Alternates reads between two lines 64 bytes apart. Paired with a direct-mapped
-    // (1 way, 1 line) D-L1, every iteration evicts the other address from L1 — every access is
-    // an L1 miss, so L2 (with room for both lines) is touched every iteration too, giving the
-    // L2Bdi section real hit/miss/segment state to checkpoint (not just a single one-off miss).
-    private static readonly uint[] BdiL2LoopProgram = [
-        0x00000093, // addi x1, x0, 0
-        0x01400193, // addi x3, x0, 20
-        0x0000A203, // loop: lw x4, 0(x1)
-        0x400A283, //       lw x5, 64(x1)
-        0xFFF18193, //      addi x3, x3, -1
-        MicroCheckpointTests.EncodeBne(3, 0, -12),
-        0x00100073, // ebreak
-    ];
-
-    private static readonly MemoryConfig BdiL2DCacheCfg = new(
-        32, 1, 32, 4,
-        L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
-        L2Compression: CompressionKind.Bdi,
-        TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
-    );
-
     private static OooTrain MakeBdiL2Train(FlatMemory mem, ulong entryPoint = 0, bool withL2Bdi = true) =>
         new(
             new Rv32Mechanism(), mem, entryPoint,
@@ -886,20 +900,6 @@ public class MicroCheckpointTests {
             "ReadState isn't actually restoring resident state."
         );
     }
-
-    // ── CEASER-variant L2 (CeaserCache) ───────────────────────────────────────
-    //
-    // Same BdiL2LoopProgram; Aplr defaults to 100 (threshold = 100*ways accesses), well beyond
-    // this short run's access count, so no remap fires mid-test — isolates the tag/data/dirty
-    // round-trip from the remap-state round-trip (covered separately by CeaserCacheTests'
-    // Checkpoint_RestoresAcrossMidEpochRemapProgress).
-
-    private static readonly MemoryConfig CeaserL2DCacheCfg = new(
-        32, 1, 32, 4,
-        L2CapacityBytes: 128, L2Ways: 2, L2BlockBytes: 32, L2MissLatency: 8,
-        L2Variant: CacheVariantKind.Ceaser,
-        TlbEntries: 4, TlbPageBytes: 4096, TlbMissLatency: 3
-    );
 
     private static OooTrain MakeCeaserL2Train(FlatMemory mem, ulong entryPoint = 0, bool withL2Ceaser = true) =>
         new(

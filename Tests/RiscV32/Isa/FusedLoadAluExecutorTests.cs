@@ -22,14 +22,12 @@ namespace Tests.RiscV32.Isa;
 ///     address translation faults, the ALU half must never run.
 /// </summary>
 public class FusedLoadAluExecutorTests {
-    private readonly Rv32Executor _exe = new();
-
     // ── Sv32 memory builder (adapted from FetchTranslationTests, data-fault variant) ──
     // Root PT @ 0x1000 entry 0 points at L1 PT @ 0x2000; L1 PT entry 0 is left invalid
     // (V=0), so any access to VA 0x0000_0xxx raises a page fault.
     private const uint Satp = 0x80000001u;
     private const ulong RootPtPa = 0x1000;
-    private const ulong L1PtPa = 0x2000;
+    private readonly Rv32Executor _exe = new();
 
     private static FlatMemory BuildFaultingMemory() {
         var mem = new FlatMemory(0x3000);
@@ -52,7 +50,7 @@ public class FusedLoadAluExecutorTests {
         mem.Write(64, 10, 4); // *[64] = 10
         var state = new Rv32ArchState();
         state.IntegerRegisters.Write(1, 64); // rs1 (address base)
-        state.IntegerRegisters.Write(2, 7); // rs2 (independent operand for the ALU half)
+        state.IntegerRegisters.Write(2, 7);  // rs2 (independent operand for the ALU half)
 
         // lw t0, 0(x1); add t0, t0, x2  =>  t0 = mem[64] + x2 = 10 + 7 = 17
         var payload = new RvFusedLoadAlu(new RvLw(5, 1, 0), new RvAdd(5, 5, 2));
@@ -107,8 +105,8 @@ public class FusedLoadAluExecutorTests {
 
     [Fact]
     public void FusedLoadAlu_LoadPageFault_PropagatesTrapWithoutApplyingAlu() {
-        FlatMemory mem = FusedLoadAluExecutorTests.BuildFaultingMemory();
-        Rv32ArchState state = FusedLoadAluExecutorTests.MakeUserState(1, 0); // VA 0x0 — deliberately unmapped
+        FlatMemory mem = BuildFaultingMemory();
+        Rv32ArchState state = MakeUserState(1, 0); // VA 0x0 — deliberately unmapped
 
         var payload = new RvFusedLoadAlu(new RvLw(5, 1, 0), new RvAddi(5, 5, 1));
         ITooth tooth = new RvInstruction(0, 0, 5, [1,], ToothClass.Load, payload);
@@ -123,14 +121,14 @@ public class FusedLoadAluExecutorTests {
 
     [Fact]
     public void FusedLoadAlu_LoadPageFault_MatchesUnfusedLoadsFaultBehavior() {
-        FlatMemory mem = FusedLoadAluExecutorTests.BuildFaultingMemory();
+        FlatMemory mem = BuildFaultingMemory();
 
-        Rv32ArchState plainState = FusedLoadAluExecutorTests.MakeUserState(1, 0);
+        Rv32ArchState plainState = MakeUserState(1, 0);
         ExecuteResult plain = _exe.Execute(
             new RvInstruction(0, 0, 5, [1,], ToothClass.Load, new RvLw(5, 1, 0)), plainState, mem
         );
 
-        Rv32ArchState fusedState = FusedLoadAluExecutorTests.MakeUserState(1, 0);
+        Rv32ArchState fusedState = MakeUserState(1, 0);
         var payload = new RvFusedLoadAlu(new RvLw(5, 1, 0), new RvAddi(5, 5, 1));
         ExecuteResult fused = _exe.Execute(
             new RvInstruction(0, 0, 5, [1,], ToothClass.Load, payload), fusedState, mem

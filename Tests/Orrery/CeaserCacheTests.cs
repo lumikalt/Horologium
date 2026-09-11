@@ -25,7 +25,7 @@ public sealed class CeaserCacheTests {
 
     [Fact]
     public void Constructor_WaysNotMultipleOfPartitions_Throws() {
-        Assert.Throws<ArgumentException>(() => new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10, partitions: 3));
+        Assert.Throws<ArgumentException>(() => new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10, 3));
     }
 
     // ── Basic correctness ─────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ public sealed class CeaserCacheTests {
     public void CrossBoundaryAccess_BypassesCache() {
         var backing = new FlatMemory(4096);
         var cache = new CeaserCache(backing, 1024, 4, 32, 10);
-        ulong lastByteOfLine = 32 - 4;
+        const ulong lastByteOfLine = 32 - 4;
         cache.Write(lastByteOfLine + 2, 0xAABBCCDD, 4);
         Assert.Equal(0, cache.Hits);
         Assert.Equal(0, cache.Misses);
@@ -82,14 +82,14 @@ public sealed class CeaserCacheTests {
         var backing = new FlatMemory(65536);
         CeaserCache cache = SmallWriteBackCache(backing);
 
-        cache.Write(0x40, 0xCAFEF00DUL, 4); // dirty, resident, not yet in backing
+        cache.Write(0x40, 0xCAFEF00DUL, 4);       // dirty, resident, not yet in backing
         Assert.Equal(0UL, backing.Read(0x40, 4)); // confirms it's genuinely only in the cache
 
         // Drive well past one full epoch (64 accesses) with unrelated addresses spread across
         // many lines/sets so remap sweeps actually have resident lines to relocate.
         for (var i = 0; i < 200; i++) cache.Read((ulong)(0x1000 + i * 32), 4);
 
-        Assert.True(cache.RemapSteps >= 8); // at least one full epoch completed
+        Assert.True(cache.RemapSteps >= 8);              // at least one full epoch completed
         Assert.Equal(0xCAFEF00DUL, cache.Read(0x40, 4)); // correct regardless of hit or evict-then-refetch
     }
 
@@ -131,7 +131,7 @@ public sealed class CeaserCacheTests {
     [Fact]
     public void Partitions_AreIndependentlyKeyed() {
         // 8 ways / 2 partitions = 4 ways per partition; 4 sets.
-        var cache = new CeaserCache(new FlatMemory(4096), 1024, 8, 32, 10, partitions: 2);
+        var cache = new CeaserCache(new FlatMemory(4096), 1024, 8, 32, 10, 2);
 
         const int n = 200;
         var sameSet = 0;
@@ -145,7 +145,7 @@ public sealed class CeaserCacheTests {
 
     [Fact]
     public void Partitions_PropertyReflectsConstructorArgument() {
-        var cache = new CeaserCache(new FlatMemory(4096), 1024, 8, 32, 10, partitions: 2);
+        var cache = new CeaserCache(new FlatMemory(4096), 1024, 8, 32, 10, 2);
         Assert.Equal(2, cache.Partitions);
 
         var plain = new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10);
@@ -160,7 +160,7 @@ public sealed class CeaserCacheTests {
         var cache = new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10, aplr: 5);
 
         for (var i = 0; i < 45; i++) cache.Read(0x100, 4); // repeated access to one line
-        Assert.Equal(2, cache.RemapSteps); // floor(45 / 20)
+        Assert.Equal(2, cache.RemapSteps);                 // floor(45 / 20)
 
         for (var i = 0; i < 20; i++) cache.Read(0x100, 4); // 65 total -> floor(65/20)=3
         Assert.Equal(3, cache.RemapSteps);
@@ -185,6 +185,12 @@ public sealed class CeaserCacheTests {
         const int addresses = 12;
         const int rounds = 6;
 
+        long aggressive = MissesFor(1);   // threshold = 1*4 = 4 accesses/step: remaps constantly
+        long none = MissesFor(1_000_000); // threshold effectively never reached in this test
+
+        Assert.True(aggressive > none, $"aggressive={aggressive} none={none}");
+        return;
+
         long MissesFor(int aplr) {
             var backing = new FlatMemory(4096);
             var cache = new CeaserCache(backing, 512, 4, 32, 10, aplr: aplr);
@@ -193,11 +199,6 @@ public sealed class CeaserCacheTests {
                 cache.Read((ulong)(i * 32), 4);
             return cache.Misses;
         }
-
-        long aggressive = MissesFor(1); // threshold = 1*4 = 4 accesses/step: remaps constantly
-        long none = MissesFor(1_000_000); // threshold effectively never reached in this test
-
-        Assert.True(aggressive > none, $"aggressive={aggressive} none={none}");
     }
 
     // ── Checkpoint round-trip ─────────────────────────────────────────────────
@@ -209,12 +210,12 @@ public sealed class CeaserCacheTests {
             new FlatMemory(65536), 1024, 4, 32, 10, aplr: 2, seed: 7, writePolicy: WritePolicyKind.WriteBack
         );
 
-        original.Write(0x40, 0xABCDEF01UL, 4); // 1 access, dirty line resident
+        original.Write(0x40, 0xABCDEF01UL, 4);                                  // 1 access, dirty line resident
         for (var i = 0; i < 4; i++) original.Read((ulong)(0x1000 + i * 32), 4); // 4 more -> ACtr=5, no remap yet
         Assert.Equal(0, original.RemapSteps);
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) original.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { original.WriteState(w); }
 
         // A cold instance with the same geometry/config and a different (empty) backing, so the
         // integrity check below can only pass if the checkpoint actually carried the dirty bytes.
@@ -222,7 +223,7 @@ public sealed class CeaserCacheTests {
             new FlatMemory(65536), 1024, 4, 32, 10, aplr: 2, seed: 7, writePolicy: WritePolicyKind.WriteBack
         );
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) restored.ReadState(r);
+        using (var r = new BinaryReader(ms)) { restored.ReadState(r); }
 
         Assert.Equal(0xABCDEF01UL, restored.PeekRead(0x40, 4)); // non-mutating: doesn't touch ACtr
 
@@ -255,12 +256,12 @@ public sealed class CeaserCacheTests {
         Assert.True(original.RemapSteps >= 4, "priming should have crossed at least one epoch wrap");
 
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) original.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { original.WriteState(w); }
+
         // RemapSteps/Misses are session-local stat counters, not part of restorable state (same as
         // BdiCache's Hits/Misses) — a freshly constructed-then-restored instance starts them at 0.
         // Compare deltas over the identical post-checkpoint window, not raw cumulative values.
         long remapStepsAtCheckpoint = original.RemapSteps;
-        long missesAtCheckpoint = original.Misses;
 
         // A small working set revisited over many rounds (not 80 distinct one-shot addresses): a
         // miss count only carries any signal about placement/eviction (and therefore about which
@@ -277,9 +278,12 @@ public sealed class CeaserCacheTests {
         Assert.Equal(20, originalRemapDelta); // 80/4, deterministic regardless of RNG state
 
         // A cold instance restored from the checkpoint, then driven through the identical sequence.
-        var restored = new CeaserCache(new FlatMemory(65536), capacityBytes, ways, blockBytes, 10, aplr: aplr, seed: seed);
+        var restored = new CeaserCache(
+            new FlatMemory(65536), capacityBytes, ways, blockBytes, 10, aplr: aplr, seed: seed
+        );
         ms.Position = 0;
-        using (var r = new BinaryReader(ms)) restored.ReadState(r);
+        using (var r = new BinaryReader(ms)) { restored.ReadState(r); }
+
         foreach (ulong a in postCheckpointAddresses) restored.Read(a, 4);
         Assert.Equal(originalRemapDelta, restored.RemapSteps);
 
@@ -295,7 +299,7 @@ public sealed class CeaserCacheTests {
         const int probeCount = 200;
         var sameSet = 0;
         for (var i = 0; i < probeCount; i++) {
-            ulong addr = (ulong)(0x5000 + i * 32);
+            var addr = (ulong)(0x5000 + i * 32);
             if (original.SetOf(0, addr) == restored.SetOf(0, addr)) sameSet++;
         }
 
@@ -306,9 +310,9 @@ public sealed class CeaserCacheTests {
     public void Checkpoint_GeometryMismatch_Throws() {
         var original = new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10);
         using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) original.WriteState(w);
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true)) { original.WriteState(w); }
 
-        var differentGeometry = new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10, partitions: 2);
+        var differentGeometry = new CeaserCache(new FlatMemory(4096), 1024, 4, 32, 10, 2);
         ms.Position = 0;
         using var r = new BinaryReader(ms);
         Assert.Throws<CheckpointException>(() => differentGeometry.ReadState(r));
@@ -322,7 +326,7 @@ public sealed class CeaserCacheTests {
         cache.Read(0x300, 4);
 
         CeaserCacheLine[] snapshot = cache.GetSnapshot();
-        CeaserCacheLine? resident = snapshot.FirstOrDefault(l => l.Valid && l.Address == 0x300);
+        CeaserCacheLine? resident = snapshot.FirstOrDefault(l => l is { Valid: true, Address: 0x300, });
         Assert.NotNull(resident);
     }
 }

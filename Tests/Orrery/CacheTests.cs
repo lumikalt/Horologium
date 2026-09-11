@@ -120,8 +120,8 @@ public class CacheTests {
         var evicted = new List<ulong>();
         cache.OnEviction = a => evicted.Add(a);
 
-        cache.Read(0x00, 1); // fills set 0, way 0
-        cache.Read(0x20, 1); // fills set 0, way 1
+        cache.Read(0x00, 1);   // fills set 0, way 0
+        cache.Read(0x20, 1);   // fills set 0, way 1
         Assert.Empty(evicted); // no eviction yet — both ways were free
 
         cache.Read(0x40, 1); // evicts 0x00 (LRU) from set 0
@@ -1048,8 +1048,8 @@ public class CacheTests {
 
         Assert.Equal(0xBBUL, cache.PeekRead(8, 1)); // sector 1: tag hit, but never fetched
 
-        Assert.False(cache.IsSectorResident(8)); // peek must not fetch it for real
-        Assert.Equal(1, cache.SectorFills);       // still just sector 0's fill from the Read above
+        Assert.False(cache.IsSectorResident(8));        // peek must not fetch it for real
+        Assert.Equal(1, cache.SectorFills);             // still just sector 0's fill from the Read above
         Assert.Equal(10, cache.ConsumePendingStalls()); // MissLatency charged for the unfetched sector
     }
 
@@ -1410,10 +1410,10 @@ public class CacheTests {
     public void MemoryConfigBuild_PpfPrefetcher_WiresRealEvictionCallbackOntoCache() {
         var backing = new FlatMemory(1024);
         var cfg = new MemoryConfig(
-            CacheCapacityBytes: 32, CacheWays: 1, CacheBlockBytes: 16, CacheMissLatency: 5,
+            32, 1, 16, 5,
             Prefetcher: PrefetcherKind.Ppf, PrefetchLatency: 1
         );
-        MemoryLayers layers = MemoryLayers.Build(backing, cfg);
+        var layers = MemoryLayers.Build(backing, cfg);
 
         Assert.IsType<PpfPrefetcher>(layers.Prefetcher);
         Assert.NotNull(layers.Cache!.OnEviction);
@@ -1423,10 +1423,10 @@ public class CacheTests {
     public void MemoryConfigBuild_NonPpfPrefetcher_DoesNotWireEvictionCallback() {
         var backing = new FlatMemory(1024);
         var cfg = new MemoryConfig(
-            CacheCapacityBytes: 32, CacheWays: 1, CacheBlockBytes: 16, CacheMissLatency: 5,
+            32, 1, 16, 5,
             Prefetcher: PrefetcherKind.NextLine, PrefetchLatency: 1
         );
-        MemoryLayers layers = MemoryLayers.Build(backing, cfg);
+        var layers = MemoryLayers.Build(backing, cfg);
 
         Assert.IsType<NextLinePrefetcher>(layers.Prefetcher);
         Assert.Null(layers.Cache!.OnEviction);

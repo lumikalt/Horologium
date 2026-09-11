@@ -78,7 +78,7 @@ public sealed class BingoPrefetcherTests {
 
         for (var r = 0; r < accumSize + 1; r++) {
             var regionBase = (ulong)(r * regionBytes);
-            bingo.OnAccess(triggerPc, regionBase, false, buf); // trigger, offset 0
+            bingo.OnAccess(triggerPc, regionBase, false, buf);                         // trigger, offset 0
             bingo.OnAccess(triggerPc, regionBase + 1 * (ulong)blockBytes, false, buf); // promotes to accum
             bingo.OnAccess(triggerPc, regionBase + 2 * (ulong)blockBytes, false, buf);
         }

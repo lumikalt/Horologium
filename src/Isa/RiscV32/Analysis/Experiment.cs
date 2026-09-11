@@ -955,6 +955,7 @@ public static class Experiment {
     ///     only by <c>OooTrain</c> — actually runs rather than hanging forever (or, under
     ///     <c>CprTrain</c>, throwing outright) under a train that never touches it.
     /// </summary>
+    /// <param name="workload">The linked ELF to load, given a full psABI initial stack.</param>
     /// <param name="config">
     ///     Must select the "ooo" pipeline; any other value throws. Not "cpr" — <c>CprTrain</c>
     ///     throws <see cref="NotSupportedException" /> on any Vector/UVE instruction outright, it
@@ -964,6 +965,8 @@ public static class Experiment {
     ///     Builds the mechanism given the syscall handler this method constructs, e.g.
     ///     <c>handler =&gt; new Rv64Mechanism(syscallHandler: handler)</c>.
     /// </param>
+    /// <param name="argv">Command-line arguments placed on the initial psABI stack.</param>
+    /// <param name="maxTicks">Tick budget after which the run is forcibly halted.</param>
     /// <param name="wordSize">4 for RV32, 8 for RV64 — selects the psABI pointer width.</param>
     public static (ExperimentResult Result, string Output, bool Halted) RunLinkedElf(
         IElfWorkload workload,
